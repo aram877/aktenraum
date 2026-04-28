@@ -22,7 +22,7 @@ ensure_custom_field() {
   existing=$(curl -sf \
     -H "${AUTH_HEADER}" \
     "${PAPERLESS_URL}/api/custom_fields/?name=${name}" \
-    | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['count'])")
+    | python -c "import sys,json; r=json.load(sys.stdin); print(r['count'])")
 
   if [ "${existing}" -gt 0 ]; then
     echo "  [skip] custom field already exists: ${name}"
@@ -46,7 +46,7 @@ ensure_tag() {
   existing=$(curl -sf \
     -H "${AUTH_HEADER}" \
     "${PAPERLESS_URL}/api/tags/?name=${name}" \
-    | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['count'])")
+    | python -c "import sys,json; r=json.load(sys.stdin); print(r['count'])")
 
   if [ "${existing}" -gt 0 ]; then
     echo "  [skip] tag already exists: ${name}"

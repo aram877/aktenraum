@@ -65,7 +65,7 @@ services:
       - internal
 
   tika:
-    image: ghcr.io/paperless-ngx/tika:latest
+    image: apache/tika:latest
     restart: unless-stopped
     networks:
       - internal

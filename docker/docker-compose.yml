@@ -19,7 +19,9 @@ services:
       - ~/aktenraum/media:/usr/src/paperless/media
       - ~/aktenraum/export:/usr/src/paperless/export
       - ~/aktenraum/consume:/usr/src/paperless/consume
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     environment:
       PAPERLESS_REDIS: redis://redis:6379
       PAPERLESS_DBHOST: postgres
@@ -75,7 +77,9 @@ services:
     restart: unless-stopped
     depends_on:
       - paperless
-    env_file: auto-tagger.env
+    env_file:
+      - path: auto-tagger.env
+        required: false
     networks:
       - internal
 

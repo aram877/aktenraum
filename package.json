@@ -1,0 +1,13 @@
+{
+  "private": true,
+  "name": "aktenraum",
+  "packageManager": "pnpm@9.0.6",
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=9"
+  },
+  "scripts": {
+    "setup": "bash scripts/setup.sh",
+    "bootstrap": "bash scripts/bootstrap-paperless.sh"
+  }
+}

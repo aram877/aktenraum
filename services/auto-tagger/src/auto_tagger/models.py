@@ -6,14 +6,16 @@ from pydantic import BaseModel, Field
 
 class DocumentType(str, Enum):
     Rechnung = "Rechnung"
+    Gehaltsabrechnung = "Gehaltsabrechnung"
+    Kontoauszug = "Kontoauszug"
     Vertrag = "Vertrag"
-    Behoerdenbrief = "Behördenbrief"
     Versicherung = "Versicherung"
     Mahnung = "Mahnung"
-    Kontoauszug = "Kontoauszug"
+    Steuer = "Steuer"
+    Bescheid = "Bescheid"
+    Behoerdenbrief = "Behördenbrief"
     Garantie = "Garantie"
     Arztbrief = "Arztbrief"
-    Steuer = "Steuer"
     Sonstiges = "Sonstiges"
 
 

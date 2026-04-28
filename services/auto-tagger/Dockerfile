@@ -18,8 +18,8 @@ COPY src/ ./src/
 # Install the project itself
 RUN uv sync --frozen --no-dev
 
-# Non-root user
-RUN useradd --create-home --shell /bin/bash appuser
+# Non-root user — chown before switching so the venv is accessible
+RUN useradd --create-home --shell /bin/bash appuser && chown -R appuser:appuser /app
 USER appuser
 
-ENTRYPOINT ["uv", "run", "auto-tagger"]
+ENTRYPOINT ["/app/.venv/bin/auto-tagger"]

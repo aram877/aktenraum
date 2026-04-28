@@ -1,0 +1,10 @@
+[Unit]
+Description=Run aktenraum backup daily at 02:00
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+Persistent=true
+Unit=aktenraum-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,84 @@
+services:
+
+  paperless:
+    image: ghcr.io/paperless-ngx/paperless-ngx:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      gotenberg:
+        condition: service_started
+      tika:
+        condition: service_started
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ~/aktenraum/data:/usr/src/paperless/data
+      - ~/aktenraum/media:/usr/src/paperless/media
+      - ~/aktenraum/export:/usr/src/paperless/export
+      - ~/aktenraum/consume:/usr/src/paperless/consume
+    env_file: .env
+    environment:
+      PAPERLESS_REDIS: redis://redis:6379
+      PAPERLESS_DBHOST: postgres
+      PAPERLESS_TIKA_ENABLED: "1"
+      PAPERLESS_TIKA_ENDPOINT: http://tika:9998
+      PAPERLESS_TIKA_GOTENBERG_ENDPOINT: http://gotenberg:3000
+    networks:
+      - internal
+
+  postgres:
+    image: postgres:15
+    restart: unless-stopped
+    volumes:
+      - ~/aktenraum/pgdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: ${PAPERLESS_DBNAME:-paperless}
+      POSTGRES_USER: ${PAPERLESS_DBUSER:-paperless}
+      POSTGRES_PASSWORD: ${PAPERLESS_DBPASS:?PAPERLESS_DBPASS is required}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PAPERLESS_DBUSER:-paperless}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    networks:
+      - internal
+
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    restart: unless-stopped
+    command:
+      - gotenberg
+      - --chromium-disable-javascript=true
+      - --chromium-allow-list=file:///tmp/.*
+    networks:
+      - internal
+
+  tika:
+    image: ghcr.io/paperless-ngx/tika:latest
+    restart: unless-stopped
+    networks:
+      - internal
+
+  auto-tagger:
+    build:
+      context: ../services/auto-tagger
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - paperless
+    env_file: auto-tagger.env
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge

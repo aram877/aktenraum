@@ -81,3 +81,40 @@ RESTIC_PASSWORD=<your-passphrase> \
 PAPERLESS_DBPASS=<db-password> \
 bash ~/Development/document-organizer/scripts/backup.sh
 ```
+
+---
+
+## Backup container (Docker-based scheduler)
+
+The `backup` service runs `crond` inside Docker and fires the backup daily at 02:00.
+
+### Check backup logs
+
+```bash
+docker compose logs backup
+docker compose logs --tail=50 backup   # last 50 lines
+```
+
+### Trigger a manual backup run immediately
+
+```bash
+docker compose exec backup /usr/local/bin/entrypoint.sh
+```
+
+### List snapshots from inside the container
+
+```bash
+docker compose exec backup restic snapshots --tag aktenraum
+```
+
+### First-time setup
+
+Before starting the backup service, create `docker/backup.env` from the example and fill in the required values:
+
+```bash
+cp docker/backup.env.example docker/backup.env
+# edit backup.env: set RESTIC_PASSWORD and PAPERLESS_DBPASS
+docker compose up -d backup
+```
+
+The restic repository is automatically initialised on the first run if it does not exist.

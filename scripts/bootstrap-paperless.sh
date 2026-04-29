@@ -87,8 +87,12 @@ ensure_custom_field "ai_model"            "string"
 # --------------------------------------------------------------------------
 echo
 echo "Tags:"
-ensure_tag "ai-suggested" "#f59e0b"
-ensure_tag "ai-error"     "#ef4444"
+ensure_tag "ai-pending"           "#f59e0b"  # amber  — extracted, awaiting review
+ensure_tag "ai-approved"          "#22c55e"  # green  — approved, triggers propagation
+ensure_tag "ai-rejected"          "#6b7280"  # gray   — rejected, no propagation
+ensure_tag "ai-propagated"        "#3b82f6"  # blue   — native fields written
+ensure_tag "ai-propagation-error" "#ef4444"  # red    — propagation failed mid-run
+ensure_tag "ai-error"             "#ef4444"  # red    — extraction failed
 
 echo
 echo "Bootstrap complete."

@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(openspec *)",
+      "Bash(docker *)",
+      "Bash(MSYS_NO_PATHCONV=1 docker *)",
+      "Bash(PAPERLESS_DBPASS=* docker *)",
+      "Bash(git *)",
+      "Bash(pnpm *)",
+      "Bash(uv *)",
+      "Bash(bash *)",
+      "Bash(openssl rand *)",
+      "Bash(curl -s *)",
+      "Bash(curl -sf *)",
+      "Bash(python -c *)",
+      "Bash(python3 -c *)",
+      "Bash(sed -i *)",
+      "Bash(mkdir -p *)",
+      "Bash(find *)",
+      "Bash(TOKEN=* curl *)",
+      "Bash(MSYS_NO_PATHCONV=1 PAPERLESS_* bash *)",
+      "Bash(RESTIC_PASSWORD=* bash *)",
+      "Bash(PAPERLESS_BASE_URL=* PAPERLESS_API_TOKEN=* bash *)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /d/Development/document-organizer/docker && docker compose ps --format 'table {{.Name}}\\t{{.Status}}\\t{{.Ports}}' 2>/dev/null || echo 'Docker not running'"
+          }
+        ]
+      }
+    ]
+  }
+}

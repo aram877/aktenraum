@@ -83,6 +83,24 @@ services:
     networks:
       - internal
 
+  backup:
+    build:
+      context: ./backup
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - path: backup.env
+        required: false
+    volumes:
+      - ~/aktenraum/data:/backup/data:ro
+      - ~/aktenraum/media:/backup/media:ro
+      - ~/aktenraum/export:/backup/export:ro
+      - ~/aktenraum/backup/restic-repo:/repo
+    networks:
+      - internal
+
 networks:
   internal:
     driver: bridge

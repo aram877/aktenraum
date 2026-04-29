@@ -43,4 +43,18 @@ class OllamaBackend:
         )
 
         raw = response["message"]["content"]
+        raw = _clean_json(raw)
         return response_schema.model_validate_json(raw)
+
+
+def _clean_json(text: str) -> str:
+    """Strip YAML document markers and markdown code fences that some models prepend."""
+    text = text.strip()
+    # Strip leading YAML document-start marker
+    if text.startswith("---"):
+        text = text.lstrip("-").strip()
+    # Strip markdown code fences: ```json ... ``` or ``` ... ```
+    if text.startswith("```"):
+        lines = text.splitlines()
+        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+    return text.strip()

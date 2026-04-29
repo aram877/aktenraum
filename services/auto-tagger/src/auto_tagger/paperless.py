@@ -117,7 +117,8 @@ class PaperlessClient:
         resp = await self._client.get("/api/tags/", params={"name": name})
         resp.raise_for_status()
         results = resp.json().get("results", [])
-        return results[0]["id"] if results else None
+        # Paperless may do substring matching — filter for exact name match
+        return next((t["id"] for t in results if t["name"] == name), None)
 
     async def _get_custom_field_ids(self) -> dict[str, int]:
         resp = await self._client.get("/api/custom_fields/", params={"page_size": 100})

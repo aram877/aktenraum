@@ -69,4 +69,4 @@ if [ -n "${BACKUP_B2_BUCKET:-}" ]; then
 fi
 
 log "Backup complete."
-restic snapshots --tag aktenraum --last 3
+restic snapshots --tag aktenraum --latest 3

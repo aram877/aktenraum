@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd /d/Development/document-organizer/docker && docker compose ps --format 'table {{.Name}}\\t{{.Status}}\\t{{.Ports}}' 2>/dev/null || echo 'Docker not running'"
+            "command": "docker compose -f docker/docker-compose.yml ps --format 'table {{.Name}}\\t{{.Status}}' 2>/dev/null || echo 'Docker not running'"
           }
         ]
       }

@@ -2,7 +2,7 @@
 
 This document is the durable plan for replacing the Paperless web UI with a custom AI-first frontend. It lives outside the OpenSpec change pipeline because the work spans multiple deliveries; each phase becomes its own OpenSpec change when implementation starts.
 
-**Status**: Phase 0 in progress (`openspec/changes/extract-aktenraum-core/`)
+**Status**: Phase 1 in progress (`openspec/changes/aktenraum-api-shell/`). Phase 0 done — `aktenraum-core` shared lib extracted.
 
 ---
 
@@ -81,8 +81,8 @@ Each phase is its own OpenSpec change. Cross out as completed.
 
 | Phase | OpenSpec change | Outcome |
 |---|---|---|
-| **0** | `extract-aktenraum-core` *(in progress)* | Shared `aktenraum-core` package; `auto-tagger` depends on it; uv workspace at root; tests + CI green |
-| **1** | `aktenraum-api-shell` | FastAPI scaffold with auth + health; SPA scaffold with login + empty layout; nginx + compose wiring; one-command deploy |
+| **0** | `extract-aktenraum-core` *(done)* | Shared `aktenraum-core` package; `auto-tagger` depends on it; uv workspace at root; tests + CI green |
+| **1** | `aktenraum-api-shell` *(in progress)* | FastAPI scaffold with auth + health; SPA scaffold with login + empty layout; nginx + compose wiring; one-command deploy |
 | **2** | `ai-natural-language-search` | `/api/ai/ask` endpoint + Ask AI page (NL → structured filter → Paperless search) |
 | **3** | `web-inbox-review` | Two-pane review queue (PDF preview + editable AI fields + approve/reject + keyboard shortcuts) |
 | **4** | `web-document-detail` | Document detail with Summary + Ask-this-doc tabs (`/api/ai/summarize`, `/api/ai/qa`) and upload |

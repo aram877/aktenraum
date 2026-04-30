@@ -39,6 +39,9 @@ services:
     restart: unless-stopped
     volumes:
       - ~/aktenraum/pgdata:/var/lib/postgresql/data
+      # Init scripts run only on a fresh data dir; existing installs need to
+      # `CREATE DATABASE aktenraum` once by hand (see docs/runbooks/operations.md).
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
     environment:
       POSTGRES_DB: ${PAPERLESS_DBNAME:-paperless}
       POSTGRES_USER: ${PAPERLESS_DBUSER:-paperless}
@@ -87,6 +90,42 @@ services:
       # HTTP listener for paperless's post_consume hook. Internal-network only;
       # never published to the host.
       - "8001"
+    networks:
+      - internal
+
+  aktenraum-api:
+    build:
+      context: ..
+      dockerfile: services/aktenraum-api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
+      - path: aktenraum-api.env
+        required: false
+    environment:
+      # Built from PAPERLESS_DB* in .env so DB credentials live in one place.
+      DATABASE_URL: postgresql+asyncpg://${PAPERLESS_DBUSER:-paperless}:${PAPERLESS_DBPASS}@postgres:5432/aktenraum
+    expose:
+      - "8002"
+    networks:
+      - internal
+
+  nginx:
+    build:
+      context: ..
+      dockerfile: docker/nginx/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - aktenraum-api
+    ports:
+      # Host 8080 → container 80. Port 80 is often taken on dev machines (eg.
+      # by another project's traefik); 8080 is the conventional alternate.
+      # Override via AKTENRAUM_WEB_PORT in docker/.env.
+      - "127.0.0.1:${AKTENRAUM_WEB_PORT:-8080}:80"
     networks:
       - internal
 

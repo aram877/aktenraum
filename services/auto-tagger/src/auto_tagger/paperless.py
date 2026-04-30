@@ -248,6 +248,41 @@ class PaperlessClient:
         documents returned by list endpoints (each item is {field, value})."""
         return {fid: name for name, fid in (await self._get_custom_field_ids()).items()}
 
+    async def get_entity_name_map(self, endpoint: str) -> dict[int, str]:
+        """Return {id: name} for any Paperless entity endpoint with a `name`
+        field (correspondents, document_types, tags). Used to resolve foreign
+        keys on documents returned by list endpoints."""
+        resp = await self._client.get(endpoint, params={"page_size": 200})
+        resp.raise_for_status()
+        return {x["id"]: x["name"] for x in resp.json().get("results", [])}
+
+    async def get_correspondent_history(
+        self, sample_size: int = 200
+    ) -> dict[str, dict[str, int]]:
+        """Build {correspondent_name: {document_type: count}} from the most
+        recent `sample_size` propagated documents. Drives both the per-sender
+        prompt hint and any future analytics."""
+        docs = await self.get_documents_with_tag(
+            "ai-propagated", batch_size=sample_size, ordering="-modified"
+        )
+        if not docs:
+            return {}
+        correspondent_names = await self.get_entity_name_map("/api/correspondents/")
+        document_type_names = await self.get_entity_name_map("/api/document_types/")
+        history: dict[str, dict[str, int]] = {}
+        for doc in docs:
+            c_id = doc.get("correspondent")
+            d_id = doc.get("document_type")
+            if c_id is None or d_id is None:
+                continue
+            c_name = correspondent_names.get(c_id)
+            d_name = document_type_names.get(d_id)
+            if not c_name or not d_name:
+                continue
+            history.setdefault(c_name, {}).setdefault(d_name, 0)
+            history[c_name][d_name] += 1
+        return history
+
     async def get_ai_custom_field_values(self, doc_id: int) -> dict[str, Any]:
         """Return {field_name: value} for every custom field set on the doc."""
         resp = await self._client.get(f"/api/documents/{doc_id}/")

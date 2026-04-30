@@ -64,36 +64,61 @@ def _split_csv(raw: str | None) -> list[str]:
     return [s.strip() for s in raw.split(",") if s.strip()]
 
 
-def _example_payload(ai_fields: dict[str, Any]) -> str:
+def _example_payload(
+    ai_fields: dict[str, Any],
+    *,
+    correspondent_name: str | None,
+    document_type_name: str | None,
+    created_date: str | None,
+    tag_names: list[str],
+) -> str:
     """Render a vetted Paperless extraction back as a DocumentExtraction-shaped JSON.
+
+    Native Paperless fields (correspondent, document_type, created_date, tags)
+    take priority over the ai_* custom fields where they exist — those are
+    the user's ground truth post-propagation. The ai_* fields fill in the
+    columns Paperless has no native equivalent for (summary, monetary, due
+    and expiry dates, reference numbers).
 
     Skips ai_monetary_amount on purpose: Paperless stores it in ISO+amount
     form (e.g. EUR149.99) which conflicts with the German format the system
-    prompt asks the model to produce. Showing the wrong format would teach
-    the model the wrong thing.
+    prompt asks the model to produce.
     """
     payload = {
-        "document_type": ai_fields.get("ai_document_type"),
-        "correspondent": ai_fields.get("ai_correspondent"),
+        "document_type": document_type_name or ai_fields.get("ai_document_type"),
+        "correspondent": correspondent_name or ai_fields.get("ai_correspondent"),
         "key_dates": {
-            "issue": ai_fields.get("ai_issue_date"),
+            "issue": created_date or ai_fields.get("ai_issue_date"),
             "due": ai_fields.get("ai_due_date"),
             "expiry": ai_fields.get("ai_expiry_date"),
         },
         "reference_numbers": _split_csv(ai_fields.get("ai_reference_numbers")),
-        "suggested_tags": _split_csv(ai_fields.get("ai_suggested_tags")),
+        "suggested_tags": tag_names or _split_csv(ai_fields.get("ai_suggested_tags")),
         "summary_de": ai_fields.get("ai_summary_de") or "",
         "confidence": ai_fields.get("ai_confidence", 1.0),
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
+_LIFECYCLE_TAG_NAMES = {
+    "ai-pending",
+    "ai-approved",
+    "ai-rejected",
+    "ai-propagated",
+    "ai-propagation-error",
+    "ai-error",
+    "ai-low-confidence",
+}
+
+
 async def _build_few_shot_block(paperless: PaperlessClient, n: int) -> str:
     """Pull N most-recently-propagated docs and render a few-shot block.
 
-    Paperless's list endpoint already returns content + custom_fields per
-    document, so this needs one API call for the listing plus one (cached)
-    custom-field-id lookup — no per-example doc GETs.
+    Examples reflect the user-vetted native Paperless state (correspondent,
+    document_type, created_date, native tags) rather than the original AI
+    extraction stored in custom fields. So any correction the user makes —
+    pre-approval (in ai_* fields) or post-propagation (on native fields) —
+    feeds back into future extractions.
     """
     if n <= 0:
         return ""
@@ -103,6 +128,9 @@ async def _build_few_shot_block(paperless: PaperlessClient, n: int) -> str:
     if not docs:
         return ""
     name_by_id = await paperless.get_custom_field_name_by_id()
+    correspondent_names = await paperless.get_entity_name_map("/api/correspondents/")
+    document_type_names = await paperless.get_entity_name_map("/api/document_types/")
+    tag_names_by_id = await paperless.get_entity_name_map("/api/tags/")
     blocks: list[str] = []
     for d in docs:
         text = (d.get("content") or "").strip()
@@ -113,14 +141,27 @@ async def _build_few_shot_block(paperless: PaperlessClient, n: int) -> str:
             for cf in d.get("custom_fields", [])
             if cf.get("field") in name_by_id
         }
-        if not ai_fields.get("ai_document_type"):
+        correspondent_name = correspondent_names.get(d.get("correspondent"))
+        document_type_name = document_type_names.get(d.get("document_type"))
+        if not (document_type_name or ai_fields.get("ai_document_type")):
             continue
+        # Native suggested-tags = user-curated tag set minus the AI lifecycle tags.
+        tag_names = [
+            tag_names_by_id[tid]
+            for tid in d.get("tags") or []
+            if tid in tag_names_by_id and tag_names_by_id[tid] not in _LIFECYCLE_TAG_NAMES
+        ]
         excerpt = text[:_FEW_SHOT_TEXT_LIMIT]
         if len(text) > _FEW_SHOT_TEXT_LIMIT:
             excerpt += "\n[...gekürzt]"
-        blocks.append(
-            f"Eingabe-Text:\n{excerpt}\n\nErwartete Ausgabe (JSON):\n{_example_payload(ai_fields)}"
+        rendered = _example_payload(
+            ai_fields,
+            correspondent_name=correspondent_name,
+            document_type_name=document_type_name,
+            created_date=d.get("created_date"),
+            tag_names=tag_names,
         )
+        blocks.append(f"Eingabe-Text:\n{excerpt}\n\nErwartete Ausgabe (JSON):\n{rendered}")
     if not blocks:
         return ""
     return (
@@ -128,6 +169,64 @@ async def _build_few_shot_block(paperless: PaperlessClient, n: int) -> str:
         "halte dich an Stil und Detailtiefe der Korrespondent- und Zusammenfassungsangaben:\n\n"
         + "\n\n---\n\n".join(blocks)
     )
+
+
+_HISTORY_HEAD_CHARS = 1000
+_HISTORY_DOMINANT_THRESHOLD = 0.7
+_HISTORY_MIN_SAMPLES = 2
+
+
+def _format_history_hint(
+    history: dict[str, dict[str, int]], text: str
+) -> str:
+    """Return a German-language hint paragraph if the document text mentions a
+    correspondent we have prior history on. Pure function — caller passes the
+    already-fetched history map and the OCR text.
+
+    The hint either:
+      - names the dominant past document_type (>=70% of >=2 prior docs), or
+      - lists the full distribution if no clear winner.
+
+    Returns "" when no known correspondent is found in the document head.
+    """
+    if not history:
+        return ""
+    head = text[:_HISTORY_HEAD_CHARS]
+    matches = sorted(
+        (name for name in history if name in head),
+        key=len,
+        reverse=True,
+    )
+    if not matches:
+        return ""
+    name = matches[0]
+    types = history[name]
+    total = sum(types.values())
+    if total == 0:
+        return ""
+    dominant = max(types, key=types.get)
+    dom_share = types[dominant] / total
+    if dom_share >= _HISTORY_DOMINANT_THRESHOLD and total >= _HISTORY_MIN_SAMPLES:
+        return (
+            f"Hinweis aus früheren Dokumenten: Dokumente von '{name}' wurden "
+            f"in {types[dominant]} von {total} Fällen als '{dominant}' "
+            f"klassifiziert. Berücksichtige dies, weiche aber ab, wenn der "
+            f"Inhalt dieses Dokuments klar nicht passt."
+        )
+    dist = ", ".join(f"{k}: {v}" for k, v in sorted(types.items(), key=lambda kv: -kv[1]))
+    return (
+        f"Hinweis aus früheren Dokumenten von '{name}': bisherige "
+        f"Klassifikationen: {dist}. Wähle den passendsten Typ."
+    )
+
+
+async def _build_history_hint(paperless: PaperlessClient, text: str) -> str:
+    try:
+        history = await paperless.get_correspondent_history()
+    except Exception as exc:
+        log.warning("history_fetch_failed", error=str(exc))
+        return ""
+    return _format_history_hint(history, text)
 
 
 def _route_lifecycle_tags(extraction: DocumentExtraction, settings: Settings) -> list[str]:
@@ -177,6 +276,14 @@ async def process_document(
 
     text = _truncate_text(content, settings.max_tokens_input)
     system_prompt = SYSTEM_PROMPT
+    # Per-correspondent history hint goes BEFORE the few-shot block so the
+    # "this sender is usually X" signal is the most prominent thing the model
+    # sees right after the base taxonomy.
+    if settings.use_correspondent_history:
+        hint = await _build_history_hint(paperless, content)
+        if hint:
+            system_prompt = system_prompt + "\n\n" + hint
+            logger.info("history_hint_attached", chars=len(hint))
     if settings.few_shot_examples > 0:
         try:
             few_shot = await _build_few_shot_block(paperless, settings.few_shot_examples)
@@ -185,7 +292,7 @@ async def process_document(
             logger.warning("few_shot_build_failed", error=str(exc))
             few_shot = ""
         if few_shot:
-            system_prompt = SYSTEM_PROMPT + "\n\n---\n\n" + few_shot
+            system_prompt = system_prompt + "\n\n---\n\n" + few_shot
             logger.info("few_shot_attached", chars=len(few_shot))
     messages = [
         {"role": "system", "content": system_prompt},

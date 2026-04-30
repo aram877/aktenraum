@@ -55,6 +55,17 @@ class TestDocumentExtractionValidation:
         ex = DocumentExtraction(**self._base(suggested_tags=[1, 2, "Vertrag"]))
         assert ex.suggested_tags == ["1", "2", "Vertrag"]
 
+    def test_coerces_none_to_empty_list_for_reference_numbers(self):
+        # Local models often emit null for empty array fields despite the
+        # schema. Coerce None → [] so a representation choice doesn't fail
+        # the whole extraction.
+        ex = DocumentExtraction(**self._base(reference_numbers=None))
+        assert ex.reference_numbers == []
+
+    def test_coerces_none_to_empty_list_for_suggested_tags(self):
+        ex = DocumentExtraction(**self._base(suggested_tags=None))
+        assert ex.suggested_tags == []
+
     def test_optional_fields_default_correctly(self):
         ex = DocumentExtraction(**self._base())
         assert ex.monetary_amount is None

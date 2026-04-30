@@ -8,7 +8,15 @@ def _coerce_str(v: Any) -> str:
     return str(v) if not isinstance(v, str) else v
 
 
+def _coerce_list(v: Any) -> Any:
+    # Small models often emit `null` for empty array fields despite the schema
+    # asking for a list. Coerce None → [] so we do not reject extractions over
+    # a representation choice that has no semantic meaning here.
+    return [] if v is None else v
+
+
 CoercedStr = Annotated[str, BeforeValidator(_coerce_str)]
+CoercedList = Annotated[list[CoercedStr], BeforeValidator(_coerce_list)]
 
 
 class DocumentType(StrEnum):
@@ -47,10 +55,10 @@ class DocumentExtraction(BaseModel):
     monetary_amount: str | None = Field(
         None, description="Geldbetrag mit Währung, z.B. '149,99 EUR'"
     )
-    reference_numbers: list[CoercedStr] = Field(
+    reference_numbers: CoercedList = Field(
         default_factory=list, description="Referenz- oder Vorgangsnummern"
     )
-    suggested_tags: list[CoercedStr] = Field(
+    suggested_tags: CoercedList = Field(
         default_factory=list, description="Empfohlene Schlagwörter"
     )
     summary_de: str = Field(description="Kurzzusammenfassung auf Deutsch in genau 3 Sätzen")

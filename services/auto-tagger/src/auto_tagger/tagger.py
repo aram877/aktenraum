@@ -43,7 +43,8 @@ Weitere Regeln:
 - Geldbeträge immer mit Währung, z.B. "149,99 EUR"
 - summary_de muss genau 3 Sätze auf Deutsch enthalten
 - confidence gibt an, wie sicher du dir bei der Extraktion bist (0.0 = unsicher, 1.0 = sehr sicher)
-- Wenn ein Feld nicht ermittelbar ist, setze es auf null
+- Bei nicht-ermittelbaren Skalar-Feldern (correspondent, monetary_amount, key_dates.*): null
+- Bei nicht-ermittelbaren Listen-Feldern (reference_numbers, suggested_tags): leere Liste []
 """
 
 _MAX_CHARS_PER_TOKEN = 4

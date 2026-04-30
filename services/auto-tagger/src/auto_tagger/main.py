@@ -32,7 +32,7 @@ async def _extraction_loop(
             if docs:
                 log.info("poll_found_documents", count=len(docs))
                 for doc in docs:
-                    await process_document(doc, paperless, backend, settings.max_tokens_input)
+                    await process_document(doc, paperless, backend, settings)
             else:
                 log.debug("poll_no_new_documents")
         except Exception as exc:

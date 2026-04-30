@@ -122,7 +122,11 @@ The service runs two parallel async polling loops in the same container:
 **Extraction loop** (always on):
 - Polls `GET /api/documents/` every 30s, skips docs carrying any of the six AI lifecycle tags (`ai-pending`, `ai-approved`, `ai-rejected`, `ai-propagated`, `ai-propagation-error`, `ai-error`)
 - Sends OCR text (truncated to 8000 tokens) to Ollama or Anthropic
-- Writes 12 custom fields to the document + adds `ai-pending` tag (entry state of the lifecycle)
+- Writes 12 custom fields to the document
+- Confidence-based routing chooses the lifecycle tag:
+  - `confidence >= AUTO_APPROVE_CONFIDENCE` AND `document_type in AUTO_APPROVE_TYPES` → tag `ai-approved` directly (skips human review; propagation runs)
+  - otherwise → tag `ai-pending` (default review path)
+  - `confidence < LOW_CONFIDENCE_THRESHOLD` → also tag `ai-low-confidence` so the review queue can be sorted by priority
 
 **Propagation loop** (when `ENABLE_PROPAGATION=true`, default):
 - Polls every 30s for documents tagged `ai-approved`

@@ -102,6 +102,7 @@ ensure_tag "ai-approved"          "#22c55e"  # green  — approved, triggers pro
 ensure_tag "ai-rejected"          "#6b7280"  # gray   — rejected, no propagation
 ensure_tag "ai-propagated"        "#3b82f6"  # blue   — native fields written
 ensure_tag "ai-propagation-error" "#ef4444"  # red    — propagation failed mid-run
+ensure_tag "ai-low-confidence"    "#fb923c"  # orange — review queue priority flag
 ensure_tag "ai-error"             "#ef4444"  # red    — extraction failed
 
 echo

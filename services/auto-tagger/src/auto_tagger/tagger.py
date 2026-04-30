@@ -1,5 +1,6 @@
 import structlog
 
+from .config import Settings
 from .llm.base import LLMBackend
 from .models import DocumentExtraction
 from .paperless import PaperlessClient
@@ -53,11 +54,40 @@ def _truncate_text(text: str, max_tokens: int) -> str:
     return text[:max_chars] + _TRUNCATION_NOTICE
 
 
+def _route_lifecycle_tags(extraction: DocumentExtraction, settings: Settings) -> list[str]:
+    """Decide which lifecycle/auxiliary tags to apply based on confidence routing.
+
+    Returns the tag names to add. Auto-approve sends the doc straight to
+    `ai-approved` (the propagation loop then writes native fields without
+    human review). Otherwise the doc lands in `ai-pending`; if confidence is
+    low we additionally tag `ai-low-confidence` so the user can prioritise it.
+    """
+    auto_approve = (
+        extraction.confidence >= settings.auto_approve_confidence
+        and extraction.document_type.value in settings.auto_approve_types
+    )
+    if auto_approve:
+        return ["ai-approved"]
+    tags = ["ai-pending"]
+    if extraction.confidence < settings.low_confidence_threshold:
+        tags.append("ai-low-confidence")
+    return tags
+
+
+async def _apply_tags(
+    paperless: PaperlessClient, doc: dict, tag_names: list[str]
+) -> None:
+    """Add the named tags to a document in a single PATCH (preserves existing)."""
+    target_ids = [await paperless.get_or_create_tag(name) for name in tag_names]
+    new_set = set(doc.get("tags", [])) | set(target_ids)
+    await paperless.patch_document_native_fields(doc["id"], tags=sorted(new_set))
+
+
 async def process_document(
     doc: dict,
     paperless: PaperlessClient,
     backend: LLMBackend,
-    max_tokens_input: int,
+    settings: Settings,
 ) -> None:
     doc_id: int = doc["id"]
     title: str = doc.get("title", f"doc-{doc_id}")
@@ -69,7 +99,7 @@ async def process_document(
         await paperless.add_tag_to_document(doc_id, "ai-error")
         return
 
-    text = _truncate_text(content, max_tokens_input)
+    text = _truncate_text(content, settings.max_tokens_input)
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": f"Dokumenttext:\n\n{text}"},
@@ -94,7 +124,9 @@ async def process_document(
 
     try:
         await paperless.patch_document_ai_fields(doc_id, extraction, backend.name, backend.model)
-        await paperless.add_tag_to_document(doc_id, "ai-pending")
+        lifecycle_tags = _route_lifecycle_tags(extraction, settings)
+        await _apply_tags(paperless, doc, lifecycle_tags)
+        logger.info("routing_decision", tags=lifecycle_tags, confidence=extraction.confidence)
     except Exception as exc:
         # Without an ai-error tag here the doc has no lifecycle tag and would be
         # re-processed forever on every poll cycle.

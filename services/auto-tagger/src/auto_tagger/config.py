@@ -1,5 +1,7 @@
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import Annotated
+
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -28,6 +30,31 @@ class Settings(BaseSettings):
     # entities (correspondent, document_type, created_date, tags). Disable to
     # run extraction-only without writing to native fields.
     enable_propagation: bool = Field(True)
+
+    # Confidence-based routing.
+    #   AUTO_APPROVE_CONFIDENCE: minimum confidence to skip the human review
+    #     queue and tag a doc ai-approved directly (the propagation loop then
+    #     writes native fields automatically). Default 0.95 = strict.
+    #   AUTO_APPROVE_TYPES: comma-separated DocumentType values eligible for
+    #     auto-approve. Empty list (default) disables auto-approve for all
+    #     types — opt in by adding routine, low-risk types like
+    #     "Rechnung,Kontoauszug,Gehaltsabrechnung".
+    #   LOW_CONFIDENCE_THRESHOLD: extractions below this confidence are tagged
+    #     ai-low-confidence in addition to ai-pending so the user can
+    #     prioritise them in the review queue.
+    auto_approve_confidence: float = Field(0.95, ge=0.0, le=1.0)
+    # NoDecode disables pydantic-settings's default JSON parsing so a plain
+    # comma-separated env value ("Rechnung,Kontoauszug") is passed through to
+    # the validator below.
+    auto_approve_types: Annotated[list[str], NoDecode] = Field(default_factory=list)
+    low_confidence_threshold: float = Field(0.6, ge=0.0, le=1.0)
+
+    @field_validator("auto_approve_types", mode="before")
+    @classmethod
+    def _split_csv(cls, v: object) -> object:
+        if isinstance(v, str):
+            return [s.strip() for s in v.split(",") if s.strip()]
+        return v
 
     # Text processing
     max_tokens_input: int = Field(8000, ge=100, description="Approx token limit; text truncated at 4x chars")

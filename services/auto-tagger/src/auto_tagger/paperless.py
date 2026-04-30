@@ -358,25 +358,36 @@ class PaperlessClient:
         """Look up an entity by exact name, creating it if missing.
 
         Works for any Paperless endpoint whose entities are uniquely identified
-        by `name`: tags, correspondents, document_types. The lookup defends
-        against Paperless's fuzzy ?name= filter by re-checking equality on the
-        client.
+        by `name`: tags, correspondents, document_types. We use ?name__iexact=
+        because the bare ?name= parameter is silently ignored on /api/tags/
+        (it returns the default first page regardless), so once the tag count
+        passes one page our exact-match check would not find the existing
+        entity and POST would trip the unique-name constraint with a 400.
+        The Python-side equality re-check stays as defence in depth.
         """
-        resp = await self._client.get(endpoint, params={"name": name})
+        resp = await self._client.get(endpoint, params={"name__iexact": name})
         resp.raise_for_status()
         results = resp.json().get("results", [])
         found = next((x["id"] for x in results if x["name"] == name), None)
         if found is not None:
             return found
         resp = await self._client.post(endpoint, json={"name": name})
+        if resp.status_code >= 400:
+            log.error(
+                "paperless_create_rejected",
+                endpoint=endpoint,
+                name=name,
+                status=resp.status_code,
+                body=resp.text,
+            )
         resp.raise_for_status()
         return resp.json()["id"]
 
     async def _get_tag_id(self, name: str) -> int | None:
-        resp = await self._client.get("/api/tags/", params={"name": name})
+        # See _get_or_create_named for why we must use ?name__iexact= here.
+        resp = await self._client.get("/api/tags/", params={"name__iexact": name})
         resp.raise_for_status()
         results = resp.json().get("results", [])
-        # Paperless may do substring matching — filter for exact name match
         return next((t["id"] for t in results if t["name"] == name), None)
 
     async def _get_custom_field_ids(self) -> dict[str, int]:

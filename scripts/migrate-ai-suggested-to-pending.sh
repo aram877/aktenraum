@@ -26,7 +26,7 @@ echo
 # --------------------------------------------------------------------------
 # Resolve tag IDs
 # --------------------------------------------------------------------------
-SUGGESTED_ID=$(_get "${PAPERLESS_URL}/api/tags/?name=ai-suggested" \
+SUGGESTED_ID=$(_get "${PAPERLESS_URL}/api/tags/?name__iexact=ai-suggested" \
   | "${PYTHON}" -c "import sys,json; r=json.load(sys.stdin); t=[x for x in r['results'] if x['name']=='ai-suggested']; print(t[0]['id'] if t else '')")
 
 if [ -z "${SUGGESTED_ID}" ]; then
@@ -34,7 +34,7 @@ if [ -z "${SUGGESTED_ID}" ]; then
   exit 0
 fi
 
-PENDING_ID=$(_get "${PAPERLESS_URL}/api/tags/?name=ai-pending" \
+PENDING_ID=$(_get "${PAPERLESS_URL}/api/tags/?name__iexact=ai-pending" \
   | "${PYTHON}" -c "import sys,json; r=json.load(sys.stdin); t=[x for x in r['results'] if x['name']=='ai-pending']; print(t[0]['id'] if t else '')")
 
 if [ -z "${PENDING_ID}" ]; then

@@ -25,11 +25,13 @@ ensure_custom_field() {
   local name="$1"
   local data_type="$2"  # string | integer | float | date | boolean | url | documentlink | monetary | select
 
-  # Paperless ?name= filter does substring (icontains) matching, not exact.
-  # Filter the results in Python by exact name to avoid false positives.
+  # ?name__iexact= is the working exact-match filter; bare ?name= is silently
+  # ignored on /api/tags/ and would return the default first page regardless,
+  # producing false-negative existence checks once entity counts pass one page.
+  # The Python-side equality check stays as defence in depth.
   existing=$(curl -sf \
     -H "${AUTH_HEADER}" \
-    "${PAPERLESS_URL}/api/custom_fields/?name=${name}" \
+    "${PAPERLESS_URL}/api/custom_fields/?name__iexact=${name}" \
     | "${PYTHON}" -c "import sys,json; r=json.load(sys.stdin); print(sum(1 for x in r['results'] if x['name']==sys.argv[1]))" "${name}")
 
   if [ "${existing}" -gt 0 ]; then
@@ -51,11 +53,13 @@ ensure_tag() {
   local name="$1"
   local color="${2:-}"
 
-  # Paperless ?name= filter does substring (icontains) matching, not exact.
-  # Filter the results in Python by exact name to avoid false positives.
+  # ?name__iexact= is the working exact-match filter; bare ?name= is silently
+  # ignored on /api/tags/ and would return the default first page regardless,
+  # producing false-negative existence checks once entity counts pass one page.
+  # The Python-side equality check stays as defence in depth.
   existing=$(curl -sf \
     -H "${AUTH_HEADER}" \
-    "${PAPERLESS_URL}/api/tags/?name=${name}" \
+    "${PAPERLESS_URL}/api/tags/?name__iexact=${name}" \
     | "${PYTHON}" -c "import sys,json; r=json.load(sys.stdin); print(sum(1 for x in r['results'] if x['name']==sys.argv[1]))" "${name}")
 
   if [ "${existing}" -gt 0 ]; then

@@ -335,13 +335,13 @@ Use `/opsx:apply` skill to implement tasks from an approved change.
 | Few-shot exemplars from propagated corpus | ✅ Available (`FEW_SHOT_EXAMPLES > 0`) |
 | Per-correspondent history hint | ✅ Default on |
 | Webhook trigger from paperless `post_consume_script` | ✅ Running |
-| Pytest suite + ruff + GitHub Actions CI | ✅ Running (231 tests) |
+| Pytest suite + ruff + GitHub Actions CI | ✅ Running (239 tests) |
 | Custom Vite + React SPA shell | ✅ Running (`apps/web`, served by nginx on `:8080`) |
 | Find docs (`/api/ai/find` + `/find` page) | ✅ Phase 2 — closed-enum SearchFilter, editable chips, Open + Download per result |
 | Ask AI conversational Q&A (`/api/ai/answer` + `/ask`) | ✅ Phase 2.5 — German prose answer with citations; small model for filter, big model for answer |
 | Document preview/download proxies (`/api/documents/{id}/{preview,download}`) | ✅ Reusable across Ask/Find/Inbox/Library; token never reaches the browser |
 | Inbox review queue (`/api/inbox/*` + `/inbox` + `/inbox/$id`) | ✅ Phase 3 — two-pane PDF preview, editable AI fields, approve/reject, keyboard shortcuts |
-| Library / Bibliothek (`/api/library/` + `/library`) | ✅ Filterable list of all non-pending docs (doc type, correspondent, date range, amount, free text); URL-state filters; click row → preview modal |
+| Library / Bibliothek (`/api/library/` + `/library`) | ✅ Filterable list of all non-pending docs; URL-state filters; row click → `/library/$id` two-pane review (PDF + editable AI fields, Save / Reset / Reprocess / Download) |
 | Upload (`POST /api/documents/upload` + `/upload`) | ✅ Drag-and-drop dropzone, single + multi-file, per-file progress + status, isolated failures; uploads stream through aktenraum-api so the Paperless token stays server-side |
 | Reprocess (`POST /api/documents/{id}/reprocess`) | ✅ Clears all 7 lifecycle tags; pings auto-tagger webhook (with optional `WEBHOOK_SECRET`) for instant turnaround; falls back to the 30s poller. Reprocess button on the preview modal |
 | Processing visibility (`/documents/in-flight`, `/task/{uuid}`, `/{id}/status`, ProcessingBadge) | ✅ DocumentSummary carries `lifecycle_tags`; shared SPA badge (Wartet auf KI / Wird übertragen / Verarbeitet / In Inbox / Fehler / etc.) renders on Library rows + Find/Ask cards; Upload page polls task → doc-status → lifecycle for live progress; Nav shows a global "N in Bearbeitung" pill, refetched every 30s |
@@ -427,7 +427,8 @@ For a full-stack dev cycle, keep the compose stack up (`docker compose up -d`) s
 - Query params: `document_type`, `correspondent`, `date_from`, `date_to`, `min_amount`, `max_amount`, `text`, `page` (≥1), `page_size` (1..100), `ordering` (allowlist: `-created`, `created`, `-modified`, `modified`, `title`, `-title`).
 - Returns `LibraryItem` rows with `lifecycle_tags` so the SPA can render a small badge per tag (propagated / approved / rejected / error). Falls back to AI custom-field correspondent / doc_type when the native FK is unset.
 - Amount is post-filter against `ai_monetary_amount` (Paperless can't filter monetary custom fields server-side); when a bound is set, `total` reflects the post-filter survivor count.
-- SPA route `/library` keeps filter state in URL search params (bookmarkable; back-button works); auto-applies form changes after a 400ms debounce; click row → `DocumentPreviewModal` (Esc closes, Download button on the modal header).
+- SPA route `/library` keeps filter state in URL search params (bookmarkable; back-button works); auto-applies form changes after a 400ms debounce; click row → `/library/$id`.
+- `/library/$id` is the per-document review: PDF iframe on the left, editable form for the 12 AI fields on the right (Save / Reset / Erneut verarbeiten / Download / Back). Backed by `GET /api/documents/{id}/detail` and `PATCH /api/documents/{id}/fields` — both reuse `aktenraum_api.inbox.service` so they work on any doc, not just pending. Edits update only the AI fields; the propagator only runs on `ai-approved`, so to also rewrite the native Paperless fields the user clicks **Erneut verarbeiten** (which restarts the full pipeline). The page closes the same `DocumentPreviewModal` Find / Ask citation cards still use for quick looks.
 
 ### Upload + Reprocess (`/api/documents/upload`, `/api/documents/{id}/reprocess`)
 

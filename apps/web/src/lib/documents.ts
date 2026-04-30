@@ -80,6 +80,42 @@ export type DocumentStatus = {
   lifecycle_tags: string[];
 };
 
+// Full review payload for /library/$id (and any other "open this document"
+// surface that needs more than the summary). Same shape as InboxDetail since
+// both endpoints share aktenraum_api.inbox.service under the hood.
+export type DocumentDetail = {
+  id: number;
+  title: string;
+  created: string | null;
+  ai_document_type: string | null;
+  ai_correspondent: string | null;
+  ai_issue_date: string | null;
+  ai_due_date: string | null;
+  ai_expiry_date: string | null;
+  ai_monetary_amount: string | null;
+  ai_reference_numbers: string | null;
+  ai_suggested_tags: string | null;
+  ai_summary_de: string | null;
+  ai_confidence: number | null;
+  ai_backend: string | null;
+  ai_model: string | null;
+  low_confidence: boolean;
+  tags: string[];
+  content_excerpt: string;
+};
+
+export type DocumentFieldUpdate = Partial<{
+  ai_document_type: string | null;
+  ai_correspondent: string | null;
+  ai_issue_date: string | null;
+  ai_due_date: string | null;
+  ai_expiry_date: string | null;
+  ai_monetary_amount: string | null;
+  ai_reference_numbers: string | null;
+  ai_suggested_tags: string | null;
+  ai_summary_de: string | null;
+}>;
+
 export async function fetchTaskStatus(taskId: string): Promise<TaskStatus> {
   const { data } = await api.get<TaskStatus>(`/documents/task/${taskId}`);
   return data;
@@ -90,6 +126,48 @@ export async function fetchDocumentStatus(
 ): Promise<DocumentStatus> {
   const { data } = await api.get<DocumentStatus>(`/documents/${docId}/status`);
   return data;
+}
+
+async function fetchDocumentDetail(docId: number): Promise<DocumentDetail> {
+  const { data } = await api.get<DocumentDetail>(`/documents/${docId}/detail`);
+  return data;
+}
+
+async function patchDocumentFields(
+  docId: number,
+  body: DocumentFieldUpdate,
+): Promise<DocumentDetail> {
+  const { data } = await api.patch<DocumentDetail>(
+    `/documents/${docId}/fields`,
+    body,
+  );
+  return data;
+}
+
+export function useDocumentDetail(docId: number | null) {
+  return useQuery<DocumentDetail, AxiosError>({
+    queryKey: ["document-detail", docId],
+    queryFn: () => fetchDocumentDetail(docId as number),
+    enabled: docId !== null,
+    staleTime: 0,
+  });
+}
+
+export function useDocumentFieldsPatch(docId: number) {
+  const qc = useQueryClient();
+  return useMutation<
+    DocumentDetail,
+    AxiosError<{ detail?: string }>,
+    DocumentFieldUpdate
+  >({
+    mutationFn: (body) => patchDocumentFields(docId, body),
+    onSuccess: (data) => {
+      // Snap the cache so the form re-renders with normalised values
+      // (e.g. "01.12.2024" → "2024-12-01") without an extra round-trip.
+      qc.setQueryData(["document-detail", docId], data);
+      qc.invalidateQueries({ queryKey: ["library"] });
+    },
+  });
 }
 
 export type InFlightCount = { count: number };

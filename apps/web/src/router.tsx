@@ -12,6 +12,7 @@ import { Home } from "./routes/Home";
 import { Inbox } from "./routes/Inbox";
 import { InboxReview } from "./routes/InboxReview";
 import { Library } from "./routes/Library";
+import { LibraryReview } from "./routes/LibraryReview";
 import { Login } from "./routes/Login";
 import { Upload } from "./routes/Upload";
 import { fetchMe } from "./lib/api";
@@ -110,6 +111,16 @@ const libraryRoute = createRoute({
   },
 });
 
+const libraryReviewRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/library/$id",
+  beforeLoad: ({ context }) => ensureLoggedIn(context),
+  component: function LibraryReviewWrapper() {
+    const { id } = libraryReviewRoute.useParams();
+    return <LibraryReview id={Number(id)} />;
+  },
+});
+
 const uploadRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/upload",
@@ -140,6 +151,7 @@ const routeTree = rootRoute.addChildren([
   askRoute,
   findRoute,
   libraryRoute,
+  libraryReviewRoute,
   uploadRoute,
   inboxRoute,
   inboxReviewRoute,

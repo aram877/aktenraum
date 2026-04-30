@@ -12,6 +12,8 @@ from ..ai.deps import get_paperless_gateway
 from ..auth.deps import get_current_user, get_settings
 from ..config import Settings
 from ..db.models import User
+from ..inbox import schemas as inbox_schemas
+from ..inbox import service as inbox_service
 from ..paperless_gw import (
     PaperlessAuthError,
     PaperlessGateway,
@@ -181,6 +183,62 @@ async def reprocess(
         cleared_tags=_REPROCESS_REMOVE,
         auto_tagger_notified=notified,
     )
+
+
+@router.get("/{doc_id}/detail", response_model=inbox_schemas.InboxDetail)
+async def get_document_detail(
+    doc_id: int,
+    _user: User = Depends(get_current_user),
+    gateway: PaperlessGateway = Depends(get_paperless_gateway),
+) -> inbox_schemas.InboxDetail:
+    """Full review payload for any document (not just pending).
+
+    Same shape as `GET /api/inbox/{id}` so the SPA can reuse the form
+    component. Library detail / preview pages call this; the inbox endpoint
+    stays in place for the existing review-queue UI.
+    """
+    try:
+        return await inbox_service.get_detail(gateway, doc_id)
+    except PaperlessNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document {doc_id} not found",
+        ) from e
+    except PaperlessAuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Paperless rejected the API token",
+        ) from e
+
+
+@router.patch("/{doc_id}/fields", response_model=inbox_schemas.InboxDetail)
+async def patch_document_fields(
+    doc_id: int,
+    body: inbox_schemas.InboxFieldUpdate,
+    _user: User = Depends(get_current_user),
+    gateway: PaperlessGateway = Depends(get_paperless_gateway),
+) -> inbox_schemas.InboxDetail:
+    """Partial update of the AI custom fields on any document.
+
+    Routes through the same boundary normalisers as the inbox PATCH so user
+    edits made from the library page can't trip Paperless's date / monetary /
+    string-length validation. Does NOT rewrite native Paperless fields
+    (correspondent FK, document_type FK, created_date) — the propagator only
+    runs on ai-approved docs. To rewrite natives too, the user hits
+    "Erneut verarbeiten" which clears lifecycle and re-runs the pipeline.
+    """
+    try:
+        return await inbox_service.apply_field_update(gateway, doc_id, body)
+    except PaperlessNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document {doc_id} not found",
+        ) from e
+    except PaperlessAuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Paperless rejected the API token",
+        ) from e
 
 
 @router.get("/in-flight", response_model=InFlightCount)

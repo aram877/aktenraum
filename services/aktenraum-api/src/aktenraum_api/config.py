@@ -58,6 +58,20 @@ class Settings(BaseSettings):
         300, ge=1, description="Per-process correspondent cache TTL"
     )
 
+    # Reprocess: aktenraum-api → auto-tagger webhook
+    auto_tagger_url: str = Field(
+        "http://auto-tagger:8001",
+        description="Internal URL of the auto-tagger HTTP server (port 8001).",
+    )
+    webhook_secret: str = Field(
+        "",
+        description=(
+            "Shared secret sent as `X-Aktenraum-Secret` to the auto-tagger's "
+            "/trigger/extract. Must match auto-tagger's WEBHOOK_SECRET. Empty "
+            "disables auth on both sides — fine for personal localhost."
+        ),
+    )
+
     # LLM backend selection — same env knob the auto-tagger uses.
     llm_backend: str = Field(
         "anthropic",

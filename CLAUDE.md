@@ -335,13 +335,15 @@ Use `/opsx:apply` skill to implement tasks from an approved change.
 | Few-shot exemplars from propagated corpus | ✅ Available (`FEW_SHOT_EXAMPLES > 0`) |
 | Per-correspondent history hint | ✅ Default on |
 | Webhook trigger from paperless `post_consume_script` | ✅ Running |
-| Pytest suite + ruff + GitHub Actions CI | ✅ Running (206 tests) |
+| Pytest suite + ruff + GitHub Actions CI | ✅ Running (215 tests) |
 | Custom Vite + React SPA shell | ✅ Running (`apps/web`, served by nginx on `:8080`) |
 | Find docs (`/api/ai/find` + `/find` page) | ✅ Phase 2 — closed-enum SearchFilter, editable chips, Open + Download per result |
 | Ask AI conversational Q&A (`/api/ai/answer` + `/ask`) | ✅ Phase 2.5 — German prose answer with citations; small model for filter, big model for answer |
 | Document preview/download proxies (`/api/documents/{id}/{preview,download}`) | ✅ Reusable across Ask/Find/Inbox/Library; token never reaches the browser |
 | Inbox review queue (`/api/inbox/*` + `/inbox` + `/inbox/$id`) | ✅ Phase 3 — two-pane PDF preview, editable AI fields, approve/reject, keyboard shortcuts |
 | Library / Bibliothek (`/api/library/` + `/library`) | ✅ Filterable list of all non-pending docs (doc type, correspondent, date range, amount, free text); URL-state filters; click row → preview modal |
+| Upload (`POST /api/documents/upload` + `/upload`) | ✅ Drag-and-drop dropzone, single + multi-file, per-file progress + status, isolated failures; uploads stream through aktenraum-api so the Paperless token stays server-side |
+| Reprocess (`POST /api/documents/{id}/reprocess`) | ✅ Clears all 7 lifecycle tags; pings auto-tagger webhook (with optional `WEBHOOK_SECRET`) for instant turnaround; falls back to the 30s poller. Reprocess button on the preview modal |
 | Semantic search / RAG | 🔲 Planned (Phase 6, only if structured-filter search hits a ceiling) |
 | HTTPS / Tailscale | 🔲 Planned (TODO in runbook) |
 | Backup integrity checks (`restic check`) | 🔲 Planned |
@@ -425,6 +427,13 @@ For a full-stack dev cycle, keep the compose stack up (`docker compose up -d`) s
 - Returns `LibraryItem` rows with `lifecycle_tags` so the SPA can render a small badge per tag (propagated / approved / rejected / error). Falls back to AI custom-field correspondent / doc_type when the native FK is unset.
 - Amount is post-filter against `ai_monetary_amount` (Paperless can't filter monetary custom fields server-side); when a bound is set, `total` reflects the post-filter survivor count.
 - SPA route `/library` keeps filter state in URL search params (bookmarkable; back-button works); auto-applies form changes after a 400ms debounce; click row → `DocumentPreviewModal` (Esc closes, Download button on the modal header).
+
+### Upload + Reprocess (`/api/documents/upload`, `/api/documents/{id}/reprocess`)
+
+- `POST /api/documents/upload` accepts `multipart/form-data` with one or many `files`; each is forwarded to Paperless's `/api/documents/post_document/`. Per-file failures are isolated — the response is `{results: [{filename, status, task_id, detail}]}`. Paperless dedupes by SHA1 so re-uploading the same content is a silent no-op.
+- `POST /api/documents/{id}/reprocess` clears every lifecycle tag (`ai-pending`/`ai-approved`/`ai-rejected`/`ai-propagated`/`ai-propagation-error`/`ai-error` plus `ai-low-confidence`) so the document looks fresh to the auto-tagger; then best-effort pings `http://auto-tagger:8001/trigger/extract` for instant re-extraction. Without the ping (or if it fails) the auto-tagger's 30s poller picks the doc up regardless.
+- New env: `AUTO_TAGGER_URL` (default `http://auto-tagger:8001`) and `WEBHOOK_SECRET` (must match auto-tagger's; empty disables the secret on both sides). Both optional.
+- SPA: `/upload` route with drag-and-drop + per-file progress; "Erneut verarbeiten" button on `DocumentPreviewModal` (Library / Find / Ask citation cards) with a confirm step. Reprocess success invalidates the `library` and `inbox` query caches so the UI snaps to the new state.
 
 ### Document proxy (`/api/documents/{id}/{preview,download}`)
 

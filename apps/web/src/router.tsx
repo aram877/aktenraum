@@ -13,6 +13,7 @@ import { Inbox } from "./routes/Inbox";
 import { InboxReview } from "./routes/InboxReview";
 import { Library } from "./routes/Library";
 import { Login } from "./routes/Login";
+import { Upload } from "./routes/Upload";
 import { fetchMe } from "./lib/api";
 import type { QueryClient } from "@tanstack/react-query";
 
@@ -109,6 +110,13 @@ const libraryRoute = createRoute({
   },
 });
 
+const uploadRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/upload",
+  beforeLoad: ({ context }) => ensureLoggedIn(context),
+  component: Upload,
+});
+
 const inboxRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/inbox",
@@ -132,6 +140,7 @@ const routeTree = rootRoute.addChildren([
   askRoute,
   findRoute,
   libraryRoute,
+  uploadRoute,
   inboxRoute,
   inboxReviewRoute,
 ]);

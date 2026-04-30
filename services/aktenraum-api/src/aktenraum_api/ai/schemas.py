@@ -39,6 +39,13 @@ class DocumentSummary(BaseModel):
     document_type: str | None = None
     created: date | None = None
     monetary_amount: str | None = None
+    # Subset of the document's tag names that match the AI lifecycle vocabulary
+    # (ai-propagated / ai-approved / ai-rejected / ai-error / etc.). The SPA
+    # renders this as a "Wartet auf KI" / "Wird übertragen" / … badge so the
+    # user can spot in-flight or stuck documents wherever a card is shown.
+    # Empty list means the document has no AI lifecycle tag — it might be
+    # legacy or freshly uploaded.
+    lifecycle_tags: list[str] = Field(default_factory=list)
 
 
 class AskRequest(BaseModel):

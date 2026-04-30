@@ -3,19 +3,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { DocumentPreviewModal } from "../components/DocumentPreviewModal";
 import { Nav } from "../components/Nav";
+import { ProcessingBadge } from "../components/ProcessingBadge";
 import type { DocumentSummary } from "../lib/ai";
 import type { LibraryItem, LibraryQuery } from "../lib/library";
 import { DOC_TYPES, useLibrary } from "../lib/library";
 
 const DEFAULT_PAGE_SIZE = 25;
-
-const LIFECYCLE_BADGE_STYLES: Record<string, string> = {
-  "ai-propagated": "bg-emerald-100 text-emerald-800",
-  "ai-approved": "bg-blue-100 text-blue-800",
-  "ai-rejected": "bg-neutral-200 text-neutral-700",
-  "ai-error": "bg-red-100 text-red-700",
-  "ai-propagation-error": "bg-red-100 text-red-700",
-};
 
 type Search = {
   document_type?: string;
@@ -315,16 +308,7 @@ function Row({ row, onClick }: { row: LibraryItem; onClick: () => void }) {
         {row.monetary_amount ?? "—"}
       </td>
       <td className="px-2 py-2">
-        {row.lifecycle_tags.map((tag) => (
-          <span
-            key={tag}
-            className={`mr-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium ${
-              LIFECYCLE_BADGE_STYLES[tag] ?? "bg-neutral-100 text-neutral-700"
-            }`}
-          >
-            {tag.replace("ai-", "")}
-          </span>
-        ))}
+        <ProcessingBadge tags={row.lifecycle_tags} />
       </td>
     </tr>
   );
@@ -356,5 +340,6 @@ function toDocSummary(row: LibraryItem): DocumentSummary {
     document_type: row.document_type,
     created: row.created,
     monetary_amount: row.monetary_amount,
+    lifecycle_tags: row.lifecycle_tags,
   };
 }

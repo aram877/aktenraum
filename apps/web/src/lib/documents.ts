@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AxiosError, AxiosProgressEvent } from "axios";
 
 import { api } from "./api";
@@ -61,6 +61,49 @@ export function useReprocess() {
       // both so the next visit shows the new state.
       qc.invalidateQueries({ queryKey: ["library"] });
       qc.invalidateQueries({ queryKey: ["inbox"] });
+      qc.invalidateQueries({ queryKey: ["in-flight"] });
     },
+  });
+}
+
+// Status polling for the upload pipeline.
+
+export type TaskStatus = {
+  task_id: string;
+  status: "PENDING" | "STARTED" | "SUCCESS" | "FAILURE" | "UNKNOWN";
+  doc_id: number | null;
+  result: string | null;
+};
+
+export type DocumentStatus = {
+  id: number;
+  lifecycle_tags: string[];
+};
+
+export async function fetchTaskStatus(taskId: string): Promise<TaskStatus> {
+  const { data } = await api.get<TaskStatus>(`/documents/task/${taskId}`);
+  return data;
+}
+
+export async function fetchDocumentStatus(
+  docId: number,
+): Promise<DocumentStatus> {
+  const { data } = await api.get<DocumentStatus>(`/documents/${docId}/status`);
+  return data;
+}
+
+export type InFlightCount = { count: number };
+
+export function useInFlightCount() {
+  return useQuery<InFlightCount, AxiosError>({
+    queryKey: ["in-flight"],
+    queryFn: async () => {
+      const { data } = await api.get<InFlightCount>("/documents/in-flight");
+      return data;
+    },
+    // Refresh the badge every 30s while the page is open so background
+    // pipeline progress shows up without a manual refetch.
+    refetchInterval: 30_000,
+    staleTime: 15_000,
   });
 }

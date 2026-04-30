@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import type { DocumentSummary } from "../lib/ai";
 import { DocumentPreviewModal } from "./DocumentPreviewModal";
+import { ProcessingBadge } from "./ProcessingBadge";
 
 type Props = {
   doc: DocumentSummary;
@@ -23,7 +24,7 @@ export function DocumentCard({ doc, citationLabel }: Props) {
           <h3 className="truncate text-sm font-semibold text-neutral-900">
             {doc.title}
           </h3>
-          <div className="mt-1 flex flex-wrap gap-2 text-xs text-neutral-500">
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
             {doc.document_type && (
               <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-neutral-700">
                 {doc.document_type}
@@ -32,6 +33,7 @@ export function DocumentCard({ doc, citationLabel }: Props) {
             {doc.correspondent && <span>{doc.correspondent}</span>}
             {doc.created && <span>{doc.created}</span>}
             {doc.monetary_amount && <span>{doc.monetary_amount}</span>}
+            <ProcessingBadge tags={doc.lifecycle_tags ?? []} />
           </div>
         </div>
         <div className="flex shrink-0 gap-2">

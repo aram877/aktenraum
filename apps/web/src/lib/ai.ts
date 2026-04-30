@@ -42,6 +42,7 @@ export type DocumentSummary = {
   document_type: string | null;
   created: string | null;
   monetary_amount: string | null;
+  lifecycle_tags: string[];
 };
 
 export type FindResponse = {

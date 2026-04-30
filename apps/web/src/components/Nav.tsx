@@ -3,7 +3,11 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useInboxList } from "../lib/inbox";
 import { useLogout, useMe } from "../lib/auth";
 
-export function Nav({ active }: { active: "home" | "ask" | "inbox" }) {
+export function Nav({
+  active,
+}: {
+  active: "home" | "ask" | "find" | "inbox";
+}) {
   const me = useMe();
   const logout = useLogout();
   const navigate = useNavigate();
@@ -35,6 +39,9 @@ export function Nav({ active }: { active: "home" | "ask" | "inbox" }) {
           </Link>
           <Link to="/ask" className={linkCls("ask", "")}>
             Ask AI
+          </Link>
+          <Link to="/find" className={linkCls("find", "")}>
+            Dokumente finden
           </Link>
           <Link to="/inbox" className={`${linkCls("inbox", "")} flex items-center gap-1.5`}>
             <span>Inbox</span>

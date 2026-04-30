@@ -44,30 +44,51 @@ export type DocumentSummary = {
   monetary_amount: string | null;
 };
 
-export type AskResponse = {
+export type FindResponse = {
   filter: SearchFilter;
   results: DocumentSummary[];
   explanation: string;
   total: number;
 };
 
-export async function ask(query: string): Promise<AskResponse> {
-  const { data } = await api.post<AskResponse>("/ai/ask", { query });
+export type AnswerResponse = {
+  question: string;
+  answer_de: string;
+  citations: DocumentSummary[];
+  filter: SearchFilter;
+  total: number;
+};
+
+// ---- Find ----
+
+export async function findByQuery(query: string): Promise<FindResponse> {
+  const { data } = await api.post<FindResponse>("/ai/find", { query });
   return data;
 }
 
-export async function searchByFilter(filter: SearchFilter): Promise<AskResponse> {
-  const { data } = await api.post<AskResponse>("/ai/ask", { filter });
+export async function findByFilter(filter: SearchFilter): Promise<FindResponse> {
+  const { data } = await api.post<FindResponse>("/ai/find", { filter });
   return data;
 }
 
-export type AskInput = { query: string } | { filter: SearchFilter };
+export type FindInput = { query: string } | { filter: SearchFilter };
+
+export function useFind() {
+  return useMutation<FindResponse, AxiosError<{ detail?: string }>, FindInput>({
+    mutationFn: async (input) =>
+      "query" in input ? findByQuery(input.query) : findByFilter(input.filter),
+  });
+}
+
+// ---- Ask (conversational answer) ----
+
+export async function ask(question: string): Promise<AnswerResponse> {
+  const { data } = await api.post<AnswerResponse>("/ai/answer", { question });
+  return data;
+}
 
 export function useAsk() {
-  return useMutation<AskResponse, AxiosError<{ detail?: string }>, AskInput>({
-    mutationFn: async (input) => {
-      if ("query" in input) return ask(input.query);
-      return searchByFilter(input.filter);
-    },
+  return useMutation<AnswerResponse, AxiosError<{ detail?: string }>, string>({
+    mutationFn: ask,
   });
 }

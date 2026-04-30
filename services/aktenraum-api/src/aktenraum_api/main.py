@@ -10,6 +10,7 @@ from .auth import bootstrap_user_if_empty
 from .auth import router as auth_router
 from .config import Settings
 from .db.session import build_engine_and_sessionmaker
+from .documents import router as documents_router
 from .health import router as health_router
 from .inbox import router as inbox_router
 from .paperless_gw import PaperlessGateway
@@ -67,5 +68,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health_router, prefix="/api")
     app.include_router(auth_router, prefix="/api")
     app.include_router(ai_router, prefix="/api")
+    app.include_router(documents_router, prefix="/api")
     app.include_router(inbox_router, prefix="/api")
     return app

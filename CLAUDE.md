@@ -57,6 +57,7 @@ docker compose logs --tail=50 paperless
 | Ollama model | `OLLAMA_MODEL=gemma4:latest` (what we run); larger models or `qwen` family work too |
 | AI search → Paperless | `PAPERLESS_API_TOKEN` in `docker/aktenraum-api.env` — same token the auto-tagger uses; required for `/api/ai/*` |
 | AI search → LLM | `ANTHROPIC_API_KEY` (when `LLM_BACKEND=anthropic`) or `OLLAMA_BASE_URL` + `OLLAMA_MODEL` (when `LLM_BACKEND=ollama`), all in `docker/aktenraum-api.env` |
+| AI answer → bigger LLM | Optional `OLLAMA_ANSWER_MODEL` / `ANTHROPIC_ANSWER_MODEL` overrides the model used by `/api/ai/answer` only — pair a fast small model for filter extraction with a smarter big one for prose answers (8B is too small to read citations reliably; 14B+ recommended) |
 
 Env files are gitignored. Examples: `docker/.env.example`, `docker/auto-tagger.env.example`, `docker/backup.env.example`. The API token in `auto-tagger.env` is **per-database** — a fresh `pgdata/` means re-minting.
 
@@ -334,9 +335,11 @@ Use `/opsx:apply` skill to implement tasks from an approved change.
 | Few-shot exemplars from propagated corpus | ✅ Available (`FEW_SHOT_EXAMPLES > 0`) |
 | Per-correspondent history hint | ✅ Default on |
 | Webhook trigger from paperless `post_consume_script` | ✅ Running |
-| Pytest suite + ruff + GitHub Actions CI | ✅ Running (181 tests) |
+| Pytest suite + ruff + GitHub Actions CI | ✅ Running (198 tests) |
 | Custom Vite + React SPA shell | ✅ Running (`apps/web`, served by nginx on `:8080`) |
-| Natural-language search (`/api/ai/ask` + `/ask` page) | ✅ Phase 2 — closed-enum SearchFilter, German prompt, editable filter chips |
+| Find docs (`/api/ai/find` + `/find` page) | ✅ Phase 2 — closed-enum SearchFilter, editable chips, Open + Download per result |
+| Ask AI conversational Q&A (`/api/ai/answer` + `/ask`) | ✅ Phase 2.5 — German prose answer with citations; small model for filter, big model for answer |
+| Document preview/download proxies (`/api/documents/{id}/{preview,download}`) | ✅ Reusable across Ask/Find/Inbox; token never reaches the browser |
 | Inbox review queue (`/api/inbox/*` + `/inbox` + `/inbox/$id`) | ✅ Phase 3 — two-pane PDF preview, editable AI fields, approve/reject, keyboard shortcuts |
 | Semantic search / RAG | 🔲 Planned (Phase 6, only if structured-filter search hits a ceiling) |
 | HTTPS / Tailscale | 🔲 Planned (TODO in runbook) |
@@ -398,15 +401,29 @@ For a full-stack dev cycle, keep the compose stack up (`docker compose up -d`) s
 - Migrations: Alembic under `services/aktenraum-api/alembic/`. The container entrypoint runs `alembic upgrade head` before starting uvicorn.
 - The `aktenraum` Postgres database is created by `docker/postgres-init/01-create-aktenraum-db.sh` on a fresh `pgdata` volume. **For existing installs**, run once: `docker compose exec postgres psql -U paperless -c "CREATE DATABASE aktenraum OWNER paperless;"`
 
-### AI search (`/api/ai/ask`)
+### AI: Find docs (`/api/ai/find`)
 
-- `POST /api/ai/ask` is the natural-language search endpoint. Auth-gated (cookie). Accepts either `{"query": str}` (LLM path) or `{"filter": SearchFilter}` (no LLM, used for chip-edit re-runs). Returns `{filter, results, explanation, total}`.
-- `SearchFilter` is a closed-enum Pydantic model: `document_type` reuses `aktenraum_core.models.DocumentType` (20 values), plus `correspondent`, `date_from`, `date_to`, `min_amount`, `max_amount`, `text`. Unknown document types → 422.
-- Server-side `PaperlessGateway` (`aktenraum_api.paperless_gw`) holds the API token and exposes `list_correspondents`, `list_document_types`, `search_documents`. Per-process correspondent cache with `CORRESPONDENT_LIST_TTL_SECONDS` TTL. The token never reaches the SPA.
-- Translator (`aktenraum_api.ai.translate`) maps `SearchFilter` → Paperless query params: native fields use `document_type__id` and `correspondent__id` (the bare `?document_type=` / `?correspondent=` are silently ignored — same gotcha class as `?name=` on `/api/tags/`). Amount bounds are post-filter against `ai_monetary_amount`.
-- Prompt (`aktenraum_api.ai.prompt`) inlines all 20 doc types, the live correspondent list (cap 200), date/amount rules, and four German few-shot exemplars. Pure function.
-- LLM backend reuses `aktenraum_core.llm.create_backend(...)` — same env knobs as the auto-tagger. Backend created per request (cheap; no pooling needed at personal-DMS scale).
-- Without `PAPERLESS_API_TOKEN` set, `/api/ai/*` responds 503 while `/api/health` and `/api/auth/*` stay green. Same for missing `ANTHROPIC_API_KEY` when `LLM_BACKEND=anthropic`.
+- `POST /api/ai/find` is the structured-search endpoint. Auth-gated. Accepts either `{"query": str}` (LLM path) or `{"filter": SearchFilter}` (no LLM, used for chip-edit re-runs). Returns `{filter, results, explanation, total}`.
+- `SearchFilter` is closed-enum: `document_type` reuses `aktenraum_core.models.DocumentType`, plus `correspondent`, `date_from`, `date_to`, `min_amount`, `max_amount`, `text`. Unknown doc types → 422.
+- Server-side `PaperlessGateway` (`aktenraum_api.paperless_gw`) holds the API token; per-process correspondent / tag / custom-field-id caches; the token never reaches the SPA.
+- Translator (`aktenraum_api.ai.translate`) → Paperless query params using `document_type__id` / `correspondent__id` (the bare names are silently ignored — same gotcha class as `?name=` on `/api/tags/`). Amount bounds are post-filter against `ai_monetary_amount`.
+- Prompt (`aktenraum_api.ai.prompt`) inlines all 20 doc types, the live correspondent list (cap 200), date/amount rules, and four German few-shot exemplars.
+
+### AI: Conversational answer (`/api/ai/answer`)
+
+- `POST /api/ai/answer` runs a two-step pipeline: filter extraction → retrieval → second LLM call that reads the AI metadata of the top matches and produces a German prose answer with citations.
+- Response shape: `{question, answer_de, citations: list[DocumentSummary], filter, total}`. Hallucinated citation ids are dropped server-side (intersection with the searched docs).
+- Retrieval broadens the filter for the answer step: when any structural field (doc_type, correspondent, dates, amounts) is set, we drop the `text` constraint — verbs like "verlängern" / "kostete" land in `text` from the filter LLM but rarely appear in OCR'd content, so keeping them kills recall. `/find` keeps `text` honored.
+- The answer prompt (`aktenraum_api.ai.answer_prompt`) ships three German few-shot exemplars showing question→field mappings ("Wann läuft … ab?" → Ablauf field, "Was hat … gekostet?" → Betrag, "Bis wann muss ich zahlen?" → Fällig).
+- Two LLM backends: the filter-extraction call uses `OLLAMA_MODEL` / `ANTHROPIC_MODEL`; the answer call optionally uses `OLLAMA_ANSWER_MODEL` / `ANTHROPIC_ANSWER_MODEL` so a deployer can pair a fast 8B for filters with a smarter 14B+ for answers (the 8B is too small to read citations reliably).
+
+### Document proxy (`/api/documents/{id}/{preview,download}`)
+
+- `GET /api/documents/{id}/preview` streams the inline PDF preview (`Content-Type: application/pdf`, `Cache-Control: private, max-age=300`). Used by the Ask / Find / Inbox preview modal.
+- `GET /api/documents/{id}/download` streams the original file with the upstream `Content-Disposition` forwarded so the browser saves with the right filename.
+- Both proxy through `aktenraum-api` so the Paperless API token stays server-side. nginx's `proxy_read_timeout` is bumped to 300s in `docker/nginx/nginx.conf` because LLM-backed endpoints can take ~30s on bigger local models.
+
+Without `PAPERLESS_API_TOKEN` set, `/api/ai/*` and `/api/documents/*` respond 503 while `/api/health` and `/api/auth/*` stay green. Same for missing `ANTHROPIC_API_KEY` when `LLM_BACKEND=anthropic`.
 
 ### Inbox review (`/api/inbox/*`)
 

@@ -65,5 +65,21 @@ class Settings(BaseSettings):
     )
     anthropic_api_key: str = Field("", description="Required when LLM_BACKEND=anthropic")
     anthropic_model: str = Field("claude-sonnet-4-6")
+    anthropic_answer_model: str = Field(
+        "",
+        description=(
+            "Model used for the conversational answer step (POST /api/ai/answer). "
+            "Falls back to anthropic_model when empty. Use a stronger model here "
+            "if the default is too cheap to reason over the citations."
+        ),
+    )
     ollama_base_url: str = Field("http://host.docker.internal:11434")
     ollama_model: str = Field("llama3.1:8b")
+    ollama_answer_model: str = Field(
+        "",
+        description=(
+            "Model used for the conversational answer step. Falls back to "
+            "ollama_model when empty. Recommended: a 14B+ class model so it "
+            "can reliably read structured fields and cite by id."
+        ),
+    )

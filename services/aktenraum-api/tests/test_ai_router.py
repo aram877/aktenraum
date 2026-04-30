@@ -70,7 +70,7 @@ async def test_ask_requires_auth(client_factory):
     )
     async with app.router.lifespan_context(app):
         async with AsyncClient(transport=transport, base_url="http://test") as c:
-            resp = await c.post("/api/ai/ask", json={"query": "test"})
+            resp = await c.post("/api/ai/find", json={"query": "test"})
     assert resp.status_code == 401
 
 
@@ -79,7 +79,7 @@ async def test_ask_503_when_paperless_token_unset(client_factory):
     async with app.router.lifespan_context(app):
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             await _login(c)
-            resp = await c.post("/api/ai/ask", json={"query": "test"})
+            resp = await c.post("/api/ai/find", json={"query": "test"})
     assert resp.status_code == 503
     assert "Paperless API token not configured" in resp.json()["detail"]
 
@@ -115,7 +115,7 @@ async def test_ask_query_branch_invokes_llm_and_returns_filter(client_factory):
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             await _login(c)
             resp = await c.post(
-                "/api/ai/ask", json={"query": "Lohn aus 2023"}
+                "/api/ai/find", json={"query": "Lohn aus 2023"}
             )
 
     assert resp.status_code == 200, resp.text
@@ -143,7 +143,7 @@ async def test_ask_filter_branch_skips_llm(client_factory):
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             await _login(c)
             resp = await c.post(
-                "/api/ai/ask",
+                "/api/ai/find",
                 json={"filter": {"document_type": "Rechnung"}},
             )
 
@@ -173,7 +173,7 @@ async def test_ask_validates_one_of(client_factory, payload: dict[str, Any]):
     async with app.router.lifespan_context(app):
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             await _login(c)
-            resp = await c.post("/api/ai/ask", json=payload)
+            resp = await c.post("/api/ai/find", json=payload)
 
     assert resp.status_code == 422
 
@@ -189,7 +189,7 @@ async def test_ask_filter_with_unknown_doctype_is_422(client_factory):
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             await _login(c)
             resp = await c.post(
-                "/api/ai/ask",
+                "/api/ai/find",
                 json={"filter": {"document_type": "Banane"}},
             )
 
@@ -212,7 +212,7 @@ async def test_ask_unknown_correspondent_falls_through_to_text(client_factory):
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             await _login(c)
             resp = await c.post(
-                "/api/ai/ask",
+                "/api/ai/find",
                 json={"filter": {"correspondent": "Vodafone"}},
             )
 

@@ -11,6 +11,7 @@ import { Find } from "./routes/Find";
 import { Home } from "./routes/Home";
 import { Inbox } from "./routes/Inbox";
 import { InboxReview } from "./routes/InboxReview";
+import { Library } from "./routes/Library";
 import { Login } from "./routes/Login";
 import { fetchMe } from "./lib/api";
 import type { QueryClient } from "@tanstack/react-query";
@@ -61,6 +62,53 @@ const findRoute = createRoute({
   component: Find,
 });
 
+type LibrarySearch = {
+  document_type?: string;
+  correspondent?: string;
+  date_from?: string;
+  date_to?: string;
+  min_amount?: number;
+  max_amount?: number;
+  text?: string;
+  page?: number;
+};
+
+const libraryRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/library",
+  beforeLoad: ({ context }) => ensureLoggedIn(context),
+  // Coerce raw URL params (always strings) into the typed shape the page expects.
+  validateSearch: (search: Record<string, unknown>): LibrarySearch => {
+    const out: LibrarySearch = {};
+    const str = (k: keyof LibrarySearch) =>
+      typeof search[k] === "string" && search[k] !== ""
+        ? (search[k] as string)
+        : undefined;
+    const num = (k: keyof LibrarySearch) => {
+      const v = search[k];
+      if (typeof v === "number") return v;
+      if (typeof v === "string" && v !== "") {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : undefined;
+      }
+      return undefined;
+    };
+    out.document_type = str("document_type");
+    out.correspondent = str("correspondent");
+    out.date_from = str("date_from");
+    out.date_to = str("date_to");
+    out.text = str("text");
+    out.min_amount = num("min_amount");
+    out.max_amount = num("max_amount");
+    out.page = num("page");
+    return out;
+  },
+  component: function LibraryWrapper() {
+    const search = libraryRoute.useSearch();
+    return <Library search={search} />;
+  },
+});
+
 const inboxRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/inbox",
@@ -83,6 +131,7 @@ const routeTree = rootRoute.addChildren([
   loginRoute,
   askRoute,
   findRoute,
+  libraryRoute,
   inboxRoute,
   inboxReviewRoute,
 ]);

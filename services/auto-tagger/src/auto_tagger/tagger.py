@@ -2,11 +2,11 @@ import json
 from typing import Any
 
 import structlog
+from aktenraum_core.llm import LLMBackend
+from aktenraum_core.models import DocumentExtraction
+from aktenraum_core.paperless import PaperlessClient
 
 from .config import Settings
-from .llm.base import LLMBackend
-from .models import DocumentExtraction
-from .paperless import PaperlessClient
 
 log = structlog.get_logger()
 

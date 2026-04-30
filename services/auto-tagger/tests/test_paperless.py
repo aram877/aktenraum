@@ -1,7 +1,6 @@
 import pytest
-
-from auto_tagger.paperless import (
-    LIFECYCLE_TAGS,
+from aktenraum_core.paperless import LIFECYCLE_TAGS
+from aktenraum_core.paperless.normalisers import (
     _normalize_date,
     _normalize_monetary,
     _truncate_string_field,

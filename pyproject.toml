@@ -1,0 +1,20 @@
+[tool.uv.workspace]
+members = [
+    "packages/aktenraum-core",
+    "services/auto-tagger",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = [
+    "services/auto-tagger/tests",
+    "packages/aktenraum-core/tests",
+]
+asyncio_mode = "auto"
+addopts = "-ra --strict-markers"

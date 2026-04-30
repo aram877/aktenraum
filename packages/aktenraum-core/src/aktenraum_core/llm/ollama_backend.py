@@ -26,7 +26,6 @@ class OllamaBackend:
         schema = response_schema.model_json_schema()
         schema_str = json.dumps(schema, ensure_ascii=False, indent=2)
 
-        # Inject schema into the system message
         augmented = list(messages)
         schema_instruction = (
             "\n\nAntworte ausschließlich mit validem JSON gemäß diesem Schema:\n"
@@ -54,10 +53,8 @@ class OllamaBackend:
 def _clean_json(text: str) -> str:
     """Strip YAML document markers and markdown code fences that some models prepend."""
     text = text.strip()
-    # Strip leading YAML document-start marker
     if text.startswith("---"):
         text = text.lstrip("-").strip()
-    # Strip markdown code fences: ```json ... ``` or ``` ... ```
     if text.startswith("```"):
         lines = text.splitlines()
         text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])

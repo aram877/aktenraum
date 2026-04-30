@@ -1,8 +1,8 @@
 import json
 
 import pytest
+from aktenraum_core.models import DocumentExtraction, DocumentType, KeyDates
 
-from auto_tagger.models import DocumentExtraction, DocumentType, KeyDates
 from auto_tagger.tagger import (
     _example_payload,
     _format_history_hint,

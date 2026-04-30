@@ -82,8 +82,8 @@ docker compose exec paperless curl -sS -H "Content-Type: application/json" \
 
 ### Paperless API gotchas (each cost a debug session)
 
-- **`?name=` is silently ignored on `/api/tags/`** — it returns the default first page regardless. Use `?name__iexact=<name>` for exact match. The Python-side equality check stays as defence in depth (see `paperless._get_or_create_named`).
-- **Custom fields with `data_type=string` have a hard 128-char DB limit.** Anything longer 400s the entire PATCH. We truncate at the boundary with `_truncate_string_field` (ellipsis at 128 chars).
+- **`?name=` is silently ignored on `/api/tags/`** — it returns the default first page regardless. Use `?name__iexact=<name>` for exact match. The Python-side equality check stays as defence in depth (see `aktenraum_core.paperless.client._get_or_create_named`).
+- **Custom fields with `data_type=string` have a hard 128-char DB limit.** Anything longer 400s the entire PATCH. We truncate at the boundary with `_truncate_string_field` (in `aktenraum_core.paperless.normalisers`, ellipsis at 128 chars).
 - **Custom fields with `data_type=monetary` require the format `<ISO_CODE><amount>`** (e.g., `EUR149.99`) — the German format `149,99 EUR` is rejected. We normalise via `_normalize_monetary` (handles symbols, German/Anglophone thousands separators).
 - **Custom fields with `data_type=date` require strict YYYY-MM-DD.** German `DD.MM.YYYY`, slashes, month-year-only all rejected. We normalise via `_normalize_date`.
 - **Paperless's content-OCR date detector cannot be disabled.** It runs in the consumer (`documents/consumer.py:430`) when the parser ships no PDF metadata date and grabs *any* date from the OCR text. It commonly picks up birthdates from CVs / IDs. Workaround: rely on the AI's `ai_issue_date` being correct so propagation overrides it; for a known recurring bad date use `PAPERLESS_IGNORE_DATES` env var.
@@ -96,8 +96,11 @@ docker compose exec paperless curl -sS -H "Content-Type: application/json" \
 
 ```
 /
+├── pyproject.toml               # uv workspace root (no project of its own)
+├── uv.lock                      # workspace-wide lockfile
+├── .python-version              # 3.13
 ├── .github/
-│   └── workflows/ci.yml         # uv setup → ruff check → pytest
+│   └── workflows/ci.yml         # uv setup → ruff check → pytest (workspace-root)
 ├── docker/
 │   ├── docker-compose.yml       # full stack definition
 │   ├── .env                     # gitignored — Paperless secrets
@@ -109,36 +112,41 @@ docker compose exec paperless curl -sS -H "Content-Type: application/json" \
 │   ├── backup/                  # backup service: Dockerfile, entrypoint.sh, crontab
 │   ├── paperless-scripts/       # post_consume.sh — paperless → auto-tagger webhook trigger
 │   └── systemd/                 # systemd units for future Linux-native deploy
+├── packages/
+│   └── aktenraum-core/          # shared Python lib — uv workspace member
+│       └── src/aktenraum_core/
+│           ├── llm/             # AnthropicBackend, OllamaBackend, base Protocol, factory
+│           ├── paperless/       # client.py (PaperlessClient + LIFECYCLE_TAGS), normalisers.py
+│           └── models/          # DocumentExtraction, DocumentType enum (20 values), KeyDates, coercion validators
 ├── services/
-│   └── auto-tagger/             # Python 3.13, uv, src/auto_tagger/
+│   └── auto-tagger/             # Python 3.13, uv workspace member
 │       ├── src/auto_tagger/
 │       │   ├── config.py        # Pydantic BaseSettings (all env vars)
-│       │   ├── models.py        # DocumentExtraction + DocumentType enum (20 values)
-│       │   ├── paperless.py     # async httpx Paperless API client + LIFECYCLE_TAGS
 │       │   ├── tagger.py        # German prompt + routing + few-shot + history hint
 │       │   ├── propagator.py    # ai-approved → native fields + ai-propagated
 │       │   ├── webhook.py       # aiohttp listener for paperless's post_consume hook
-│       │   ├── main.py          # asyncio.gather of extraction worker, poller, propagation, http server
-│       │   └── llm/             # AnthropicBackend, OllamaBackend, factory
-│       ├── tests/               # pytest suite (97+ tests) — pure-function, no live HTTP
+│       │   └── main.py          # asyncio.gather of extraction worker, poller, propagation, http server
+│       ├── tests/               # pytest suite — pure-function, no live HTTP
 │       │   ├── conftest.py      # `make_settings` fixture used across files
-│       │   ├── test_models.py   # DocumentExtraction validation
-│       │   ├── test_paperless.py# normalisers + truncator + LIFECYCLE_TAGS
+│       │   ├── test_models.py   # DocumentExtraction validation (imports from aktenraum_core.models)
+│       │   ├── test_paperless.py# normalisers + LIFECYCLE_TAGS (imports from aktenraum_core.paperless)
 │       │   ├── test_propagator.py# suggested-tags filter
 │       │   ├── test_tagger.py   # routing matrix + history hint + few-shot rendering
 │       │   └── test_webhook.py  # aiohttp handler (auth, queue, /health)
-│       └── Dockerfile           # python:3.13-slim + uv, non-root user
+│       └── Dockerfile           # python:3.13-slim + uv, non-root user (build context = repo root)
 ├── apps/
-│   └── web/                     # placeholder only — Next.js frontend (not built)
+│   └── web/                     # placeholder — Vite + React SPA scaffolded in Phase 1
 ├── docs/
 │   ├── adr/                     # Architecture Decision Records
+│   ├── plans/
+│   │   └── custom-frontend.md   # multi-phase roadmap for the AI-first SPA replacement
 │   └── runbooks/                # first-time-setup, operations, restore, rotate-keys
 ├── scripts/
 │   ├── setup.sh                 # create ~/aktenraum/ dirs
 │   ├── bootstrap-paperless.sh   # create AI custom fields + tags via API
 │   └── backup.sh                # host-side manual backup (mirrors container logic)
 └── openspec/
-    └── changes/                 # aktenraum-foundation, backup-timer (completed)
+    └── changes/                 # aktenraum-foundation, backup-timer (completed) + extract-aktenraum-core (in flight)
 ```
 
 ---
@@ -276,7 +284,7 @@ openspec instructions <id> --change "<name>"  # get writing instructions per art
 ```
 
 Artifacts: `proposal.md` → `design.md` + `specs/` → `tasks.md` → implement.
-Completed changes: `aktenraum-foundation`, `backup-timer`.
+Completed changes: `aktenraum-foundation`, `backup-timer`. In flight: `extract-aktenraum-core` (foundation for the custom-frontend roadmap; see `docs/plans/custom-frontend.md`).
 
 Use `/openspec-propose` skill to create a full change in one step.
 Use `/opsx:apply` skill to implement tasks from an approved change.
@@ -330,23 +338,26 @@ Use `/opsx:apply` skill to implement tasks from an approved change.
 
 ## Auto-tagger development workflow
 
+Run all Python commands from the **repository root** — it is the uv workspace root and the workspace shares one `uv.lock` and one `.venv` across `packages/aktenraum-core` and `services/auto-tagger`.
+
 ```bash
-cd services/auto-tagger
-uv sync                          # install incl. dev deps (pytest, ruff, etc.)
-uv run pytest                    # ~0.15s, pure-function tests
-uv run ruff check                # lint
+uv sync                          # install incl. dev deps (pytest, ruff, etc.) for both members
+uv run pytest                    # full suite across both members (testpaths set in root pyproject.toml)
+uv run ruff check                # lint both members
 ```
 
-After Python changes: `cd docker && docker compose up -d --build auto-tagger` (the live container won't pick up source edits otherwise).
+After Python changes: `cd docker && docker compose up -d --build auto-tagger`. The Dockerfile build context is the repo root, so edits to either `services/auto-tagger/src/` or `packages/aktenraum-core/src/` are picked up by the rebuild.
 
 Test layout (all pure-function, no live HTTP):
-- `tests/conftest.py` — `make_settings` fixture
-- `tests/test_paperless.py` — normalisers, truncator, lifecycle tags
-- `tests/test_tagger.py` — routing matrix, history hint, few-shot rendering, `_split_csv`
-- `tests/test_propagator.py` — suggested-tags filter
-- `tests/test_models.py` — Pydantic validation (enum, range, coerce)
-- `tests/test_webhook.py` — aiohttp handler (auth, queue, /health) via `TestClient`
+- `services/auto-tagger/tests/conftest.py` — `make_settings` fixture
+- `services/auto-tagger/tests/test_paperless.py` — normalisers, truncator, lifecycle tags (imports from `aktenraum_core.paperless` + `aktenraum_core.paperless.normalisers`)
+- `services/auto-tagger/tests/test_tagger.py` — routing matrix, history hint, few-shot rendering, `_split_csv`
+- `services/auto-tagger/tests/test_propagator.py` — suggested-tags filter
+- `services/auto-tagger/tests/test_models.py` — Pydantic validation (imports from `aktenraum_core.models`)
+- `services/auto-tagger/tests/test_webhook.py` — aiohttp handler (auth, queue, /health) via `TestClient`
 
-CI (`.github/workflows/ci.yml`) runs ruff + pytest on push and PR. Action versions are `actions/checkout@v6` and `astral-sh/setup-uv@v7` — both Node-24-runtime to avoid the Node-20 deprecation.
+`aktenraum-core` does not yet have its own test suite; tests for the moved modules continue to live under `services/auto-tagger/tests/` and are kept there until `aktenraum-core` grows core-only behaviour worth covering separately.
+
+CI (`.github/workflows/ci.yml`) runs ruff + pytest on push and PR from the workspace root. Action versions are `actions/checkout@v6` and `astral-sh/setup-uv@v7` — both Node-24-runtime to avoid the Node-20 deprecation.
 
 The `tagger.py` per-file `E501` ruff ignore is intentional: `SYSTEM_PROMPT` is a long German-text block where line wrapping damages the prompt as content.

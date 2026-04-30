@@ -19,6 +19,7 @@ services:
       - ~/aktenraum/media:/usr/src/paperless/media
       - ~/aktenraum/export:/usr/src/paperless/export
       - ~/aktenraum/consume:/usr/src/paperless/consume
+      - ./paperless-scripts:/usr/src/paperless/scripts:ro
     env_file:
       - path: .env
         required: false
@@ -28,6 +29,8 @@ services:
       PAPERLESS_TIKA_ENABLED: "1"
       PAPERLESS_TIKA_ENDPOINT: http://tika:9998
       PAPERLESS_TIKA_GOTENBERG_ENDPOINT: http://gotenberg:3000
+      PAPERLESS_POST_CONSUME_SCRIPT: /usr/src/paperless/scripts/post_consume.sh
+      AKTENRAUM_WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
     networks:
       - internal
 
@@ -80,6 +83,10 @@ services:
     env_file:
       - path: auto-tagger.env
         required: false
+    expose:
+      # HTTP listener for paperless's post_consume hook. Internal-network only;
+      # never published to the host.
+      - "8001"
     networks:
       - internal
 

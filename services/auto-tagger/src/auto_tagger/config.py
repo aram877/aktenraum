@@ -62,6 +62,18 @@ class Settings(BaseSettings):
     # roughly 500-700 tokens per example on top of the base prompt.
     few_shot_examples: int = Field(0, ge=0, le=5)
 
+    # HTTP webhook listener — Paperless's post_consume_script POSTs the
+    # document id here so extraction starts within seconds instead of waiting
+    # for the next 30s poll cycle. The poller still runs as a safety net for
+    # missed events (auto-tagger restart, network blip, paperless workflow
+    # not yet wired). Disable to run polling-only.
+    enable_http_server: bool = Field(True)
+    http_port: int = Field(8001, ge=1, le=65535)
+    # Optional shared secret. When set, requests must carry the same value
+    # in `X-Aktenraum-Secret`; missing/wrong header → 401. Empty disables
+    # auth (fine for the default localhost-only / internal-network setup).
+    webhook_secret: str = Field("")
+
     @field_validator("auto_approve_types", mode="before")
     @classmethod
     def _split_csv(cls, v: object) -> object:

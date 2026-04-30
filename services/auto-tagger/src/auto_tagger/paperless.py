@@ -1,4 +1,5 @@
 import re
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -38,6 +39,40 @@ def _truncate_string_field(value: str | None) -> str | None:
     if len(value) <= _PAPERLESS_STRING_MAX:
         return value
     return value[: _PAPERLESS_STRING_MAX - 1] + "…"
+
+
+# Paperless's `date` custom field requires strict YYYY-MM-DD; the LLM mostly
+# obeys the system prompt but occasionally emits German DD.MM.YYYY or partial
+# month-year values. We try a small set of common formats and drop the field
+# (return None) if none parse — better to lose a date than fail the whole PATCH.
+_DATE_FORMATS = (
+    "%Y-%m-%d",
+    "%d.%m.%Y",
+    "%d/%m/%Y",
+    "%Y/%m/%d",
+    "%d.%m.%y",
+    "%m.%Y",  # German month-year (e.g. "12.2024") → falls through, see below
+    "%m/%Y",
+    "%Y-%m",  # ISO month-year
+)
+
+
+def _normalize_date(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    for fmt in _DATE_FORMATS:
+        try:
+            parsed = datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+        # For month-year-only formats, anchor the day to the 1st so Paperless
+        # still gets a valid date. Acceptable approximation for documents that
+        # only specify a month (e.g. Lohnsteuerbescheinigung "12-2024").
+        return parsed.strftime("%Y-%m-%d")
+    return None
 
 
 def _normalize_monetary(value: str | None) -> str | None:
@@ -121,6 +156,13 @@ class PaperlessClient:
         resp.raise_for_status()
         return resp.json().get("results", [])
 
+    async def get_document(self, doc_id: int) -> dict:
+        """Fetch a single document by id. Returns the full doc dict including
+        content and custom_fields."""
+        resp = await self._client.get(f"/api/documents/{doc_id}/")
+        resp.raise_for_status()
+        return resp.json()
+
     async def get_document_content(self, doc_id: int) -> str:
         resp = await self._client.get(f"/api/documents/{doc_id}/")
         resp.raise_for_status()
@@ -144,9 +186,9 @@ class PaperlessClient:
         custom_fields = [
             fv("ai_document_type", _truncate_string_field(extraction.document_type.value)),
             fv("ai_correspondent", _truncate_string_field(extraction.correspondent)),
-            fv("ai_issue_date", extraction.key_dates.issue),
-            fv("ai_due_date", extraction.key_dates.due),
-            fv("ai_expiry_date", extraction.key_dates.expiry),
+            fv("ai_issue_date", _normalize_date(extraction.key_dates.issue)),
+            fv("ai_due_date", _normalize_date(extraction.key_dates.due)),
+            fv("ai_expiry_date", _normalize_date(extraction.key_dates.expiry)),
             fv("ai_monetary_amount", _normalize_monetary(extraction.monetary_amount)),
             fv(
                 "ai_reference_numbers",

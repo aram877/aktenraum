@@ -9,9 +9,13 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 WORKDIR /app
 
 # Copy workspace manifests first so the dependency layer caches across source changes.
+# uv requires every workspace member's pyproject.toml to be present for the
+# install plan to resolve, even members the auto-tagger doesn't import — so we
+# copy aktenraum-api's manifest too without copying its source.
 COPY pyproject.toml uv.lock ./
 COPY packages/aktenraum-core/pyproject.toml packages/aktenraum-core/pyproject.toml
 COPY services/auto-tagger/pyproject.toml services/auto-tagger/pyproject.toml
+COPY services/aktenraum-api/pyproject.toml services/aktenraum-api/pyproject.toml
 
 # Install dependencies (workspace members not yet copied; uv installs deps only).
 RUN uv sync --frozen --no-dev --no-install-workspace

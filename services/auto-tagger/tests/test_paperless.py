@@ -1,9 +1,11 @@
 import pytest
 from aktenraum_core.paperless import LIFECYCLE_TAGS
 from aktenraum_core.paperless.normalisers import (
+    LONGTEXT_FIELDS,
     _normalize_date,
     _normalize_monetary,
     _truncate_string_field,
+    truncate_for_field,
 )
 
 
@@ -65,6 +67,37 @@ class TestTruncateStringField:
         assert len(result) == 128
         assert result.endswith("…")
         assert result[:-1] == "x" * 127
+
+
+class TestTruncateForField:
+    """truncate_for_field is what the AI write paths actually call. It applies
+    the 128-char clip to `string` Paperless fields and skips longtext fields
+    so multi-sentence summaries survive intact.
+    """
+
+    def test_longtext_field_is_not_truncated(self):
+        long_summary = (
+            "Bei dem vorliegenden Dokument handelt es sich um eine "
+            "Teilnahmebescheinigung. " * 8
+        )
+        assert len(long_summary) > 128
+        assert truncate_for_field("ai_summary_de", long_summary) == long_summary
+
+    def test_string_field_still_gets_truncated(self):
+        long = "x" * 200
+        out = truncate_for_field("ai_correspondent", long)
+        assert len(out) == 128
+        assert out.endswith("…")
+
+    def test_longtext_set_is_explicit(self):
+        # The set is intentionally tiny — adding a longtext field requires a
+        # paired bootstrap-script change, so we want the test to flinch when
+        # someone widens the set without thinking.
+        assert LONGTEXT_FIELDS == {"ai_summary_de"}
+
+    def test_none_passthrough_for_both_kinds(self):
+        assert truncate_for_field("ai_summary_de", None) is None
+        assert truncate_for_field("ai_correspondent", None) is None
 
 
 class TestNormalizeDate:

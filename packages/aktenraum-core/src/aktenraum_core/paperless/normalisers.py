@@ -4,11 +4,18 @@ from datetime import datetime
 _CURRENCY_CODES = ("EUR", "USD", "GBP", "CHF", "JPY")
 _CURRENCY_SYMBOLS = {"€": "EUR", "$": "USD", "£": "GBP", "¥": "JPY"}
 
-# Paperless `string` custom fields are backed by a 128-char DB column. Anything
-# longer is rejected with a 400. We truncate with an ellipsis so the PATCH still
-# succeeds; a richer storage model (e.g. Paperless notes for summary_de) is a
-# separate piece of work.
+# Paperless `string` custom fields are backed by a 128-char DB column.
+# Anything longer is rejected with a 400. We truncate with an ellipsis so the
+# PATCH still succeeds. The complementary `longtext` data_type (Paperless 2.x+)
+# has no length limit; fields backed by it must NOT be truncated, otherwise
+# multi-sentence summaries get clipped to 128 chars.
 _PAPERLESS_STRING_MAX = 128
+
+# AI custom-field names whose Paperless data_type is `longtext`. Listed
+# explicitly so the truncation helpers stay pure / context-free — callers do
+# not need to pass field metadata. Update this set whenever a new longtext
+# AI field is introduced (or the bootstrap script is changed).
+LONGTEXT_FIELDS = frozenset({"ai_summary_de"})
 
 
 def _truncate_string_field(value: str | None) -> str | None:
@@ -17,6 +24,17 @@ def _truncate_string_field(value: str | None) -> str | None:
     if len(value) <= _PAPERLESS_STRING_MAX:
         return value
     return value[: _PAPERLESS_STRING_MAX - 1] + "…"
+
+
+def truncate_for_field(name: str, value: str | None) -> str | None:
+    """Apply the 128-char truncation only when the field is backed by `string`.
+
+    Use this from any boundary that writes to Paperless's custom_fields PATCH
+    so longtext fields (like `ai_summary_de`) survive intact.
+    """
+    if name in LONGTEXT_FIELDS:
+        return value
+    return _truncate_string_field(value)
 
 
 # Paperless's `date` custom field requires strict YYYY-MM-DD; the LLM mostly

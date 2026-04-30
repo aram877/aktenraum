@@ -1,7 +1,6 @@
 import pytest
+from aktenraum_core.models import DocumentExtraction, DocumentType, KeyDates
 from pydantic import ValidationError
-
-from auto_tagger.models import DocumentExtraction, DocumentType, KeyDates
 
 
 class TestDocumentTypeEnum:

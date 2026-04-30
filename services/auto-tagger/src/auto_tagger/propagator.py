@@ -1,6 +1,5 @@
 import structlog
-
-from .paperless import LIFECYCLE_TAGS, PaperlessClient
+from aktenraum_core.paperless import LIFECYCLE_TAGS, PaperlessClient
 
 log = structlog.get_logger()
 

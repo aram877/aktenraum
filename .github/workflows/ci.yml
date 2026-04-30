@@ -11,12 +11,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  auto-tagger:
-    name: auto-tagger (lint + tests)
+  python:
+    name: python (lint + tests)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: services/auto-tagger
     steps:
       - uses: actions/checkout@v6
 
@@ -24,13 +21,13 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
-          # Cache key includes the lockfile so a dep change invalidates the cache.
-          cache-dependency-glob: services/auto-tagger/uv.lock
+          # Cache key includes the workspace lockfile so a dep change invalidates the cache.
+          cache-dependency-glob: uv.lock
 
       - name: Install Python 3.13
         run: uv python install 3.13
 
-      - name: Sync dependencies (incl. dev group)
+      - name: Sync workspace (incl. dev group)
         run: uv sync --frozen
 
       - name: Lint

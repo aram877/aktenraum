@@ -75,8 +75,8 @@ services:
 
   auto-tagger:
     build:
-      context: ../services/auto-tagger
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: services/auto-tagger/Dockerfile
     restart: unless-stopped
     depends_on:
       - paperless

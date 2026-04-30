@@ -2,11 +2,10 @@ import asyncio
 import logging
 
 import structlog
+from aktenraum_core.llm import LLMBackend, create_backend
+from aktenraum_core.paperless import LIFECYCLE_TAGS, PaperlessClient
 
 from .config import Settings
-from .llm.base import LLMBackend
-from .llm.factory import create_backend
-from .paperless import LIFECYCLE_TAGS, PaperlessClient
 from .propagator import process_approved_document
 from .tagger import process_document
 from .webhook import run_http_server
@@ -137,7 +136,13 @@ async def run() -> None:
         http_server_enabled=settings.enable_http_server,
     )
 
-    backend = create_backend(settings)
+    backend = create_backend(
+        settings.llm_backend,
+        anthropic_api_key=settings.anthropic_api_key or None,
+        anthropic_model=settings.anthropic_model,
+        ollama_base_url=settings.ollama_base_url,
+        ollama_model=settings.ollama_model,
+    )
     queue: asyncio.Queue[int] = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
 
     async with PaperlessClient(

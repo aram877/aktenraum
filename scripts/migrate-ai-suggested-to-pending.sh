@@ -7,6 +7,12 @@ set -euo pipefail
 PAPERLESS_URL="${PAPERLESS_BASE_URL:-http://localhost:8000}"
 TOKEN="${PAPERLESS_API_TOKEN:?PAPERLESS_API_TOKEN is required}"
 
+PYTHON="$(command -v python3 || command -v python || true)"
+if [ -z "${PYTHON}" ]; then
+  echo "Error: python3 or python is required on PATH" >&2
+  exit 1
+fi
+
 AUTH="-H \"Authorization: Token ${TOKEN}\""
 JSON="-H \"Content-Type: application/json\""
 
@@ -21,7 +27,7 @@ echo
 # Resolve tag IDs
 # --------------------------------------------------------------------------
 SUGGESTED_ID=$(_get "${PAPERLESS_URL}/api/tags/?name=ai-suggested" \
-  | python -c "import sys,json; r=json.load(sys.stdin); t=[x for x in r['results'] if x['name']=='ai-suggested']; print(t[0]['id'] if t else '')")
+  | "${PYTHON}" -c "import sys,json; r=json.load(sys.stdin); t=[x for x in r['results'] if x['name']=='ai-suggested']; print(t[0]['id'] if t else '')")
 
 if [ -z "${SUGGESTED_ID}" ]; then
   echo "No ai-suggested tag found — nothing to migrate."
@@ -29,7 +35,7 @@ if [ -z "${SUGGESTED_ID}" ]; then
 fi
 
 PENDING_ID=$(_get "${PAPERLESS_URL}/api/tags/?name=ai-pending" \
-  | python -c "import sys,json; r=json.load(sys.stdin); t=[x for x in r['results'] if x['name']=='ai-pending']; print(t[0]['id'] if t else '')")
+  | "${PYTHON}" -c "import sys,json; r=json.load(sys.stdin); t=[x for x in r['results'] if x['name']=='ai-pending']; print(t[0]['id'] if t else '')")
 
 if [ -z "${PENDING_ID}" ]; then
   echo "ERROR: ai-pending tag not found. Run bootstrap-paperless.sh first."
@@ -49,8 +55,8 @@ MIGRATED=0
 
 while true; do
   RESPONSE=$(_get "${PAPERLESS_URL}/api/documents/?tags__id__all=${SUGGESTED_ID}&page_size=25&page=${PAGE}")
-  COUNT=$(echo "$RESPONSE" | python -c "import sys,json; print(json.load(sys.stdin)['count'])")
-  DOCS=$(echo "$RESPONSE" | python -c "import sys,json; d=json.load(sys.stdin); [print(doc['id'], json.dumps(doc['tags'])) for doc in d['results']]")
+  COUNT=$(echo "$RESPONSE" | "${PYTHON}" -c "import sys,json; print(json.load(sys.stdin)['count'])")
+  DOCS=$(echo "$RESPONSE" | "${PYTHON}" -c "import sys,json; d=json.load(sys.stdin); [print(doc['id'], json.dumps(doc['tags'])) for doc in d['results']]")
 
   [ -z "$DOCS" ] && break
   TOTAL=$COUNT
@@ -60,7 +66,7 @@ while true; do
     CURRENT_TAGS=$(echo "$line" | sed "s/^${DOC_ID} //")
 
     # Build new tag list: replace suggested with pending, keep others
-    NEW_TAGS=$(echo "$CURRENT_TAGS" | python -c "
+    NEW_TAGS=$(echo "$CURRENT_TAGS" | "${PYTHON}" -c "
 import sys, json
 tags = json.load(sys.stdin)
 tags = [t for t in tags if t != ${SUGGESTED_ID}]
@@ -75,7 +81,7 @@ print(json.dumps(tags))
   done <<< "$DOCS"
 
   # Check if there are more pages
-  HAS_NEXT=$(echo "$RESPONSE" | python -c "import sys,json; d=json.load(sys.stdin); print('yes' if d.get('next') else 'no')")
+  HAS_NEXT=$(echo "$RESPONSE" | "${PYTHON}" -c "import sys,json; d=json.load(sys.stdin); print('yes' if d.get('next') else 'no')")
   [ "$HAS_NEXT" = "no" ] && break
   PAGE=$((PAGE + 1))
 done

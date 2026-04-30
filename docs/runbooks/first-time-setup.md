@@ -63,22 +63,34 @@ PAPERLESS_API_TOKEN=<your-token> \
 bash scripts/bootstrap-paperless.sh
 ```
 
-This creates the 12 AI custom fields and the `ai-suggested` / `ai-error` tags. Safe to run multiple times.
+This creates the 12 AI custom fields and the six lifecycle tags (`ai-pending`, `ai-approved`, `ai-rejected`, `ai-propagated`, `ai-propagation-error`, `ai-error`). Safe to run multiple times.
 
 ### 7. Set up backup
 
+The default deployment uses the Dockerised backup service (compose service `backup`), which runs crond inside a container and fires `entrypoint.sh` daily at 02:00. Configure it with `docker/backup.env` as described in step 2; no further setup is needed.
+
+If you prefer a Linux-native systemd timer instead (e.g., on a host without Docker for backups, or to run the host-side `scripts/backup.sh`), do the following:
+
 ```bash
-# Source your backup environment (or set these vars in your shell)
+# 1. Test a manual backup
 export RESTIC_PASSWORD=<choose-a-strong-passphrase>
 export PAPERLESS_DBUSER=paperless
 export PAPERLESS_DBPASS=<same-as-docker/.env>
-
-# Run the first backup manually to verify it works
 bash scripts/backup.sh
 
-# Install the systemd timer for daily automated backups
-sudo cp docker/systemd/aktenraum-backup.service /etc/systemd/system/
-sudo cp docker/systemd/aktenraum-backup.timer   /etc/systemd/system/
+# 2. Create the env file the systemd unit reads
+cat > ~/aktenraum/.backup.env <<EOF
+RESTIC_PASSWORD=${RESTIC_PASSWORD}
+PAPERLESS_DBUSER=${PAPERLESS_DBUSER}
+PAPERLESS_DBPASS=${PAPERLESS_DBPASS}
+EOF
+chmod 600 ~/aktenraum/.backup.env
+
+# 3. Substitute the repo path placeholder, then install the unit + timer
+REPO_PATH="$(pwd)"
+sed "s|__REPO_PATH__|${REPO_PATH}|" docker/systemd/aktenraum-backup.service \
+  | sudo tee /etc/systemd/system/aktenraum-backup@${USER}.service > /dev/null
+sudo cp docker/systemd/aktenraum-backup.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now aktenraum-backup.timer
 systemctl status aktenraum-backup.timer
@@ -88,7 +100,7 @@ Store your `RESTIC_PASSWORD` securely (password manager). **You cannot restore b
 
 ### 8. Test ingestion
 
-Drop a PDF into `~/aktenraum/consume/`. Within a minute it should appear in Paperless with OCR text. Within 30–60 seconds of that, the auto-tagger should add `ai_*` custom fields and the `ai-suggested` tag.
+Drop a PDF into `~/aktenraum/consume/`. Within a minute it should appear in Paperless with OCR text. Within 30–60 seconds of that, the auto-tagger should add `ai_*` custom fields and the `ai-pending` tag.
 
 ---
 

@@ -5,7 +5,7 @@
 - A fresh Linux host with Docker, Docker Compose v2, and `restic` installed
 - Access to the restic repository (local disk or B2)
 - Your `RESTIC_PASSWORD` (the passphrase you set during first-time setup)
-- This repository cloned to `~/Development/document-organizer`
+- This repository cloned to a directory of your choice (referred to below as `<repo>`)
 
 ---
 

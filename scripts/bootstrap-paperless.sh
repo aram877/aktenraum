@@ -7,6 +7,12 @@ set -euo pipefail
 PAPERLESS_URL="${PAPERLESS_BASE_URL:-http://localhost:8000}"
 TOKEN="${PAPERLESS_API_TOKEN:?PAPERLESS_API_TOKEN is required}"
 
+PYTHON="$(command -v python3 || command -v python || true)"
+if [ -z "${PYTHON}" ]; then
+  echo "Error: python3 or python is required on PATH" >&2
+  exit 1
+fi
+
 AUTH_HEADER="Authorization: Token ${TOKEN}"
 JSON_HEADER="Content-Type: application/json"
 
@@ -19,10 +25,12 @@ ensure_custom_field() {
   local name="$1"
   local data_type="$2"  # string | integer | float | date | boolean | url | documentlink | monetary | select
 
+  # Paperless ?name= filter does substring (icontains) matching, not exact.
+  # Filter the results in Python by exact name to avoid false positives.
   existing=$(curl -sf \
     -H "${AUTH_HEADER}" \
     "${PAPERLESS_URL}/api/custom_fields/?name=${name}" \
-    | python -c "import sys,json; r=json.load(sys.stdin); print(r['count'])")
+    | "${PYTHON}" -c "import sys,json; r=json.load(sys.stdin); print(sum(1 for x in r['results'] if x['name']==sys.argv[1]))" "${name}")
 
   if [ "${existing}" -gt 0 ]; then
     echo "  [skip] custom field already exists: ${name}"
@@ -43,10 +51,12 @@ ensure_tag() {
   local name="$1"
   local color="${2:-}"
 
+  # Paperless ?name= filter does substring (icontains) matching, not exact.
+  # Filter the results in Python by exact name to avoid false positives.
   existing=$(curl -sf \
     -H "${AUTH_HEADER}" \
     "${PAPERLESS_URL}/api/tags/?name=${name}" \
-    | python -c "import sys,json; r=json.load(sys.stdin); print(r['count'])")
+    | "${PYTHON}" -c "import sys,json; r=json.load(sys.stdin); print(sum(1 for x in r['results'] if x['name']==sys.argv[1]))" "${name}")
 
   if [ "${existing}" -gt 0 ]; then
     echo "  [skip] tag already exists: ${name}"

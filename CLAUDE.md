@@ -334,9 +334,10 @@ Use `/opsx:apply` skill to implement tasks from an approved change.
 | Few-shot exemplars from propagated corpus | ✅ Available (`FEW_SHOT_EXAMPLES > 0`) |
 | Per-correspondent history hint | ✅ Default on |
 | Webhook trigger from paperless `post_consume_script` | ✅ Running |
-| Pytest suite + ruff + GitHub Actions CI | ✅ Running (151 tests) |
+| Pytest suite + ruff + GitHub Actions CI | ✅ Running (181 tests) |
 | Custom Vite + React SPA shell | ✅ Running (`apps/web`, served by nginx on `:8080`) |
 | Natural-language search (`/api/ai/ask` + `/ask` page) | ✅ Phase 2 — closed-enum SearchFilter, German prompt, editable filter chips |
+| Inbox review queue (`/api/inbox/*` + `/inbox` + `/inbox/$id`) | ✅ Phase 3 — two-pane PDF preview, editable AI fields, approve/reject, keyboard shortcuts |
 | Semantic search / RAG | 🔲 Planned (Phase 6, only if structured-filter search hits a ceiling) |
 | HTTPS / Tailscale | 🔲 Planned (TODO in runbook) |
 | Backup integrity checks (`restic check`) | 🔲 Planned |
@@ -406,5 +407,13 @@ For a full-stack dev cycle, keep the compose stack up (`docker compose up -d`) s
 - Prompt (`aktenraum_api.ai.prompt`) inlines all 20 doc types, the live correspondent list (cap 200), date/amount rules, and four German few-shot exemplars. Pure function.
 - LLM backend reuses `aktenraum_core.llm.create_backend(...)` — same env knobs as the auto-tagger. Backend created per request (cheap; no pooling needed at personal-DMS scale).
 - Without `PAPERLESS_API_TOKEN` set, `/api/ai/*` responds 503 while `/api/health` and `/api/auth/*` stay green. Same for missing `ANTHROPIC_API_KEY` when `LLM_BACKEND=anthropic`.
+
+### Inbox review (`/api/inbox/*`)
+
+- `GET /api/inbox/` paginated list of `ai-pending` documents (oldest-first); `GET /api/inbox/{id}` full review payload (12 ai_* fields + content excerpt + tags); `PATCH /api/inbox/{id}` partial field update; `POST /api/inbox/{id}/approve` (optional patch body, then swaps `ai-pending` → `ai-approved`); `POST /api/inbox/{id}/reject`; `GET /api/inbox/{id}/preview` streams the PDF with `Content-Type: application/pdf`, `Cache-Control: private, max-age=300`. All auth-gated.
+- Lifecycle-tag swap is a single `tags=[…]` PATCH planned by `_plan_tag_swap` (pure helper). Idempotent re-approve / re-reject is a no-op.
+- **Paperless `custom_fields` PATCH is full-array replace**, not partial upsert — sending only `{ai_correspondent: …}` would wipe the other 11 fields. The gateway's `patch_document_custom_fields` reads the existing array, merges the requested updates by field id (`_merge_custom_fields`), then writes back. Same gotcha class as the silent `?name=` and `?correspondent=` filters.
+- Field-update normalisation reuses `aktenraum_core.paperless.normalisers` — date fields go strict ISO, monetary becomes `<ISO><amount>`, strings get truncated to 128 chars. Server-side at the boundary; client cannot bypass.
+- SPA `/inbox` lists pending docs; `/inbox/$id` is a two-pane review (PDF iframe via the proxy + editable form). Keyboard shortcuts: `a` Approve, `r` Reject, `j`/`k` next/prev, `Esc` back to list. Auto-advance to the next pending doc on action.
 
 The `tagger.py` per-file `E501` ruff ignore is intentional: `SYSTEM_PROMPT` is a long German-text block where line wrapping damages the prompt as content.

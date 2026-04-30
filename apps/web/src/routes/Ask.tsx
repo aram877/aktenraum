@@ -1,22 +1,13 @@
-import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { FilterChips } from "../components/FilterChips";
+import { Nav } from "../components/Nav";
 import type { AskResponse, DocumentSummary, SearchFilter } from "../lib/ai";
 import { useAsk } from "../lib/ai";
-import { useLogout, useMe } from "../lib/auth";
 
 export function Ask() {
-  const me = useMe();
-  const logout = useLogout();
-  const navigate = useNavigate();
   const askMutation = useAsk();
   const [query, setQuery] = useState("");
-
-  const onLogout = async () => {
-    await logout.mutateAsync();
-    await navigate({ to: "/login" });
-  };
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,28 +27,7 @@ export function Ask() {
 
   return (
     <div className="flex min-h-full flex-col">
-      <header className="flex items-center justify-between border-b border-neutral-200 bg-white px-6 py-3">
-        <div className="flex items-center gap-6">
-          <Link to="/" className="text-sm font-semibold tracking-tight">
-            aktenraum
-          </Link>
-          <nav className="flex items-center gap-4 text-sm text-neutral-600">
-            <Link to="/ask" className="font-medium text-neutral-900">
-              Ask AI
-            </Link>
-          </nav>
-        </div>
-        <div className="flex items-center gap-3 text-sm text-neutral-700">
-          <span>{me.data?.username ?? "…"}</span>
-          <button
-            onClick={onLogout}
-            disabled={logout.isPending}
-            className="rounded-md border border-neutral-300 px-3 py-1 text-xs hover:bg-neutral-100 disabled:opacity-60"
-          >
-            Sign out
-          </button>
-        </div>
-      </header>
+      <Nav active="ask" />
       <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-8">
         <h1 className="text-lg font-semibold tracking-tight">Ask AI</h1>
         <p className="mt-1 text-sm text-neutral-600">

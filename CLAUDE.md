@@ -4,16 +4,18 @@ Self-hosted personal DMS built on Paperless-ngx with an AI classification layer.
 
 ---
 
-## Stack (7 services — all in `docker/docker-compose.yml`)
+## Stack (9 services — all in `docker/docker-compose.yml`)
 
 | Service | Image | Role | Port |
 |---|---|---|---|
-| paperless | ghcr.io/paperless-ngx/paperless-ngx | DMS core, OCR, web UI | `127.0.0.1:8000` |
-| postgres | postgres:15 | Paperless database | internal |
+| paperless | ghcr.io/paperless-ngx/paperless-ngx | DMS core, OCR, admin UI | `127.0.0.1:8000` |
+| postgres | postgres:15 | Hosts both `paperless` and `aktenraum` databases | internal |
 | redis | redis:7 | Paperless task queue | internal |
 | gotenberg | gotenberg/gotenberg:8 | PDF conversion | internal |
 | tika | apache/tika | Document parsing | internal |
-| auto-tagger | local build | AI classification service | internal |
+| auto-tagger | local build | AI extraction worker (event-driven) | internal |
+| aktenraum-api | local build | FastAPI HTTP API for the SPA (auth, AI features) | internal (8002) |
+| nginx | local build | Edge: serves SPA static + reverse-proxies `/api/*` | `127.0.0.1:8080` (override via `AKTENRAUM_WEB_PORT`) |
 | backup | local build | Daily restic backup via crond | internal |
 
 > **Note**: use `apache/tika` — NOT `ghcr.io/paperless-ngx/tika` (requires auth, returns 403).
@@ -42,9 +44,12 @@ docker compose logs --tail=50 paperless
 
 | What | Where |
 |---|---|
-| Paperless URL | http://localhost:8000 |
+| Paperless URL | http://localhost:8000 (admin UI, only used for backend tasks) |
+| aktenraum URL | http://localhost:8080 (SPA — primary user interface) |
 | Paperless admin | `PAPERLESS_ADMIN_USER` / `PAPERLESS_ADMIN_PASSWORD` in `docker/.env` |
-| Paperless DB password | `PAPERLESS_DBPASS` in `docker/.env` |
+| aktenraum admin | `BOOTSTRAP_USERNAME` / `BOOTSTRAP_PASSWORD` in `docker/aktenraum-api.env` (seeded on first start; ignored once a user exists) |
+| aktenraum JWT signing | `JWT_SECRET` in `docker/aktenraum-api.env` (`openssl rand -base64 32`) |
+| Paperless DB password | `PAPERLESS_DBPASS` in `docker/.env` (also used by aktenraum-api) |
 | Paperless API token | `PAPERLESS_API_TOKEN` in `docker/auto-tagger.env` (mint via `POST /api/token/` after first paperless boot — example below) |
 | Restic passphrase | `RESTIC_PASSWORD` in `docker/backup.env` |
 | Webhook secret | `WEBHOOK_SECRET` in `docker/.env` (passed to paperless's post_consume hook) AND `docker/auto-tagger.env` (must match) |
@@ -358,6 +363,35 @@ Test layout (all pure-function, no live HTTP):
 
 `aktenraum-core` does not yet have its own test suite; tests for the moved modules continue to live under `services/auto-tagger/tests/` and are kept there until `aktenraum-core` grows core-only behaviour worth covering separately.
 
-CI (`.github/workflows/ci.yml`) runs ruff + pytest on push and PR from the workspace root. Action versions are `actions/checkout@v6` and `astral-sh/setup-uv@v7` — both Node-24-runtime to avoid the Node-20 deprecation.
+CI (`.github/workflows/ci.yml`) runs two jobs on push and PR: `python` (ruff + pytest from the workspace root) and `web` (`pnpm install` + lint + build). Action versions are `actions/checkout@v6` and `astral-sh/setup-uv@v7` — both Node-24-runtime to avoid the Node-20 deprecation.
+
+---
+
+## Frontend (SPA) development workflow
+
+The SPA lives at `apps/web/` (Vite + React 19 + TypeScript + Tailwind v4 + TanStack Router + TanStack Query). All commands run from the repo root.
+
+```bash
+pnpm install                              # install workspace deps
+pnpm --filter @aktenraum/web dev          # vite dev server on :5173
+                                          # proxies /api → http://localhost:8080 (the running nginx)
+pnpm --filter @aktenraum/web build        # production build into apps/web/dist
+pnpm --filter @aktenraum/web lint         # eslint
+pnpm --filter @aktenraum/web generate:api-types
+                                          # codegen TS types from /api/openapi.json (compose stack must be running)
+```
+
+For a full-stack dev cycle, keep the compose stack up (`docker compose up -d`) so the API is reachable, then run `pnpm dev` for hot-reloaded SPA changes. Production deploys go through the nginx container, which builds the SPA in a multi-stage Docker build — no Node runtime needed at deploy time.
+
+---
+
+## aktenraum-api notes
+
+- FastAPI app factory at `aktenraum_api.main:create_app()`. The CLI entrypoint (`aktenraum-api`) calls it and runs uvicorn on port 8002.
+- Auth: HS256 JWT in an httpOnly `SameSite=Lax` cookie. The SPA never reads the token. `JWT_SECRET` is required at startup; missing/empty → the service exits non-zero.
+- Bootstrap: on lifespan startup, if `users` is empty AND `BOOTSTRAP_USERNAME` + `BOOTSTRAP_PASSWORD` are set, one user is inserted. Idempotent across restarts.
+- DB: SQLAlchemy 2 async + asyncpg. Engine and sessionmaker live on `app.state` (no module globals); `get_session` reads the sessionmaker from `request.app.state.session_factory`.
+- Migrations: Alembic under `services/aktenraum-api/alembic/`. The container entrypoint runs `alembic upgrade head` before starting uvicorn.
+- The `aktenraum` Postgres database is created by `docker/postgres-init/01-create-aktenraum-db.sh` on a fresh `pgdata` volume. **For existing installs**, run once: `docker compose exec postgres psql -U paperless -c "CREATE DATABASE aktenraum OWNER paperless;"`
 
 The `tagger.py` per-file `E501` ruff ignore is intentional: `SYSTEM_PROMPT` is a long German-text block where line wrapping damages the prompt as content.

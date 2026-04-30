@@ -93,4 +93,4 @@ else
 fi
 
 log "Backup complete."
-restic snapshots --tag aktenraum --last 3
+restic snapshots --tag aktenraum --latest 3

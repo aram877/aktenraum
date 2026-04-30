@@ -1,14 +1,14 @@
 ## ADDED Requirements
 
 ### Requirement: Auto-tagger polls Paperless for unprocessed documents
-The service SHALL poll `GET /api/documents/` every 30 seconds (configurable via `POLL_INTERVAL_SECONDS`). A document is considered unprocessed if it does not have the `ai-suggested` tag AND does not have the `ai-error` tag. The service SHALL process at most `BATCH_SIZE` (default: 5) documents per poll cycle.
+The service SHALL poll `GET /api/documents/` every 30 seconds (configurable via `POLL_INTERVAL_SECONDS`). A document is considered unprocessed if it carries none of the six AI lifecycle tags: `ai-pending`, `ai-approved`, `ai-rejected`, `ai-propagated`, `ai-propagation-error`, `ai-error`. The service SHALL process at most `BATCH_SIZE` (default: 5) documents per poll cycle.
 
 #### Scenario: New document is detected and queued
-- **WHEN** a document is ingested by Paperless and has neither `ai-suggested` nor `ai-error` tag
+- **WHEN** a document is ingested by Paperless and carries none of the six lifecycle tags
 - **THEN** the auto-tagger picks it up within `POLL_INTERVAL_SECONDS` seconds of the next poll cycle
 
 #### Scenario: Already-processed documents are skipped
-- **WHEN** a document already has the `ai-suggested` tag
+- **WHEN** a document already carries any of the six lifecycle tags
 - **THEN** the auto-tagger does not re-process it
 
 ### Requirement: LLM backend is selectable via environment variable
@@ -23,7 +23,7 @@ The service SHALL support two backends: `anthropic` and `ollama`, selected by `L
 - **THEN** the service sends extraction requests to the Ollama endpoint
 
 ### Requirement: Structured extraction produces a validated DocumentExtraction
-For each document, the service SHALL call the LLM with the full OCR text (truncated to `MAX_TOKENS_INPUT`, default 8000 tokens) and extract a `DocumentExtraction` containing: `document_type` (one of the 10 German enum values), `correspondent`, `key_dates` (issue, due, expiry — each nullable), `monetary_amount` (nullable string, e.g. "149,99 EUR"), `reference_numbers` (list of strings), `suggested_tags` (list of strings), `summary_de` (3 sentences in German), `confidence` (float 0–1).
+For each document, the service SHALL call the LLM with the full OCR text (truncated to `MAX_TOKENS_INPUT`, default 8000 tokens) and extract a `DocumentExtraction` containing: `document_type` (one of the 20 German enum values defined in `DocumentType`), `correspondent`, `key_dates` (issue, due, expiry — each nullable), `monetary_amount` (nullable string, e.g. "149,99 EUR"), `reference_numbers` (list of strings), `suggested_tags` (list of strings), `summary_de` (3 sentences in German), `confidence` (float 0–1).
 
 #### Scenario: Valid extraction is produced for a German invoice
 - **WHEN** the OCR text of a Rechnung is sent to the configured backend
@@ -34,24 +34,24 @@ For each document, the service SHALL call the LLM with the full OCR text (trunca
 - **THEN** the document is tagged `ai-error`, the error is logged, and the service continues to the next document
 
 ### Requirement: Extraction results are written to Paperless custom fields
-After successful extraction, the service SHALL write all non-null fields to their corresponding Paperless custom fields via `PATCH /api/documents/{id}/` and add the `ai-suggested` tag. The `ai_backend` and `ai_model` fields SHALL always be written.
+After successful extraction, the service SHALL write all non-null fields to their corresponding Paperless custom fields via `PATCH /api/documents/{id}/` and add the `ai-pending` tag (the entry state of the AI lifecycle). The `ai_backend` and `ai_model` fields SHALL always be written.
 
 #### Scenario: Custom fields appear in Paperless UI after processing
 - **WHEN** the auto-tagger successfully processes a document
-- **THEN** the document's detail view in Paperless shows populated `ai_*` custom fields and the `ai-suggested` tag
+- **THEN** the document's detail view in Paperless shows populated `ai_*` custom fields and the `ai-pending` tag
 
 #### Scenario: Failed write does not crash the service
 - **WHEN** the Paperless API returns a non-2xx response during the PATCH
 - **THEN** the error is logged, the document is not tagged (retried on next poll), and the service continues
 
 ### Requirement: LLM prompt is in German
-The system prompt sent to the LLM SHALL be written in German. It SHALL instruct the model to extract structured data from German personal documents and return the `document_type` using exactly the 10 canonical enum values: `Rechnung`, `Vertrag`, `Behördenbrief`, `Versicherung`, `Mahnung`, `Kontoauszug`, `Garantie`, `Arztbrief`, `Steuer`, `Sonstiges`.
+The system prompt sent to the LLM SHALL be written in German. It SHALL instruct the model to extract structured data from German personal documents and return the `document_type` using exactly the canonical enum values defined by the `DocumentType` enum in `models.py`.
 
 #### Scenario: Prompt language is German
 - **WHEN** the service constructs the LLM request
 - **THEN** the system prompt is written entirely in German
 
-#### Scenario: document_type is always one of the 10 canonical values
+#### Scenario: document_type is always one of the canonical enum values
 - **WHEN** the extraction schema is validated by Pydantic
 - **THEN** any value not in the enum causes a `ValidationError`, preventing it from being written to Paperless
 

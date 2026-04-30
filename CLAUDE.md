@@ -1,6 +1,6 @@
 # aktenraum — Claude working guide
 
-Self-hosted personal DMS built on Paperless-ngx with an AI classification layer. Everything runs in Docker. The working directory is on Windows; all scripts use bash (Git Bash). Deployment target is this Windows machine running Docker Desktop.
+Self-hosted personal DMS built on Paperless-ngx with an AI classification layer. Everything runs in Docker. Scripts target bash and run on macOS, Linux, or Windows (Git Bash). Deployment target is Docker Desktop or native Linux Docker.
 
 ---
 
@@ -117,10 +117,11 @@ curl -s -X POST "$BASE/api/token/" -H "Content-Type: application/json" -d '{"use
 
 ## Auto-tagger behaviour
 
-- Polls `GET /api/documents/` every 30s, skips docs with `ai-suggested` or `ai-error` tags
+- Polls `GET /api/documents/` every 30s, skips docs carrying any of the six AI lifecycle tags (`ai-pending`, `ai-approved`, `ai-rejected`, `ai-propagated`, `ai-propagation-error`, `ai-error`)
 - Sends OCR text (truncated to 8000 tokens) to Ollama or Anthropic
-- Writes 12 custom fields to the document + adds `ai-suggested` tag
-- **Retag a document**: remove `ai-suggested` in Paperless UI → picked up on next poll
+- Writes 12 custom fields to the document + adds `ai-pending` tag (entry state of the lifecycle)
+- **Retag a document**: remove all `ai-*` lifecycle tags in Paperless UI → picked up on next poll
+- **Approve / reject**: replace `ai-pending` with `ai-approved` or `ai-rejected` in the UI. (The propagation service that consumes `ai-approved` to write native Paperless fields is not yet implemented.)
 
 ### LLM backends
 
@@ -176,7 +177,7 @@ Use `/opsx:apply` skill to implement tasks from an approved change.
 | Git Bash converts `/usr/local/bin/...` to Windows path in `docker exec` | Prefix with `MSYS_NO_PATHCONV=1` and use `//usr/local/bin/...` |
 | Paperless `?name=` filter does substring match | Filter by exact name in Python after API call (done in `paperless.py`) |
 | `ghcr.io/paperless-ngx/tika` requires auth | Use `apache/tika` instead |
-| `python3` not available in Git Bash | Use `python` |
+| `python` vs `python3` differs across platforms (Git Bash has `python`, macOS has `python3`) | Scripts auto-detect with `command -v python3 \|\| command -v python` |
 | Ollama model may return `---\n{...}` (YAML prefix) or integers in tag lists | Handled in `ollama_backend.py` `_clean_json()` and `models.py` `CoercedStr` |
 
 ---

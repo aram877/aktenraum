@@ -37,7 +37,7 @@ The deployment SHALL default OCR language to `deu+eng`. The timezone SHALL defau
 - **THEN** Paperless ingests it and the OCR text contains recognisable German words from the document
 
 ### Requirement: A bootstrap script creates required Paperless custom fields
-`scripts/bootstrap-paperless.sh` SHALL create all 12 AI custom fields via the Paperless REST API if they do not already exist: `ai_document_type`, `ai_correspondent`, `ai_issue_date`, `ai_due_date`, `ai_expiry_date`, `ai_monetary_amount`, `ai_reference_numbers`, `ai_suggested_tags`, `ai_summary_de`, `ai_confidence`, `ai_backend`, `ai_model`. It SHALL also create the `ai-suggested` and `ai-error` tags.
+`scripts/bootstrap-paperless.sh` SHALL create all 12 AI custom fields via the Paperless REST API if they do not already exist: `ai_document_type`, `ai_correspondent`, `ai_issue_date`, `ai_due_date`, `ai_expiry_date`, `ai_monetary_amount`, `ai_reference_numbers`, `ai_suggested_tags`, `ai_summary_de`, `ai_confidence`, `ai_backend`, `ai_model`. It SHALL also create the six lifecycle tags: `ai-pending`, `ai-approved`, `ai-rejected`, `ai-propagated`, `ai-propagation-error`, `ai-error`.
 
 #### Scenario: Bootstrap is idempotent
 - **WHEN** `scripts/bootstrap-paperless.sh` is run twice

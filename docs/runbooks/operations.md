@@ -2,8 +2,10 @@
 
 ## Starting and stopping the stack
 
+All compose commands assume your working directory is the `docker/` subdirectory of your local clone. Adjust the path to wherever you cloned this repo.
+
 ```bash
-cd ~/Development/document-organizer/docker
+cd <repo>/docker
 
 # Start all services
 docker compose up -d
@@ -42,23 +44,33 @@ After a document is ingested by Paperless, the auto-tagger processes it within t
 
 1. Open the document
 2. Scroll to **Custom Fields** — you should see populated `ai_*` fields
-3. Check the **Tags** — `ai-suggested` means the AI has processed it and is awaiting confirmation
+3. Check the **Tags** — `ai-pending` means the AI has processed it and is awaiting your review
 
 If you see `ai-error` instead, check the auto-tagger logs:
 ```bash
 docker compose logs --tail=50 auto-tagger
 ```
 
-## Confirming AI suggestions
+## Reviewing AI suggestions (three-state workflow)
 
-A document tagged `ai-suggested` has AI-generated metadata that has not been confirmed. To confirm:
+A document tagged `ai-pending` has AI-generated metadata waiting for review. The lifecycle uses six tags (created by the bootstrap script):
+
+| Tag | Meaning |
+|---|---|
+| `ai-pending` | Extracted, awaiting review |
+| `ai-approved` | User approved — should trigger propagation to native fields (propagation service is planned, see roadmap) |
+| `ai-rejected` | User rejected — no propagation, do not retry |
+| `ai-propagated` | Native Paperless fields have been written from the AI extraction |
+| `ai-propagation-error` | Propagation pipeline failed mid-run |
+| `ai-error` | Extraction failed |
+
+To review a `ai-pending` document:
 
 1. Open the document in Paperless
-2. Review the `ai_*` custom fields
-3. Make any corrections (edit directly in the Paperless UI)
-4. Remove the `ai-suggested` tag
+2. Review the `ai_*` custom fields and edit directly if needed
+3. Replace `ai-pending` with `ai-approved` (accept) or `ai-rejected` (discard)
 
-The document is now considered authoritative — the auto-tagger will not re-process it.
+The auto-tagger skips any document carrying any of the six lifecycle tags, so once you tag it `ai-approved` or `ai-rejected` the document will not be re-processed.
 
 ## Checking backup status
 
@@ -67,7 +79,7 @@ export RESTIC_REPOSITORY=~/aktenraum/backup/restic-repo
 export RESTIC_PASSWORD=<your-passphrase>
 
 # List recent snapshots
-restic snapshots --tag aktenraum --last 5
+restic snapshots --tag aktenraum --latest 5
 
 # Check systemd timer
 systemctl status aktenraum-backup.timer
@@ -79,7 +91,7 @@ journalctl -u aktenraum-backup.service --since yesterday
 ```bash
 RESTIC_PASSWORD=<your-passphrase> \
 PAPERLESS_DBPASS=<db-password> \
-bash ~/Development/document-organizer/scripts/backup.sh
+bash <repo>/scripts/backup.sh
 ```
 
 ---

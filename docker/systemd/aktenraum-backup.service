@@ -1,4 +1,9 @@
 [Unit]
+# Optional Linux-native backup unit — only needed if you do not use the
+# Dockerised backup service (compose service: backup). Install with
+#   sed -i "s|__REPO_PATH__|/absolute/path/to/aktenraum|" aktenraum-backup.service
+# before copying to /etc/systemd/system/aktenraum-backup@<username>.service.
+# Also create %h/aktenraum/.backup.env with RESTIC_PASSWORD and PAPERLESS_DBPASS.
 Description=aktenraum daily backup
 After=network.target docker.service
 Requires=docker.service
@@ -7,6 +12,6 @@ Requires=docker.service
 Type=oneshot
 User=%i
 EnvironmentFile=%h/aktenraum/.backup.env
-ExecStart=/bin/bash %h/Development/document-organizer/scripts/backup.sh
+ExecStart=/bin/bash __REPO_PATH__/scripts/backup.sh
 StandardOutput=journal
 StandardError=journal

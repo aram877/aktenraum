@@ -1,5 +1,4 @@
 import structlog
-from pydantic import ValidationError
 
 from .llm.base import LLMBackend
 from .models import DocumentExtraction
@@ -78,8 +77,12 @@ async def process_document(
 
     try:
         extraction: DocumentExtraction = await backend.complete(messages, DocumentExtraction)
-    except (ValidationError, ValueError, Exception) as exc:
-        logger.error("extraction_failed", error=str(exc))
+    except Exception as exc:
+        # Per-document fault boundary: any LLM/transport/validation failure
+        # tags the doc and continues the polling loop. Don't narrow this —
+        # backends (Anthropic, Ollama, future) raise different exception types
+        # we cannot enumerate from this layer.
+        logger.exception("extraction_failed", error=str(exc))
         await paperless.add_tag_to_document(doc_id, "ai-error")
         return
 
@@ -91,6 +94,12 @@ async def process_document(
 
     try:
         await paperless.patch_document_ai_fields(doc_id, extraction, backend.name, backend.model)
-        await paperless.add_tag_to_document(doc_id, "ai-suggested")
+        await paperless.add_tag_to_document(doc_id, "ai-pending")
     except Exception as exc:
-        logger.error("paperless_write_failed", error=str(exc))
+        # Without an ai-error tag here the doc has no lifecycle tag and would be
+        # re-processed forever on every poll cycle.
+        logger.exception("paperless_write_failed", error=str(exc))
+        try:
+            await paperless.add_tag_to_document(doc_id, "ai-error")
+        except Exception as tag_exc:
+            logger.error("paperless_tag_failed", error=str(tag_exc))

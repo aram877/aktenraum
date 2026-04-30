@@ -27,6 +27,42 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 # auto-tagger and gets re-enqueued.
 _REPROCESS_REMOVE = list(LIFECYCLE_TAGS) + ["ai-low-confidence"]
 
+# Tag names the SPA renders as status badges, including ai-pending so the
+# upload-progress poller can distinguish "landed in inbox" from "still
+# classifying". Library lists already exclude pending docs server-side, so
+# this set being permissive doesn't leak pending docs into /library.
+_BADGE_TAG_NAMES = frozenset(LIFECYCLE_TAGS) | {"ai-low-confidence"}
+
+# A doc counts as "in flight" when it has no terminal lifecycle tag yet.
+# Concretely: it has ai-pending (still in the inbox queue), ai-approved
+# (about to propagate), or no AI tag at all (just landed / poller hasn't
+# enqueued yet). Those are the rows the Nav badge counts.
+_IN_FLIGHT_TAGS = frozenset({"ai-pending", "ai-approved"})
+
+
+class DocumentStatus(BaseModel):
+    id: int
+    lifecycle_tags: list[str]
+
+
+class TaskStatus(BaseModel):
+    """Projection of Paperless's `/api/tasks/?task_id=…` response.
+
+    Paperless surfaces the per-upload pipeline state here. We expose only the
+    fields the SPA needs so a slimmer change in upstream doesn't ripple
+    through. `doc_id` is parsed from `related_document` if present, otherwise
+    from the `result` text ("Success. New document id 19 created").
+    """
+
+    task_id: str
+    status: str  # PENDING | STARTED | SUCCESS | FAILURE
+    doc_id: int | None = None
+    result: str | None = None
+
+
+class InFlightCount(BaseModel):
+    count: int
+
 
 class UploadResult(BaseModel):
     filename: str
@@ -145,6 +181,128 @@ async def reprocess(
         cleared_tags=_REPROCESS_REMOVE,
         auto_tagger_notified=notified,
     )
+
+
+@router.get("/in-flight", response_model=InFlightCount)
+async def in_flight_count(
+    _user: User = Depends(get_current_user),
+    gateway: PaperlessGateway = Depends(get_paperless_gateway),
+) -> InFlightCount:
+    """Count documents currently being processed (Nav badge data source).
+
+    Definition of "in flight": carries `ai-pending` (review queue) or
+    `ai-approved` (waiting for the propagation watcher). Docs with no
+    lifecycle tag at all are intentionally excluded — they could be legacy
+    pre-AI uploads, and counting them would make the badge always >0 on
+    older installs.
+    """
+    try:
+        tags = await gateway.list_tags()
+        flight_ids = [tags[name] for name in _IN_FLIGHT_TAGS if name in tags]
+        if not flight_ids:
+            return InFlightCount(count=0)
+        # Paperless's tags__id__in is comma-separated list — returns docs that
+        # carry ANY of the listed tag ids.
+        payload = await gateway.search_documents(
+            {"tags__id__in": ",".join(str(i) for i in flight_ids)},
+            page_size=1,
+        )
+    except PaperlessAuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Paperless rejected the API token",
+        ) from e
+    return InFlightCount(count=int(payload.get("count", 0)))
+
+
+@router.get("/task/{task_id}", response_model=TaskStatus)
+async def get_task_status(
+    task_id: str,
+    _user: User = Depends(get_current_user),
+    gateway: PaperlessGateway = Depends(get_paperless_gateway),
+    settings: Settings = Depends(get_settings),
+) -> TaskStatus:
+    """Look up a Paperless consumer task by uuid (post-upload pipeline)."""
+    # Use the gateway's authenticated httpx client directly — task lookup is
+    # a one-line proxy and doesn't justify yet another gateway method.
+    resp = await gateway._client.get(  # noqa: SLF001
+        "/api/tasks/", params={"task_id": task_id}
+    )
+    if resp.status_code in (401, 403):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Paperless rejected the API token",
+        )
+    resp.raise_for_status()
+    rows = resp.json() if isinstance(resp.json(), list) else []
+    if not rows:
+        # Paperless prunes finished tasks after a TTL; return UNKNOWN so the
+        # SPA can stop polling without raising.
+        return TaskStatus(task_id=task_id, status="UNKNOWN")
+    row = rows[0]
+    return TaskStatus(
+        task_id=task_id,
+        status=str(row.get("status") or "UNKNOWN").upper(),
+        doc_id=_extract_doc_id(row),
+        result=row.get("result"),
+    )
+
+
+@router.get("/{doc_id}/status", response_model=DocumentStatus)
+async def get_document_status(
+    doc_id: int,
+    _user: User = Depends(get_current_user),
+    gateway: PaperlessGateway = Depends(get_paperless_gateway),
+) -> DocumentStatus:
+    """Lightweight lifecycle-tag lookup for upload polling.
+
+    Returns just `{id, lifecycle_tags}` so the SPA can poll quickly without
+    pulling the full doc payload. Pairs with `/task/{uuid}` after Paperless
+    finishes consuming.
+    """
+    try:
+        doc = await gateway.get_document(doc_id)
+        tags = await gateway.list_tags()
+    except PaperlessNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document {doc_id} not found",
+        ) from e
+    except PaperlessAuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Paperless rejected the API token",
+        ) from e
+    tag_id_to_name = {v: k for k, v in tags.items()}
+    lifecycle = [
+        name
+        for tid in (doc.get("tags") or [])
+        if (name := tag_id_to_name.get(tid)) and name in _BADGE_TAG_NAMES
+    ]
+    return DocumentStatus(id=doc_id, lifecycle_tags=lifecycle)
+
+
+def _extract_doc_id(task_row: dict) -> int | None:
+    """Pull the resulting Paperless doc id from a task row.
+
+    Paperless's `related_document` is the canonical field but isn't always
+    populated (older versions, FAILURE rows). Falls back to parsing the
+    `result` string ("Success. New document id 19 created") so the SPA gets
+    a usable id even on older Paperless.
+    """
+    related = task_row.get("related_document")
+    if isinstance(related, int):
+        return related
+    result = task_row.get("result") or ""
+    import re
+
+    match = re.search(r"document id (\d+)", result)
+    if match:
+        try:
+            return int(match.group(1))
+        except ValueError:
+            return None
+    return None
 
 
 async def _ping_auto_tagger(settings: Settings, doc_id: int) -> bool:

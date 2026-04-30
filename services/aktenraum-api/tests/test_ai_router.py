@@ -39,6 +39,7 @@ def _make_fake_gateway(
     gateway = AsyncMock()
     gateway.list_correspondents = AsyncMock(return_value=correspondents or {})
     gateway.list_document_types = AsyncMock(return_value=document_types or {})
+    gateway.list_tags = AsyncMock(return_value={})
     gateway.search_documents = AsyncMock(
         return_value={"results": documents or [], "count": len(documents or [])}
     )

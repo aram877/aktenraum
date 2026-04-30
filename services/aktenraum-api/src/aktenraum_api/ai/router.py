@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import structlog
 from aktenraum_core.llm import LLMBackend
+from aktenraum_core.paperless import LIFECYCLE_TAGS
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import ValidationError
 
@@ -33,6 +34,11 @@ _NO_MATCH_DE = "Ich habe keine passenden Dokumente gefunden."
 # small enough context that the prompt stays cheap, large enough that we don't
 # miss the right document.
 _ANSWER_CONTEXT_SIZE = 5
+
+# Tag names the SPA shows as a status badge. Includes ai-pending so a doc
+# returned by /find that's still in the inbox queue surfaces an "In Inbox"
+# pill on its result card.
+_LIFECYCLE_BADGE_NAMES = frozenset(LIFECYCLE_TAGS) | {"ai-low-confidence"}
 
 
 @router.post("/find", response_model=AskResponse)
@@ -188,6 +194,7 @@ async def _execute_filter(
 ) -> tuple[list[DocumentSummary], int]:
     correspondents = await gateway.list_correspondents()
     document_types = await gateway.list_document_types()
+    tags = await gateway.list_tags()
 
     correspondent_id = correspondents.get(f.correspondent) if f.correspondent else None
     document_type_id = (
@@ -210,12 +217,15 @@ async def _execute_filter(
         "correspondents": {v: k for k, v in correspondents.items()},
         "document_types": {v: k for k, v in document_types.items()},
     }
+    tag_name_by_id = {v: k for k, v in tags.items()}
     monetary_field_id = await _resolve_monetary_field_id(gateway)
     summaries = apply_post_filter(
         raw_results,
         f,
         name_by_id=name_by_id,
         monetary_field_id=monetary_field_id,
+        tag_name_by_id=tag_name_by_id,
+        lifecycle_tag_names=_LIFECYCLE_BADGE_NAMES,
     )
 
     if f.min_amount is not None or f.max_amount is not None:

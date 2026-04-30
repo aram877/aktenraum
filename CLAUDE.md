@@ -335,7 +335,7 @@ Use `/opsx:apply` skill to implement tasks from an approved change.
 | Few-shot exemplars from propagated corpus | ✅ Available (`FEW_SHOT_EXAMPLES > 0`) |
 | Per-correspondent history hint | ✅ Default on |
 | Webhook trigger from paperless `post_consume_script` | ✅ Running |
-| Pytest suite + ruff + GitHub Actions CI | ✅ Running (215 tests) |
+| Pytest suite + ruff + GitHub Actions CI | ✅ Running (227 tests) |
 | Custom Vite + React SPA shell | ✅ Running (`apps/web`, served by nginx on `:8080`) |
 | Find docs (`/api/ai/find` + `/find` page) | ✅ Phase 2 — closed-enum SearchFilter, editable chips, Open + Download per result |
 | Ask AI conversational Q&A (`/api/ai/answer` + `/ask`) | ✅ Phase 2.5 — German prose answer with citations; small model for filter, big model for answer |
@@ -344,6 +344,7 @@ Use `/opsx:apply` skill to implement tasks from an approved change.
 | Library / Bibliothek (`/api/library/` + `/library`) | ✅ Filterable list of all non-pending docs (doc type, correspondent, date range, amount, free text); URL-state filters; click row → preview modal |
 | Upload (`POST /api/documents/upload` + `/upload`) | ✅ Drag-and-drop dropzone, single + multi-file, per-file progress + status, isolated failures; uploads stream through aktenraum-api so the Paperless token stays server-side |
 | Reprocess (`POST /api/documents/{id}/reprocess`) | ✅ Clears all 7 lifecycle tags; pings auto-tagger webhook (with optional `WEBHOOK_SECRET`) for instant turnaround; falls back to the 30s poller. Reprocess button on the preview modal |
+| Processing visibility (`/documents/in-flight`, `/task/{uuid}`, `/{id}/status`, ProcessingBadge) | ✅ DocumentSummary carries `lifecycle_tags`; shared SPA badge (Wartet auf KI / Wird übertragen / Verarbeitet / In Inbox / Fehler / etc.) renders on Library rows + Find/Ask cards; Upload page polls task → doc-status → lifecycle for live progress; Nav shows a global "N in Bearbeitung" pill, refetched every 30s |
 | Semantic search / RAG | 🔲 Planned (Phase 6, only if structured-filter search hits a ceiling) |
 | HTTPS / Tailscale | 🔲 Planned (TODO in runbook) |
 | Backup integrity checks (`restic check`) | 🔲 Planned |
@@ -434,6 +435,15 @@ For a full-stack dev cycle, keep the compose stack up (`docker compose up -d`) s
 - `POST /api/documents/{id}/reprocess` clears every lifecycle tag (`ai-pending`/`ai-approved`/`ai-rejected`/`ai-propagated`/`ai-propagation-error`/`ai-error` plus `ai-low-confidence`) so the document looks fresh to the auto-tagger; then best-effort pings `http://auto-tagger:8001/trigger/extract` for instant re-extraction. Without the ping (or if it fails) the auto-tagger's 30s poller picks the doc up regardless.
 - New env: `AUTO_TAGGER_URL` (default `http://auto-tagger:8001`) and `WEBHOOK_SECRET` (must match auto-tagger's; empty disables the secret on both sides). Both optional.
 - SPA: `/upload` route with drag-and-drop + per-file progress; "Erneut verarbeiten" button on `DocumentPreviewModal` (Library / Find / Ask citation cards) with a confirm step. Reprocess success invalidates the `library` and `inbox` query caches so the UI snaps to the new state.
+
+### Processing visibility (`/api/documents/in-flight`, `/task/{uuid}`, `/{id}/status`)
+
+- `GET /api/documents/in-flight` returns `{count}` — number of docs carrying `ai-pending` or `ai-approved` (driven by `tags__id__in`). Empty lifecycle tags are intentionally excluded so legacy / non-AI docs don't keep the Nav badge stuck >0.
+- `GET /api/documents/task/{uuid}` proxies Paperless's `/api/tasks/?task_id=…` and projects to `{task_id, status, doc_id, result}`. `doc_id` comes from `related_document` when present, falling back to a regex on the result string ("Success. New document id 19 created") so older Paperless versions still surface a usable id.
+- `GET /api/documents/{id}/status` is a lightweight `{id, lifecycle_tags}` lookup used by the upload-page poller.
+- `DocumentSummary` (returned by `/find`, `/answer` citations, the preview modal) now carries `lifecycle_tags` so a single `ProcessingBadge` component renders the same status pill everywhere a doc card appears (Library rows, Find result cards, Ask citations). Empty list → "Wartet auf KI".
+- SPA upload polling: after `/documents/upload` returns the Paperless task UUID, poll `/task/{uuid}` every 1.5s until SUCCESS, then poll `/{doc_id}/status` every 3s until a lifecycle tag appears or the 120s ceiling hits. The page renders one of: `Bereit → Wird hochgeladen → Paperless verarbeitet… → KI klassifiziert… → ✓ in der Inbox / ✓ in der Bibliothek / ✗ Fehler` per file.
+- Nav shows a global "N in Bearbeitung" pill (in-flight count minus inbox count, so it represents docs the *auto-tagger* is processing right now — pending docs already get the Inbox badge). React-Query refetches every 30s.
 
 ### Document proxy (`/api/documents/{id}/{preview,download}`)
 

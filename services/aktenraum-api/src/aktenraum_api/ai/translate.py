@@ -52,6 +52,8 @@ def apply_post_filter(
     *,
     name_by_id: dict[str, dict[int, str]],
     monetary_field_id: int | None,
+    tag_name_by_id: dict[int, str] | None = None,
+    lifecycle_tag_names: frozenset[str] | None = None,
 ) -> list[DocumentSummary]:
     """Drop results outside [min_amount, max_amount], project to DocumentSummary.
 
@@ -59,7 +61,11 @@ def apply_post_filter(
     "document_types", used to resolve foreign keys on each result so the SPA
     receives display strings. `monetary_field_id` is the Paperless custom-field
     id for `ai_monetary_amount`; passing None disables amount filtering for
-    callers without that field configured.
+    callers without that field configured. `tag_name_by_id` plus the
+    `lifecycle_tag_names` allowlist let the projection populate
+    `DocumentSummary.lifecycle_tags` so the SPA can render "Wartet auf KI" /
+    "Wird übertragen" / … badges. If either is omitted, lifecycle_tags stays
+    empty (older callers continue to work).
     """
     correspondents = name_by_id.get("correspondents", {})
     document_types = name_by_id.get("document_types", {})
@@ -79,6 +85,13 @@ def apply_post_filter(
             if f.max_amount is not None and amount_value > f.max_amount:
                 continue
 
+        lifecycle: list[str] = []
+        if tag_name_by_id and lifecycle_tag_names:
+            for tid in doc.get("tags") or []:
+                name = tag_name_by_id.get(tid)
+                if name and name in lifecycle_tag_names:
+                    lifecycle.append(name)
+
         out.append(
             DocumentSummary(
                 id=doc["id"],
@@ -87,6 +100,7 @@ def apply_post_filter(
                 document_type=document_types.get(doc.get("document_type")),
                 created=_parse_date_field(doc.get("created_date") or doc.get("created")),
                 monetary_amount=amount_str,
+                lifecycle_tags=lifecycle,
             )
         )
     return out

@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-router";
 
 import { Ask } from "./routes/Ask";
+import { Find } from "./routes/Find";
 import { Home } from "./routes/Home";
 import { Inbox } from "./routes/Inbox";
 import { InboxReview } from "./routes/InboxReview";
@@ -53,6 +54,13 @@ const askRoute = createRoute({
   component: Ask,
 });
 
+const findRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/find",
+  beforeLoad: ({ context }) => ensureLoggedIn(context),
+  component: Find,
+});
+
 const inboxRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/inbox",
@@ -74,6 +82,7 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
   askRoute,
+  findRoute,
   inboxRoute,
   inboxReviewRoute,
 ]);

@@ -59,3 +59,25 @@ class AskResponse(BaseModel):
     results: list[DocumentSummary] = Field(default_factory=list)
     explanation: str
     total: int
+
+
+class AnswerRequest(BaseModel):
+    question: str = Field(..., min_length=1, description="German question from the user")
+
+
+class AnswerOutput(BaseModel):
+    """Schema the answer-generation LLM must satisfy."""
+
+    answer_de: str = Field(..., description="Antwort auf Deutsch, höchstens 3 Sätze")
+    cited_ids: list[int] = Field(
+        default_factory=list,
+        description="IDs der Dokumente, aus denen die Antwort stammt",
+    )
+
+
+class AnswerResponse(BaseModel):
+    question: str
+    answer_de: str
+    citations: list[DocumentSummary] = Field(default_factory=list)
+    filter: SearchFilter
+    total: int

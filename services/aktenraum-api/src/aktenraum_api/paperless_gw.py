@@ -174,11 +174,12 @@ class PaperlessGateway:
         return new_ids
 
     async def stream_preview(self, doc_id: int) -> AsyncIterator[bytes]:
-        """Open a streaming GET against Paperless's preview endpoint.
+        """Stream the inline PDF preview for `doc_id`.
 
-        The caller iterates the bytes (typically inside a StreamingResponse)
-        and the underlying httpx response is closed when the iterator is
-        exhausted or the consumer aborts.
+        Yields raw bytes. Headers from the upstream are not surfaced — the
+        caller hardcodes `Content-Type: application/pdf` and a private cache
+        header. Use `open_document_stream` instead when the upstream
+        Content-Type / Content-Disposition matters (download path).
         """
         async with self._client.stream(
             "GET", f"/api/documents/{doc_id}/preview/"
@@ -190,6 +191,33 @@ class PaperlessGateway:
             resp.raise_for_status()
             async for chunk in resp.aiter_bytes():
                 yield chunk
+
+    async def open_document_stream(
+        self, doc_id: int, kind: str
+    ) -> httpx.Response:
+        """Open a streaming GET; the caller MUST close the response.
+
+        Returns the live `httpx.Response` so the route can read upstream
+        headers (Content-Type, Content-Disposition) and forward them. Pair
+        with `BackgroundTask(resp.aclose)` on the StreamingResponse so the
+        connection is released after the body finishes streaming.
+        """
+        if kind not in ("preview", "download", "thumb"):
+            raise ValueError(f"Unknown document stream kind: {kind!r}")
+        req = self._client.build_request(
+            "GET", f"/api/documents/{doc_id}/{kind}/"
+        )
+        resp = await self._client.send(req, stream=True)
+        if resp.status_code == 404:
+            await resp.aclose()
+            raise PaperlessNotFoundError(doc_id)
+        if resp.status_code in (401, 403):
+            await resp.aclose()
+            raise PaperlessAuthError(resp.status_code)
+        if resp.status_code >= 400:
+            await resp.aclose()
+            resp.raise_for_status()
+        return resp
 
     async def _get_custom_field_ids(self) -> dict[str, int]:
         if self._custom_field_ids is not None:

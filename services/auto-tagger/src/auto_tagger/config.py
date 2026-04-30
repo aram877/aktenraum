@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     poll_interval_seconds: int = Field(30, ge=5)
     batch_size: int = Field(5, ge=1)
 
+    # Propagation watcher — copies approved AI fields onto native Paperless
+    # entities (correspondent, document_type, created_date, tags). Disable to
+    # run extraction-only without writing to native fields.
+    enable_propagation: bool = Field(True)
+
     # Text processing
     max_tokens_input: int = Field(8000, ge=100, description="Approx token limit; text truncated at 4x chars")
 

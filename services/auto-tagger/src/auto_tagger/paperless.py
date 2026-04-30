@@ -9,6 +9,19 @@ from .models import DocumentExtraction
 log = structlog.get_logger()
 
 
+# Tags that mark a document as having entered the AI pipeline. The auto-tagger
+# excludes documents carrying any of these from its unprocessed-doc query, and
+# the propagator filters by individual states (ai-approved, ai-propagated, …).
+LIFECYCLE_TAGS = (
+    "ai-pending",
+    "ai-approved",
+    "ai-rejected",
+    "ai-propagated",
+    "ai-propagation-error",
+    "ai-error",
+)
+
+
 _CURRENCY_CODES = ("EUR", "USD", "GBP", "CHF", "JPY")
 _CURRENCY_SYMBOLS = {"€": "EUR", "$": "USD", "£": "GBP", "¥": "JPY"}
 
@@ -96,21 +109,9 @@ class PaperlessClient:
     # Documents
     # ------------------------------------------------------------------
 
-    # Any document carrying one of these lifecycle tags has already entered the
-    # AI pipeline (extracted, approved, rejected, propagated, or errored) and
-    # must not be re-processed by the auto-tagger.
-    _LIFECYCLE_TAGS = (
-        "ai-pending",
-        "ai-approved",
-        "ai-rejected",
-        "ai-propagated",
-        "ai-propagation-error",
-        "ai-error",
-    )
-
     async def get_unprocessed_documents(self, batch_size: int = 5) -> list[dict]:
         """Return documents with none of the AI lifecycle tags."""
-        tag_ids = [await self._get_tag_id(name) for name in self._LIFECYCLE_TAGS]
+        tag_ids = [await self._get_tag_id(name) for name in LIFECYCLE_TAGS]
         exclude_ids = ",".join(str(i) for i in tag_ids if i is not None)
         params: dict[str, Any] = {"ordering": "created", "page_size": batch_size}
         if exclude_ids:
@@ -171,7 +172,65 @@ class PaperlessClient:
         resp.raise_for_status()
 
     # ------------------------------------------------------------------
-    # Tags
+    # Documents — propagation helpers
+    # ------------------------------------------------------------------
+
+    async def get_documents_with_tag(self, tag_name: str, batch_size: int = 5) -> list[dict]:
+        """Return documents tagged with `tag_name`. Empty list if tag missing."""
+        tag_id = await self._get_tag_id(tag_name)
+        if tag_id is None:
+            return []
+        resp = await self._client.get(
+            "/api/documents/",
+            params={"tags__id__all": tag_id, "ordering": "modified", "page_size": batch_size},
+        )
+        resp.raise_for_status()
+        return resp.json().get("results", [])
+
+    async def get_ai_custom_field_values(self, doc_id: int) -> dict[str, Any]:
+        """Return {field_name: value} for every custom field set on the doc."""
+        resp = await self._client.get(f"/api/documents/{doc_id}/")
+        resp.raise_for_status()
+        doc_data = resp.json()
+        name_by_id = {fid: name for name, fid in (await self._get_custom_field_ids()).items()}
+        return {
+            name_by_id[cf["field"]]: cf.get("value")
+            for cf in doc_data.get("custom_fields", [])
+            if cf.get("field") in name_by_id
+        }
+
+    async def patch_document_native_fields(
+        self,
+        doc_id: int,
+        *,
+        correspondent: Optional[int] = None,
+        document_type: Optional[int] = None,
+        created_date: Optional[str] = None,
+        tags: Optional[list[int]] = None,
+    ) -> None:
+        payload: dict[str, Any] = {}
+        if correspondent is not None:
+            payload["correspondent"] = correspondent
+        if document_type is not None:
+            payload["document_type"] = document_type
+        if created_date is not None:
+            payload["created_date"] = created_date
+        if tags is not None:
+            payload["tags"] = tags
+        if not payload:
+            return
+        resp = await self._client.patch(f"/api/documents/{doc_id}/", json=payload)
+        if resp.status_code >= 400:
+            log.error(
+                "paperless_patch_rejected",
+                doc_id=doc_id,
+                status=resp.status_code,
+                body=resp.text,
+            )
+        resp.raise_for_status()
+
+    # ------------------------------------------------------------------
+    # Named entities — tags, correspondents, document types
     # ------------------------------------------------------------------
 
     async def add_tag_to_document(self, doc_id: int, tag_name: str) -> None:
@@ -187,16 +246,35 @@ class PaperlessClient:
             resp.raise_for_status()
 
     async def get_or_create_tag(self, name: str) -> int:
-        tag_id = await self._get_tag_id(name)
-        if tag_id is not None:
-            return tag_id
-        resp = await self._client.post("/api/tags/", json={"name": name})
-        resp.raise_for_status()
-        return resp.json()["id"]
+        return await self._get_or_create_named("/api/tags/", name)
+
+    async def get_or_create_correspondent(self, name: str) -> int:
+        return await self._get_or_create_named("/api/correspondents/", name)
+
+    async def get_or_create_document_type(self, name: str) -> int:
+        return await self._get_or_create_named("/api/document_types/", name)
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    async def _get_or_create_named(self, endpoint: str, name: str) -> int:
+        """Look up an entity by exact name, creating it if missing.
+
+        Works for any Paperless endpoint whose entities are uniquely identified
+        by `name`: tags, correspondents, document_types. The lookup defends
+        against Paperless's fuzzy ?name= filter by re-checking equality on the
+        client.
+        """
+        resp = await self._client.get(endpoint, params={"name": name})
+        resp.raise_for_status()
+        results = resp.json().get("results", [])
+        found = next((x["id"] for x in results if x["name"] == name), None)
+        if found is not None:
+            return found
+        resp = await self._client.post(endpoint, json={"name": name})
+        resp.raise_for_status()
+        return resp.json()["id"]
 
     async def _get_tag_id(self, name: str) -> Optional[int]:
         resp = await self._client.get("/api/tags/", params={"name": name})

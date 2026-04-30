@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel in-flight CI on the same ref when a new commit lands.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  auto-tagger:
+    name: auto-tagger (lint + tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/auto-tagger
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          # Cache key includes the lockfile so a dep change invalidates the cache.
+          cache-dependency-glob: services/auto-tagger/uv.lock
+
+      - name: Install Python 3.13
+        run: uv python install 3.13
+
+      - name: Sync dependencies (incl. dev group)
+        run: uv sync --frozen
+
+      - name: Lint
+        run: uv run ruff check
+
+      - name: Test
+        run: uv run pytest -v

@@ -1,4 +1,5 @@
-from typing import Protocol, runtime_checkable, TypeVar
+from typing import Protocol, TypeVar, runtime_checkable
+
 from pydantic import BaseModel
 
 T = TypeVar("T", bound=BaseModel)

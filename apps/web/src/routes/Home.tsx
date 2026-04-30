@@ -28,6 +28,12 @@ export function Home() {
             Bibliothek →
           </Link>
           <Link
+            to="/upload"
+            className="inline-block rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-900 hover:bg-neutral-100"
+          >
+            + Hochladen
+          </Link>
+          <Link
             to="/inbox"
             className="inline-block rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-900 hover:bg-neutral-100"
           >

@@ -192,6 +192,52 @@ class PaperlessGateway:
             async for chunk in resp.aiter_bytes():
                 yield chunk
 
+    async def upload_document(
+        self,
+        *,
+        content: bytes,
+        filename: str,
+        content_type: str | None = None,
+        title: str | None = None,
+    ) -> str:
+        """Upload one file to Paperless's `post_document` endpoint.
+
+        Paperless takes multipart with a `document` file part and optional
+        `title`. The response body is the task UUID (a quoted string), which
+        the caller can use to poll Paperless's task list — though for our flow
+        the auto-tagger picks the doc up via webhook/poller and tags it
+        `ai-pending` automatically.
+
+        Note: Paperless dedupes by SHA1, so re-uploading the same content is a
+        silent no-op. That's the right behaviour for an idempotent re-upload
+        but the caller should not rely on receiving a fresh task UUID.
+        """
+        files = {
+            "document": (
+                filename,
+                content,
+                content_type or "application/octet-stream",
+            ),
+        }
+        data: dict[str, str] = {}
+        if title:
+            data["title"] = title
+        resp = await self._client.post(
+            "/api/documents/post_document/", files=files, data=data
+        )
+        if resp.status_code in (401, 403):
+            raise PaperlessAuthError(resp.status_code)
+        if resp.status_code >= 400:
+            log.error(
+                "paperless_upload_rejected",
+                status=resp.status_code,
+                filename=filename,
+                body=resp.text,
+            )
+        resp.raise_for_status()
+        # Response is a JSON-encoded UUID string ("\"abc-123-…\"") on success.
+        return resp.text.strip().strip('"')
+
     async def open_document_stream(
         self, doc_id: int, kind: str
     ) -> httpx.Response:

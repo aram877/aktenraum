@@ -39,10 +39,11 @@ Wähle den document_type anhand dieser Definitionen — nimm immer den spezifisc
 - Sonstiges: Nur wenn kein anderer Typ passt (z.B. Lebenslauf, interne Notizen, Fotos)
 
 Weitere Regeln:
-- Datumsangaben immer im Format YYYY-MM-DD
-- key_dates.issue: das Datum, an dem dieses Dokument selbst ausgestellt/datiert wurde (z.B. Rechnungsdatum, Bescheiddatum, Vertragsabschluss). NICHT verwenden für: Geburtsdaten, Beschäftigungs- oder Studienzeiträume, im Inhalt erwähnte Termine, Mietbeginn, Reisedaten o.Ä. Wenn das Dokument kein eigenes Ausstellungsdatum trägt (z.B. Lebenslauf, Notiz, Foto): null
+- Datumsangaben immer im Format YYYY-MM-DD. OCR fragmentiert oft Ziffern mit Leerzeichen, z.B. "2 8. 0 2.24" oder "28. 0 2 . 2024" — interpretiere solche Muster trotzdem als Datum (28.02.2024). Bei zweistelligen Jahreszahlen ergänze sinnvoll: 24 → 2024, 87 → 1987 (laut Kontext).
+- key_dates.issue: das Datum, an dem dieses Dokument selbst ausgestellt/datiert wurde (z.B. Rechnungsdatum, Bescheiddatum, Vertragsabschluss, Ausstellungsdatum eines Ausweises — typischerweise neben "Datum:", "Ausgestellt am:", "vom"). NICHT verwenden für: Geburtsdaten, Beschäftigungs- oder Studienzeiträume, im Inhalt erwähnte Termine, Mietbeginn, Reisedaten o.Ä. Wenn das Dokument kein eigenes Ausstellungsdatum trägt (z.B. Lebenslauf, Notiz, Foto): null
 - key_dates.due: Fälligkeits-/Zahlungsdatum (z.B. "zahlbar bis"), nicht andere Termine
-- key_dates.expiry: Ablauf-/Gültigkeitsende (z.B. Ausweis bis, Versicherung bis), nicht andere Endtermine
+- key_dates.expiry: Ablauf-/Gültigkeitsende (z.B. Ausweis "Gültig bis", Versicherung bis), nicht andere Endtermine
+- correspondent: bei amtlichen Dokumenten die ausstellende Behörde/Authority (z.B. "STADT BIELEFELD", "Finanzamt Köln"); bei Rechnungen das Unternehmen, das die Rechnung schickt; bei Verträgen die Gegenpartei. Auch dieser Wert kann durch OCR-Fragmentierung verunreinigt sein — normalisiere Leerzeichen.
 - Geldbeträge immer mit Währung, z.B. "149,99 EUR"
 - summary_de muss genau 3 Sätze auf Deutsch enthalten
 - confidence gibt an, wie sicher du dir bei der Extraktion bist (0.0 = unsicher, 1.0 = sehr sicher)

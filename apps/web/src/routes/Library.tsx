@@ -1,0 +1,360 @@
+import { useNavigate } from "@tanstack/react-router";
+import { useEffect, useMemo, useRef, useState } from "react";
+
+import { DocumentPreviewModal } from "../components/DocumentPreviewModal";
+import { Nav } from "../components/Nav";
+import type { DocumentSummary } from "../lib/ai";
+import type { LibraryItem, LibraryQuery } from "../lib/library";
+import { DOC_TYPES, useLibrary } from "../lib/library";
+
+const DEFAULT_PAGE_SIZE = 25;
+
+const LIFECYCLE_BADGE_STYLES: Record<string, string> = {
+  "ai-propagated": "bg-emerald-100 text-emerald-800",
+  "ai-approved": "bg-blue-100 text-blue-800",
+  "ai-rejected": "bg-neutral-200 text-neutral-700",
+  "ai-error": "bg-red-100 text-red-700",
+  "ai-propagation-error": "bg-red-100 text-red-700",
+};
+
+type Search = {
+  document_type?: string;
+  correspondent?: string;
+  date_from?: string;
+  date_to?: string;
+  min_amount?: number;
+  max_amount?: number;
+  text?: string;
+  page?: number;
+};
+
+type LocalForm = {
+  document_type: string;
+  correspondent: string;
+  date_from: string;
+  date_to: string;
+  min_amount: string;
+  max_amount: string;
+  text: string;
+};
+
+function searchToForm(s: Search): LocalForm {
+  return {
+    document_type: s.document_type ?? "",
+    correspondent: s.correspondent ?? "",
+    date_from: s.date_from ?? "",
+    date_to: s.date_to ?? "",
+    min_amount: s.min_amount != null ? String(s.min_amount) : "",
+    max_amount: s.max_amount != null ? String(s.max_amount) : "",
+    text: s.text ?? "",
+  };
+}
+
+function formToSearch(f: LocalForm, page: number): Search {
+  const out: Search = {};
+  if (f.document_type) out.document_type = f.document_type;
+  if (f.correspondent) out.correspondent = f.correspondent;
+  if (f.date_from) out.date_from = f.date_from;
+  if (f.date_to) out.date_to = f.date_to;
+  const min = parseFloat(f.min_amount);
+  const max = parseFloat(f.max_amount);
+  if (!Number.isNaN(min)) out.min_amount = min;
+  if (!Number.isNaN(max)) out.max_amount = max;
+  if (f.text) out.text = f.text;
+  if (page > 1) out.page = page;
+  return out;
+}
+
+export function Library({ search }: { search: Search }) {
+  const navigate = useNavigate();
+  const [form, setForm] = useState<LocalForm>(() => searchToForm(search));
+  const [previewing, setPreviewing] = useState<LibraryItem | null>(null);
+
+  // Re-hydrate the form when the URL changes externally (e.g. back button).
+  // Tracked via a ref so user keystrokes don't get clobbered during typing.
+  const lastSearchRef = useRef(search);
+  useEffect(() => {
+    if (JSON.stringify(lastSearchRef.current) !== JSON.stringify(search)) {
+      lastSearchRef.current = search;
+      setForm(searchToForm(search));
+    }
+  }, [search]);
+
+  // Debounce form → URL. Selects/dates feel snappy at 200ms; text/number
+  // inputs benefit from a longer wait so a refetch doesn't fire on every key.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const next = formToSearch(form, 1);
+      const current = { ...search };
+      delete current.page;
+      if (JSON.stringify(next) !== JSON.stringify(current)) {
+        void navigate({ to: "/library", search: next });
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form]);
+
+  const query = useMemo<LibraryQuery>(
+    () => ({
+      ...search,
+      page: search.page ?? 1,
+      page_size: DEFAULT_PAGE_SIZE,
+      ordering: "-created",
+    }),
+    [search],
+  );
+  const list = useLibrary(query);
+
+  const onResetFilters = () => {
+    setForm(searchToForm({}));
+    void navigate({ to: "/library", search: {} });
+  };
+
+  const goToPage = (page: number) => {
+    void navigate({
+      to: "/library",
+      search: { ...search, page: page > 1 ? page : undefined },
+    });
+  };
+
+  const total = list.data?.total ?? 0;
+  const lastPage = Math.max(1, Math.ceil(total / DEFAULT_PAGE_SIZE));
+  const currentPage = search.page ?? 1;
+  const errorDetail = list.error?.response?.data?.detail ?? list.error?.message;
+
+  return (
+    <div className="flex min-h-full flex-col">
+      <Nav active="library" />
+      <main className="mx-auto flex w-full max-w-7xl flex-1 gap-6 px-6 py-6">
+        <aside className="w-64 shrink-0">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+            Filter
+          </h2>
+          <div className="mt-3 space-y-3">
+            <Field label="Dokumenttyp">
+              <select
+                value={form.document_type}
+                onChange={(e) =>
+                  setForm({ ...form, document_type: e.target.value })
+                }
+                className={inputCls}
+              >
+                <option value="">Alle</option>
+                {DOC_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Korrespondent">
+              <input
+                type="text"
+                value={form.correspondent}
+                onChange={(e) =>
+                  setForm({ ...form, correspondent: e.target.value })
+                }
+                placeholder="Name eingeben"
+                className={inputCls}
+              />
+            </Field>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Von">
+                <input
+                  type="date"
+                  value={form.date_from}
+                  onChange={(e) => setForm({ ...form, date_from: e.target.value })}
+                  className={inputCls}
+                />
+              </Field>
+              <Field label="Bis">
+                <input
+                  type="date"
+                  value={form.date_to}
+                  onChange={(e) => setForm({ ...form, date_to: e.target.value })}
+                  className={inputCls}
+                />
+              </Field>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Min €">
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={form.min_amount}
+                  onChange={(e) =>
+                    setForm({ ...form, min_amount: e.target.value })
+                  }
+                  className={inputCls}
+                />
+              </Field>
+              <Field label="Max €">
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={form.max_amount}
+                  onChange={(e) =>
+                    setForm({ ...form, max_amount: e.target.value })
+                  }
+                  className={inputCls}
+                />
+              </Field>
+            </div>
+            <Field label="Stichwort">
+              <input
+                type="text"
+                value={form.text}
+                onChange={(e) => setForm({ ...form, text: e.target.value })}
+                placeholder="Volltextsuche"
+                className={inputCls}
+              />
+            </Field>
+            <button
+              type="button"
+              onClick={onResetFilters}
+              className="mt-2 w-full rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-100"
+            >
+              Filter zurücksetzen
+            </button>
+          </div>
+        </aside>
+
+        <section className="min-w-0 flex-1">
+          <div className="flex items-baseline justify-between">
+            <h1 className="text-lg font-semibold tracking-tight">Bibliothek</h1>
+            <span className="text-sm text-neutral-500">
+              {list.isLoading ? "…" : `${total} Dokumente`}
+            </span>
+          </div>
+
+          {errorDetail && (
+            <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {errorDetail}
+            </p>
+          )}
+
+          {list.data && list.data.results.length === 0 && !list.isLoading && (
+            <div className="mt-6 rounded-md border border-dashed border-neutral-300 bg-white p-8 text-center text-sm text-neutral-600">
+              Keine Treffer für diese Filter.
+            </div>
+          )}
+
+          {list.data && list.data.results.length > 0 && (
+            <table className="mt-4 w-full text-left text-sm">
+              <thead className="border-b border-neutral-200 text-xs uppercase tracking-wide text-neutral-500">
+                <tr>
+                  <th className="px-2 py-2">Titel</th>
+                  <th className="px-2 py-2">Typ</th>
+                  <th className="px-2 py-2">Korrespondent</th>
+                  <th className="px-2 py-2">Datum</th>
+                  <th className="px-2 py-2 text-right">Betrag</th>
+                  <th className="px-2 py-2">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-200">
+                {list.data.results.map((row) => (
+                  <Row
+                    key={row.id}
+                    row={row}
+                    onClick={() => setPreviewing(row)}
+                  />
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {lastPage > 1 && (
+            <div className="mt-4 flex items-center justify-end gap-2 text-sm">
+              <button
+                type="button"
+                onClick={() => goToPage(currentPage - 1)}
+                disabled={currentPage <= 1}
+                className="rounded-md border border-neutral-300 px-3 py-1 hover:bg-neutral-100 disabled:opacity-50"
+              >
+                ← Zurück
+              </button>
+              <span className="text-neutral-500">
+                Seite {currentPage} / {lastPage}
+              </span>
+              <button
+                type="button"
+                onClick={() => goToPage(currentPage + 1)}
+                disabled={currentPage >= lastPage}
+                className="rounded-md border border-neutral-300 px-3 py-1 hover:bg-neutral-100 disabled:opacity-50"
+              >
+                Weiter →
+              </button>
+            </div>
+          )}
+        </section>
+      </main>
+
+      {previewing && (
+        <DocumentPreviewModal
+          doc={toDocSummary(previewing)}
+          onClose={() => setPreviewing(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function Row({ row, onClick }: { row: LibraryItem; onClick: () => void }) {
+  return (
+    <tr onClick={onClick} className="cursor-pointer hover:bg-neutral-50">
+      <td className="px-2 py-2 font-medium text-neutral-900">{row.title}</td>
+      <td className="px-2 py-2 text-neutral-700">{row.document_type ?? "—"}</td>
+      <td className="px-2 py-2 text-neutral-700">
+        {row.correspondent ?? "—"}
+      </td>
+      <td className="px-2 py-2 text-neutral-700">{row.created ?? "—"}</td>
+      <td className="px-2 py-2 text-right text-neutral-700">
+        {row.monetary_amount ?? "—"}
+      </td>
+      <td className="px-2 py-2">
+        {row.lifecycle_tags.map((tag) => (
+          <span
+            key={tag}
+            className={`mr-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium ${
+              LIFECYCLE_BADGE_STYLES[tag] ?? "bg-neutral-100 text-neutral-700"
+            }`}
+          >
+            {tag.replace("ai-", "")}
+          </span>
+        ))}
+      </td>
+    </tr>
+  );
+}
+
+const inputCls =
+  "mt-1 block w-full rounded-md border border-neutral-300 bg-white px-2 py-1 text-sm focus:border-neutral-900 focus:outline-none";
+
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block text-xs font-medium text-neutral-600">
+      {label}
+      {children}
+    </label>
+  );
+}
+
+function toDocSummary(row: LibraryItem): DocumentSummary {
+  return {
+    id: row.id,
+    title: row.title,
+    correspondent: row.correspondent,
+    document_type: row.document_type,
+    created: row.created,
+    monetary_amount: row.monetary_amount,
+  };
+}

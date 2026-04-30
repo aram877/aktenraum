@@ -6,7 +6,7 @@ import { useLogout, useMe } from "../lib/auth";
 export function Nav({
   active,
 }: {
-  active: "home" | "ask" | "find" | "inbox";
+  active: "home" | "ask" | "find" | "library" | "inbox";
 }) {
   const me = useMe();
   const logout = useLogout();
@@ -42,6 +42,9 @@ export function Nav({
           </Link>
           <Link to="/find" className={linkCls("find", "")}>
             Dokumente finden
+          </Link>
+          <Link to="/library" className={linkCls("library", "")}>
+            Bibliothek
           </Link>
           <Link to="/inbox" className={`${linkCls("inbox", "")} flex items-center gap-1.5`}>
             <span>Inbox</span>

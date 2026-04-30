@@ -1,0 +1,66 @@
+from __future__ import annotations
+
+from datetime import date
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+
+from ..ai.deps import get_paperless_gateway
+from ..auth.deps import get_current_user
+from ..db.models import User
+from ..paperless_gw import PaperlessAuthError, PaperlessGateway
+from . import service
+from .schemas import LibraryList
+
+router = APIRouter(prefix="/library", tags=["library"])
+
+# Allowed Paperless ordering fields. Anything else is rejected so a typo or a
+# crafted client cannot trip a 500 from the upstream.
+_ALLOWED_ORDERING = {
+    "-created",
+    "created",
+    "-modified",
+    "modified",
+    "title",
+    "-title",
+}
+
+
+@router.get("/", response_model=LibraryList)
+async def list_library(
+    document_type: str | None = Query(None, description="Exact name from the 20-type taxonomy"),
+    correspondent: str | None = Query(None, description="Exact correspondent name"),
+    date_from: date | None = Query(None, description="created_date >= this"),
+    date_to: date | None = Query(None, description="created_date <= this"),
+    min_amount: float | None = Query(None, ge=0),
+    max_amount: float | None = Query(None, ge=0),
+    text: str | None = Query(None, description="Free-text Paperless full-text search"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+    ordering: str = Query("-created"),
+    _user: User = Depends(get_current_user),
+    gateway: PaperlessGateway = Depends(get_paperless_gateway),
+) -> LibraryList:
+    if ordering not in _ALLOWED_ORDERING:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"ordering must be one of {sorted(_ALLOWED_ORDERING)}",
+        )
+    try:
+        return await service.list_library(
+            gateway,
+            document_type=document_type,
+            correspondent=correspondent,
+            date_from=date_from,
+            date_to=date_to,
+            min_amount=min_amount,
+            max_amount=max_amount,
+            text=text,
+            page=page,
+            page_size=page_size,
+            ordering=ordering,
+        )
+    except PaperlessAuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Paperless rejected the API token",
+        ) from e

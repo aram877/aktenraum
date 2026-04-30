@@ -335,12 +335,13 @@ Use `/opsx:apply` skill to implement tasks from an approved change.
 | Few-shot exemplars from propagated corpus | ✅ Available (`FEW_SHOT_EXAMPLES > 0`) |
 | Per-correspondent history hint | ✅ Default on |
 | Webhook trigger from paperless `post_consume_script` | ✅ Running |
-| Pytest suite + ruff + GitHub Actions CI | ✅ Running (198 tests) |
+| Pytest suite + ruff + GitHub Actions CI | ✅ Running (206 tests) |
 | Custom Vite + React SPA shell | ✅ Running (`apps/web`, served by nginx on `:8080`) |
 | Find docs (`/api/ai/find` + `/find` page) | ✅ Phase 2 — closed-enum SearchFilter, editable chips, Open + Download per result |
 | Ask AI conversational Q&A (`/api/ai/answer` + `/ask`) | ✅ Phase 2.5 — German prose answer with citations; small model for filter, big model for answer |
-| Document preview/download proxies (`/api/documents/{id}/{preview,download}`) | ✅ Reusable across Ask/Find/Inbox; token never reaches the browser |
+| Document preview/download proxies (`/api/documents/{id}/{preview,download}`) | ✅ Reusable across Ask/Find/Inbox/Library; token never reaches the browser |
 | Inbox review queue (`/api/inbox/*` + `/inbox` + `/inbox/$id`) | ✅ Phase 3 — two-pane PDF preview, editable AI fields, approve/reject, keyboard shortcuts |
+| Library / Bibliothek (`/api/library/` + `/library`) | ✅ Filterable list of all non-pending docs (doc type, correspondent, date range, amount, free text); URL-state filters; click row → preview modal |
 | Semantic search / RAG | 🔲 Planned (Phase 6, only if structured-filter search hits a ceiling) |
 | HTTPS / Tailscale | 🔲 Planned (TODO in runbook) |
 | Backup integrity checks (`restic check`) | 🔲 Planned |
@@ -416,6 +417,14 @@ For a full-stack dev cycle, keep the compose stack up (`docker compose up -d`) s
 - Retrieval broadens the filter for the answer step: when any structural field (doc_type, correspondent, dates, amounts) is set, we drop the `text` constraint — verbs like "verlängern" / "kostete" land in `text` from the filter LLM but rarely appear in OCR'd content, so keeping them kills recall. `/find` keeps `text` honored.
 - The answer prompt (`aktenraum_api.ai.answer_prompt`) ships three German few-shot exemplars showing question→field mappings ("Wann läuft … ab?" → Ablauf field, "Was hat … gekostet?" → Betrag, "Bis wann muss ich zahlen?" → Fällig).
 - Two LLM backends: the filter-extraction call uses `OLLAMA_MODEL` / `ANTHROPIC_MODEL`; the answer call optionally uses `OLLAMA_ANSWER_MODEL` / `ANTHROPIC_ANSWER_MODEL` so a deployer can pair a fast 8B for filters with a smarter 14B+ for answers (the 8B is too small to read citations reliably).
+
+### Library (`/api/library/`)
+
+- `GET /api/library/` — paginated list of non-pending documents. Server-side excludes `ai-pending` via `tags__id__none=<ai-pending-id>` so anything still under review never reaches the library.
+- Query params: `document_type`, `correspondent`, `date_from`, `date_to`, `min_amount`, `max_amount`, `text`, `page` (≥1), `page_size` (1..100), `ordering` (allowlist: `-created`, `created`, `-modified`, `modified`, `title`, `-title`).
+- Returns `LibraryItem` rows with `lifecycle_tags` so the SPA can render a small badge per tag (propagated / approved / rejected / error). Falls back to AI custom-field correspondent / doc_type when the native FK is unset.
+- Amount is post-filter against `ai_monetary_amount` (Paperless can't filter monetary custom fields server-side); when a bound is set, `total` reflects the post-filter survivor count.
+- SPA route `/library` keeps filter state in URL search params (bookmarkable; back-button works); auto-applies form changes after a 400ms debounce; click row → `DocumentPreviewModal` (Esc closes, Download button on the modal header).
 
 ### Document proxy (`/api/documents/{id}/{preview,download}`)
 

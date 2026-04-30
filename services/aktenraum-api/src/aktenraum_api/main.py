@@ -5,11 +5,13 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI
 
+from .ai import router as ai_router
 from .auth import bootstrap_user_if_empty
 from .auth import router as auth_router
 from .config import Settings
 from .db.session import build_engine_and_sessionmaker
 from .health import router as health_router
+from .paperless_gw import PaperlessGateway
 
 
 def _configure_logging(level: str) -> None:
@@ -38,7 +40,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 username=settings.bootstrap_username,
                 password=settings.bootstrap_password,
             )
+        if settings.paperless_api_token:
+            app.state.paperless_gateway = PaperlessGateway(
+                base_url=settings.paperless_base_url,
+                api_token=settings.paperless_api_token,
+                ttl_seconds=settings.correspondent_list_ttl_seconds,
+            )
+        else:
+            app.state.paperless_gateway = None
         yield
+        gateway = getattr(app.state, "paperless_gateway", None)
+        if gateway is not None:
+            await gateway.aclose()
         await engine.dispose()
 
     app = FastAPI(
@@ -52,4 +65,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.include_router(health_router, prefix="/api")
     app.include_router(auth_router, prefix="/api")
+    app.include_router(ai_router, prefix="/api")
     return app

@@ -6,6 +6,7 @@ import {
   redirect,
 } from "@tanstack/react-router";
 
+import { Ask } from "./routes/Ask";
 import { Home } from "./routes/Home";
 import { Login } from "./routes/Login";
 import { fetchMe } from "./lib/api";
@@ -44,7 +45,23 @@ const loginRoute = createRoute({
   component: Login,
 });
 
-const routeTree = rootRoute.addChildren([indexRoute, loginRoute]);
+const askRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/ask",
+  beforeLoad: async ({ context }) => {
+    try {
+      await context.queryClient.fetchQuery({
+        queryKey: ["me"],
+        queryFn: fetchMe,
+      });
+    } catch {
+      throw redirect({ to: "/login" });
+    }
+  },
+  component: Ask,
+});
+
+const routeTree = rootRoute.addChildren([indexRoute, loginRoute, askRoute]);
 
 export function buildRouter(queryClient: QueryClient) {
   return createRouter({ routeTree, context: { queryClient } });

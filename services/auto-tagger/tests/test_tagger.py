@@ -5,6 +5,7 @@ import pytest
 from auto_tagger.models import DocumentExtraction, DocumentType, KeyDates
 from auto_tagger.tagger import (
     _example_payload,
+    _format_history_hint,
     _route_lifecycle_tags,
     _split_csv,
     _truncate_text,
@@ -84,42 +85,68 @@ class TestSplitCsv:
 
 
 class TestExamplePayload:
-    def test_renders_complete_extraction(self):
+    def _payload(self, ai_fields: dict, **native):
+        defaults = {
+            "correspondent_name": None,
+            "document_type_name": None,
+            "created_date": None,
+            "tag_names": [],
+        }
+        defaults.update(native)
+        return json.loads(_example_payload(ai_fields, **defaults))
+
+    def test_renders_complete_extraction_native_priority(self):
+        # Native fields take priority over their ai_* equivalents — the user
+        # may have corrected them post-propagation.
         ai_fields = {
-            "ai_document_type": "Rechnung",
-            "ai_correspondent": "GitHub, Inc.",
-            "ai_issue_date": "2022-09-07",
+            "ai_document_type": "Sonstiges",  # ← stale AI guess
+            "ai_correspondent": "GitHub Inc",  # ← stale AI guess
+            "ai_issue_date": "2022-01-01",
             "ai_due_date": None,
             "ai_expiry_date": None,
             "ai_reference_numbers": "INV-1, REF-2",
-            "ai_suggested_tags": "Software, Abo",
+            "ai_suggested_tags": "raw, suggestions",
             "ai_summary_de": "Beispieltext.",
             "ai_confidence": 0.98,
         }
-        parsed = json.loads(_example_payload(ai_fields))
+        parsed = self._payload(
+            ai_fields,
+            correspondent_name="GitHub, Inc.",  # ← user-corrected
+            document_type_name="Rechnung",  # ← user-corrected
+            created_date="2022-09-07",
+            tag_names=["Software", "Abo"],
+        )
         assert parsed["document_type"] == "Rechnung"
         assert parsed["correspondent"] == "GitHub, Inc."
         assert parsed["key_dates"]["issue"] == "2022-09-07"
-        assert parsed["key_dates"]["due"] is None
         assert parsed["reference_numbers"] == ["INV-1", "REF-2"]
         assert parsed["suggested_tags"] == ["Software", "Abo"]
         assert parsed["summary_de"] == "Beispieltext."
         assert parsed["confidence"] == 0.98
 
-    def test_omits_monetary_amount(self):
-        # Paperless stores monetary as ISO+amount which conflicts with the
-        # German format the prompt asks the model to produce; including it
-        # would teach the model the wrong format.
+    def test_falls_back_to_ai_fields_when_native_missing(self):
         ai_fields = {
             "ai_document_type": "Rechnung",
-            "ai_monetary_amount": "EUR149.99",
+            "ai_correspondent": "GitHub, Inc.",
+            "ai_issue_date": "2022-09-07",
+            "ai_suggested_tags": "tag-a, tag-b",
         }
-        parsed = json.loads(_example_payload(ai_fields))
+        parsed = self._payload(ai_fields)
+        assert parsed["document_type"] == "Rechnung"
+        assert parsed["correspondent"] == "GitHub, Inc."
+        assert parsed["key_dates"]["issue"] == "2022-09-07"
+        assert parsed["suggested_tags"] == ["tag-a", "tag-b"]
+
+    def test_omits_monetary_amount(self):
+        # Paperless stores monetary as ISO+amount which conflicts with the
+        # German format the prompt asks the model to produce.
+        parsed = self._payload(
+            {"ai_document_type": "Rechnung", "ai_monetary_amount": "EUR149.99"}
+        )
         assert "monetary_amount" not in parsed
 
     def test_handles_minimal_fields(self):
-        ai_fields = {"ai_document_type": "Sonstiges"}
-        parsed = json.loads(_example_payload(ai_fields))
+        parsed = self._payload({"ai_document_type": "Sonstiges"})
         assert parsed["document_type"] == "Sonstiges"
         assert parsed["correspondent"] is None
         assert parsed["reference_numbers"] == []
@@ -127,13 +154,75 @@ class TestExamplePayload:
         assert parsed["summary_de"] == ""
 
     def test_emits_valid_utf8_for_german_chars(self):
-        ai_fields = {
-            "ai_document_type": "Behoerdenbrief",
-            "ai_correspondent": "Bürgeramt München",
-            "ai_summary_de": "Über die Ausstellung des Personalausweises.",
+        ai_fields = {"ai_document_type": "Behoerdenbrief"}
+        out = _example_payload(
+            ai_fields,
+            correspondent_name="Bürgeramt München",
+            document_type_name="Behördenbrief",
+            created_date=None,
+            tag_names=[],
+        )
+        assert "Bürgeramt München" in out
+        assert "Behördenbrief" in out
+
+
+class TestFormatHistoryHint:
+    def test_returns_empty_when_no_history(self):
+        assert _format_history_hint({}, "any text") == ""
+
+    def test_returns_empty_when_no_match_in_text(self):
+        history = {"Vodafone GmbH": {"Rechnung": 5}}
+        assert _format_history_hint(history, "Some unrelated content") == ""
+
+    def test_dominant_type_when_70_pct_threshold_met(self):
+        # 5/5 = 100% Rechnung → dominant branch
+        history = {"GitHub, Inc.": {"Rechnung": 5}}
+        out = _format_history_hint(history, "Receipt from GitHub, Inc. for $10")
+        assert "GitHub, Inc." in out
+        assert "Rechnung" in out
+        assert "5 von 5" in out
+
+    def test_dominant_branch_at_exactly_70_pct(self):
+        # 7/10 = 70% Rechnung → dominant branch (boundary)
+        history = {"Acme": {"Rechnung": 7, "Mahnung": 3}}
+        out = _format_history_hint(history, "Letter from Acme")
+        assert "Rechnung" in out
+        assert "7 von 10" in out
+
+    def test_distribution_branch_below_threshold(self):
+        # 4/7 = 57% → no dominant; show full distribution
+        history = {"Mixed Sender": {"Rechnung": 4, "Mahnung": 2, "Vertrag": 1}}
+        out = _format_history_hint(history, "Note from Mixed Sender today")
+        assert "Mixed Sender" in out
+        # Should NOT use the dominant phrasing
+        assert "Berücksichtige dies" not in out
+        # All three types appear
+        for label in ("Rechnung", "Mahnung", "Vertrag"):
+            assert label in out
+
+    def test_below_min_samples_uses_distribution_not_dominant(self):
+        # Single-sample sender: 1/1 = 100% but n=1 < min — distribution branch.
+        history = {"NewSender": {"Rechnung": 1}}
+        out = _format_history_hint(history, "Hello from NewSender")
+        assert "NewSender" in out
+        assert "Berücksichtige dies" not in out
+
+    def test_prefers_longest_match_when_multiple_correspondents_in_text(self):
+        # Both "GitHub" and "GitHub, Inc." in history; longer should win.
+        history = {
+            "GitHub": {"Sonstiges": 3},
+            "GitHub, Inc.": {"Rechnung": 5},
         }
-        out = _example_payload(ai_fields)
-        assert "Bürgeramt München" in out  # ensure_ascii=False preserved
+        out = _format_history_hint(history, "Receipt from GitHub, Inc. arrived today")
+        assert "GitHub, Inc." in out
+        assert "Rechnung" in out
+
+    def test_only_searches_first_1000_chars(self):
+        # Sender mentioned only after the head window — should not match.
+        head_padding = "x" * 1500
+        history = {"Bürgeramt München": {"Behördenbrief": 3}}
+        text = head_padding + " sender Bürgeramt München"
+        assert _format_history_hint(history, text) == ""
 
 
 class TestTruncateText:

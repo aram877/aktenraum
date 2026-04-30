@@ -62,6 +62,14 @@ class Settings(BaseSettings):
     # roughly 500-700 tokens per example on top of the base prompt.
     few_shot_examples: int = Field(0, ge=0, le=5)
 
+    # Per-correspondent history hint: when true (default), each extraction
+    # call checks whether the document's text mentions a known correspondent
+    # from your `ai-propagated` corpus. If so, a hint is prepended to the
+    # system prompt naming the dominant past document_type for that sender
+    # (≥70% of ≥2 prior docs) or the full distribution otherwise. Drives
+    # corpus-driven classification without retraining the model.
+    use_correspondent_history: bool = Field(True)
+
     # HTTP webhook listener — Paperless's post_consume_script POSTs the
     # document id here so extraction starts within seconds instead of waiting
     # for the next 30s poll cycle. The poller still runs as a safety net for

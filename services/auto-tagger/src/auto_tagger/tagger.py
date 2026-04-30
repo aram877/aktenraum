@@ -40,6 +40,9 @@ Wähle den document_type anhand dieser Definitionen — nimm immer den spezifisc
 
 Weitere Regeln:
 - Datumsangaben immer im Format YYYY-MM-DD
+- key_dates.issue: das Datum, an dem dieses Dokument selbst ausgestellt/datiert wurde (z.B. Rechnungsdatum, Bescheiddatum, Vertragsabschluss). NICHT verwenden für: Geburtsdaten, Beschäftigungs- oder Studienzeiträume, im Inhalt erwähnte Termine, Mietbeginn, Reisedaten o.Ä. Wenn das Dokument kein eigenes Ausstellungsdatum trägt (z.B. Lebenslauf, Notiz, Foto): null
+- key_dates.due: Fälligkeits-/Zahlungsdatum (z.B. "zahlbar bis"), nicht andere Termine
+- key_dates.expiry: Ablauf-/Gültigkeitsende (z.B. Ausweis bis, Versicherung bis), nicht andere Endtermine
 - Geldbeträge immer mit Währung, z.B. "149,99 EUR"
 - summary_de muss genau 3 Sätze auf Deutsch enthalten
 - confidence gibt an, wie sicher du dir bei der Extraktion bist (0.0 = unsicher, 1.0 = sehr sicher)

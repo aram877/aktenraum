@@ -117,11 +117,24 @@ curl -s -X POST "$BASE/api/token/" -H "Content-Type: application/json" -d '{"use
 
 ## Auto-tagger behaviour
 
+The service runs two parallel async polling loops in the same container:
+
+**Extraction loop** (always on):
 - Polls `GET /api/documents/` every 30s, skips docs carrying any of the six AI lifecycle tags (`ai-pending`, `ai-approved`, `ai-rejected`, `ai-propagated`, `ai-propagation-error`, `ai-error`)
 - Sends OCR text (truncated to 8000 tokens) to Ollama or Anthropic
 - Writes 12 custom fields to the document + adds `ai-pending` tag (entry state of the lifecycle)
-- **Retag a document**: remove all `ai-*` lifecycle tags in Paperless UI → picked up on next poll
-- **Approve / reject**: replace `ai-pending` with `ai-approved` or `ai-rejected` in the UI. (The propagation service that consumes `ai-approved` to write native Paperless fields is not yet implemented.)
+
+**Propagation loop** (when `ENABLE_PROPAGATION=true`, default):
+- Polls every 30s for documents tagged `ai-approved`
+- Reads `ai_correspondent`, `ai_document_type`, `ai_issue_date`, `ai_suggested_tags` and writes them to **native** Paperless fields (creating Correspondent / DocumentType / Tag entities by exact-name match if missing)
+- Single PATCH per doc: sets correspondent + document_type + created_date + tags
+- On success: swaps `ai-approved` for `ai-propagated`
+- On failure: swaps `ai-approved` for `ai-propagation-error` (so the doc does not loop)
+
+**User actions in the UI:**
+- **Retag a document**: remove all `ai-*` lifecycle tags → extraction loop picks it up on next poll
+- **Approve**: replace `ai-pending` with `ai-approved` → propagation loop fires within 30s
+- **Reject**: replace `ai-pending` with `ai-rejected` → no propagation, no further processing
 
 ### LLM backends
 

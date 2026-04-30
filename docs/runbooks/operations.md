@@ -58,7 +58,7 @@ A document tagged `ai-pending` has AI-generated metadata waiting for review. The
 | Tag | Meaning |
 |---|---|
 | `ai-pending` | Extracted, awaiting review |
-| `ai-approved` | User approved — should trigger propagation to native fields (propagation service is planned, see roadmap) |
+| `ai-approved` | User approved — propagation watcher copies the AI fields onto native Paperless entities |
 | `ai-rejected` | User rejected — no propagation, do not retry |
 | `ai-propagated` | Native Paperless fields have been written from the AI extraction |
 | `ai-propagation-error` | Propagation pipeline failed mid-run |

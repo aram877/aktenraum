@@ -49,6 +49,13 @@ class Settings(BaseSettings):
     auto_approve_types: Annotated[list[str], NoDecode] = Field(default_factory=list)
     low_confidence_threshold: float = Field(0.6, ge=0.0, le=1.0)
 
+    # Few-shot exemplars: when > 0, each extraction call prepends N recent
+    # propagated documents (text excerpt + their AI extraction as JSON) to
+    # the system prompt. Anchors the model to your real, user-vetted output
+    # style. 0 disables. Each example is truncated to ~1500 chars; budget
+    # roughly 500-700 tokens per example on top of the base prompt.
+    few_shot_examples: int = Field(0, ge=0, le=5)
+
     @field_validator("auto_approve_types", mode="before")
     @classmethod
     def _split_csv(cls, v: object) -> object:

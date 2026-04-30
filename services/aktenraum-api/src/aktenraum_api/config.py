@@ -41,3 +41,29 @@ class Settings(BaseSettings):
     bootstrap_password: str = Field("")
 
     log_level: str = Field("INFO")
+
+    # Paperless gateway (server-side, never reaches the SPA).
+    paperless_base_url: str = Field(
+        "http://paperless:8000",
+        description="Internal Paperless URL the API container reaches. Override per deploy.",
+    )
+    paperless_api_token: str = Field(
+        "",
+        description=(
+            "Paperless API token. Required for /api/ai/* endpoints. "
+            "When empty, AI endpoints respond 503; auth + health stay green."
+        ),
+    )
+    correspondent_list_ttl_seconds: int = Field(
+        300, ge=1, description="Per-process correspondent cache TTL"
+    )
+
+    # LLM backend selection — same env knob the auto-tagger uses.
+    llm_backend: str = Field(
+        "anthropic",
+        description="anthropic | ollama",
+    )
+    anthropic_api_key: str = Field("", description="Required when LLM_BACKEND=anthropic")
+    anthropic_model: str = Field("claude-sonnet-4-6")
+    ollama_base_url: str = Field("http://host.docker.internal:11434")
+    ollama_model: str = Field("llama3.1:8b")

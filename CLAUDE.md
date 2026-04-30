@@ -53,8 +53,10 @@ docker compose logs --tail=50 paperless
 | Paperless API token | `PAPERLESS_API_TOKEN` in `docker/auto-tagger.env` (mint via `POST /api/token/` after first paperless boot — example below) |
 | Restic passphrase | `RESTIC_PASSWORD` in `docker/backup.env` |
 | Webhook secret | `WEBHOOK_SECRET` in `docker/.env` (passed to paperless's post_consume hook) AND `docker/auto-tagger.env` (must match) |
-| LLM backend | `LLM_BACKEND=ollama` or `anthropic` in `docker/auto-tagger.env` |
+| LLM backend | `LLM_BACKEND=ollama` or `anthropic` in `docker/auto-tagger.env` (and, for Phase-2 AI search, in `docker/aktenraum-api.env`) |
 | Ollama model | `OLLAMA_MODEL=gemma4:latest` (what we run); larger models or `qwen` family work too |
+| AI search → Paperless | `PAPERLESS_API_TOKEN` in `docker/aktenraum-api.env` — same token the auto-tagger uses; required for `/api/ai/*` |
+| AI search → LLM | `ANTHROPIC_API_KEY` (when `LLM_BACKEND=anthropic`) or `OLLAMA_BASE_URL` + `OLLAMA_MODEL` (when `LLM_BACKEND=ollama`), all in `docker/aktenraum-api.env` |
 
 Env files are gitignored. Examples: `docker/.env.example`, `docker/auto-tagger.env.example`, `docker/backup.env.example`. The API token in `auto-tagger.env` is **per-database** — a fresh `pgdata/` means re-minting.
 
@@ -332,9 +334,10 @@ Use `/opsx:apply` skill to implement tasks from an approved change.
 | Few-shot exemplars from propagated corpus | ✅ Available (`FEW_SHOT_EXAMPLES > 0`) |
 | Per-correspondent history hint | ✅ Default on |
 | Webhook trigger from paperless `post_consume_script` | ✅ Running |
-| Pytest suite + ruff + GitHub Actions CI | ✅ Running (97+ tests) |
-| Custom React/Next.js frontend | 🔲 Planned (apps/web placeholder) |
-| Semantic search / RAG | 🔲 Planned |
+| Pytest suite + ruff + GitHub Actions CI | ✅ Running (151 tests) |
+| Custom Vite + React SPA shell | ✅ Running (`apps/web`, served by nginx on `:8080`) |
+| Natural-language search (`/api/ai/ask` + `/ask` page) | ✅ Phase 2 — closed-enum SearchFilter, German prompt, editable filter chips |
+| Semantic search / RAG | 🔲 Planned (Phase 6, only if structured-filter search hits a ceiling) |
 | HTTPS / Tailscale | 🔲 Planned (TODO in runbook) |
 | Backup integrity checks (`restic check`) | 🔲 Planned |
 | Health endpoint / Prometheus metrics | 🔲 Planned |
@@ -393,5 +396,15 @@ For a full-stack dev cycle, keep the compose stack up (`docker compose up -d`) s
 - DB: SQLAlchemy 2 async + asyncpg. Engine and sessionmaker live on `app.state` (no module globals); `get_session` reads the sessionmaker from `request.app.state.session_factory`.
 - Migrations: Alembic under `services/aktenraum-api/alembic/`. The container entrypoint runs `alembic upgrade head` before starting uvicorn.
 - The `aktenraum` Postgres database is created by `docker/postgres-init/01-create-aktenraum-db.sh` on a fresh `pgdata` volume. **For existing installs**, run once: `docker compose exec postgres psql -U paperless -c "CREATE DATABASE aktenraum OWNER paperless;"`
+
+### AI search (`/api/ai/ask`)
+
+- `POST /api/ai/ask` is the natural-language search endpoint. Auth-gated (cookie). Accepts either `{"query": str}` (LLM path) or `{"filter": SearchFilter}` (no LLM, used for chip-edit re-runs). Returns `{filter, results, explanation, total}`.
+- `SearchFilter` is a closed-enum Pydantic model: `document_type` reuses `aktenraum_core.models.DocumentType` (20 values), plus `correspondent`, `date_from`, `date_to`, `min_amount`, `max_amount`, `text`. Unknown document types → 422.
+- Server-side `PaperlessGateway` (`aktenraum_api.paperless_gw`) holds the API token and exposes `list_correspondents`, `list_document_types`, `search_documents`. Per-process correspondent cache with `CORRESPONDENT_LIST_TTL_SECONDS` TTL. The token never reaches the SPA.
+- Translator (`aktenraum_api.ai.translate`) maps `SearchFilter` → Paperless query params: native fields use `document_type__id` and `correspondent__id` (the bare `?document_type=` / `?correspondent=` are silently ignored — same gotcha class as `?name=` on `/api/tags/`). Amount bounds are post-filter against `ai_monetary_amount`.
+- Prompt (`aktenraum_api.ai.prompt`) inlines all 20 doc types, the live correspondent list (cap 200), date/amount rules, and four German few-shot exemplars. Pure function.
+- LLM backend reuses `aktenraum_core.llm.create_backend(...)` — same env knobs as the auto-tagger. Backend created per request (cheap; no pooling needed at personal-DMS scale).
+- Without `PAPERLESS_API_TOKEN` set, `/api/ai/*` responds 503 while `/api/health` and `/api/auth/*` stay green. Same for missing `ANTHROPIC_API_KEY` when `LLM_BACKEND=anthropic`.
 
 The `tagger.py` per-file `E501` ruff ignore is intentional: `SYSTEM_PROMPT` is a long German-text block where line wrapping damages the prompt as content.

@@ -1,4 +1,4 @@
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 
 import { useLogout, useMe } from "../lib/auth";
 
@@ -28,9 +28,13 @@ export function Home() {
         </div>
       </header>
       <main className="flex-1 px-6 py-12 text-neutral-600">
-        <p className="text-sm">
-          Phase 1 shell — the AI features land in subsequent phases.
-        </p>
+        <p className="text-sm">Willkommen im aktenraum.</p>
+        <Link
+          to="/ask"
+          className="mt-4 inline-block rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800"
+        >
+          Ask AI →
+        </Link>
       </main>
     </div>
   );

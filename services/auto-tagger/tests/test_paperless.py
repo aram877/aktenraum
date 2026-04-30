@@ -2,6 +2,7 @@ import pytest
 
 from auto_tagger.paperless import (
     LIFECYCLE_TAGS,
+    _normalize_date,
     _normalize_monetary,
     _truncate_string_field,
 )
@@ -65,6 +66,31 @@ class TestTruncateStringField:
         assert len(result) == 128
         assert result.endswith("…")
         assert result[:-1] == "x" * 127
+
+
+class TestNormalizeDate:
+    @pytest.mark.parametrize(
+        "value,expected",
+        [
+            ("2024-12-01", "2024-12-01"),  # already canonical
+            ("01.12.2024", "2024-12-01"),  # German full
+            ("01/12/2024", "2024-12-01"),  # European slash
+            ("2024/12/01", "2024-12-01"),  # ISO with slashes
+            ("01.12.24", "2024-12-01"),  # German short year
+            ("12.2024", "2024-12-01"),  # German month-year → anchor to day 1
+            ("12/2024", "2024-12-01"),
+            ("2024-12", "2024-12-01"),  # ISO month-year
+            ("  2024-12-01  ", "2024-12-01"),  # trim whitespace
+        ],
+    )
+    def test_normalises_to_iso(self, value, expected):
+        assert _normalize_date(value) == expected
+
+    @pytest.mark.parametrize(
+        "value", [None, "", "   ", "December 2024", "Dezember 2024", "abc", "13/13/2024"]
+    )
+    def test_returns_none_when_unparseable(self, value):
+        assert _normalize_date(value) is None
 
 
 class TestLifecycleTags:

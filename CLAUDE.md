@@ -127,6 +127,7 @@ The service runs two parallel async polling loops in the same container:
   - `confidence >= AUTO_APPROVE_CONFIDENCE` AND `document_type in AUTO_APPROVE_TYPES` → tag `ai-approved` directly (skips human review; propagation runs)
   - otherwise → tag `ai-pending` (default review path)
   - `confidence < LOW_CONFIDENCE_THRESHOLD` → also tag `ai-low-confidence` so the review queue can be sorted by priority
+- Few-shot exemplars: when `FEW_SHOT_EXAMPLES > 0`, each extraction call prepends N most-recently-propagated documents (text excerpt + their AI extraction as JSON) to the system prompt. Pulls from the `ai-propagated` tag — your own user-vetted corpus. Especially helpful with smaller local models.
 
 **Propagation loop** (when `ENABLE_PROPAGATION=true`, default):
 - Polls every 30s for documents tagged `ai-approved`

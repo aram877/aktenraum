@@ -175,17 +175,30 @@ class PaperlessClient:
     # Documents — propagation helpers
     # ------------------------------------------------------------------
 
-    async def get_documents_with_tag(self, tag_name: str, batch_size: int = 5) -> list[dict]:
-        """Return documents tagged with `tag_name`. Empty list if tag missing."""
+    async def get_documents_with_tag(
+        self, tag_name: str, batch_size: int = 5, ordering: str = "modified"
+    ) -> list[dict]:
+        """Return documents tagged with `tag_name`. Empty list if tag missing.
+
+        `ordering` follows Paperless conventions ("modified" oldest-first,
+        "-modified" newest-first, etc.). The list endpoint includes the full
+        document including content and custom_fields, so callers do not need
+        per-doc GETs to inspect those.
+        """
         tag_id = await self._get_tag_id(tag_name)
         if tag_id is None:
             return []
         resp = await self._client.get(
             "/api/documents/",
-            params={"tags__id__all": tag_id, "ordering": "modified", "page_size": batch_size},
+            params={"tags__id__all": tag_id, "ordering": ordering, "page_size": batch_size},
         )
         resp.raise_for_status()
         return resp.json().get("results", [])
+
+    async def get_custom_field_name_by_id(self) -> dict[int, str]:
+        """Inverse of the {name: id} map; useful when reading custom_fields off
+        documents returned by list endpoints (each item is {field, value})."""
+        return {fid: name for name, fid in (await self._get_custom_field_ids()).items()}
 
     async def get_ai_custom_field_values(self, doc_id: int) -> dict[str, Any]:
         """Return {field_name: value} for every custom field set on the doc."""

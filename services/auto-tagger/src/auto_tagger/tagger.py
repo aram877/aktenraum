@@ -1,3 +1,6 @@
+import json
+from typing import Any
+
 import structlog
 
 from .config import Settings
@@ -45,6 +48,7 @@ Weitere Regeln:
 
 _MAX_CHARS_PER_TOKEN = 4
 _TRUNCATION_NOTICE = "\n\n[Dokument wurde aufgrund der Länge gekürzt.]"
+_FEW_SHOT_TEXT_LIMIT = 1500
 
 
 def _truncate_text(text: str, max_tokens: int) -> str:
@@ -52,6 +56,78 @@ def _truncate_text(text: str, max_tokens: int) -> str:
     if len(text) <= max_chars:
         return text
     return text[:max_chars] + _TRUNCATION_NOTICE
+
+
+def _split_csv(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    return [s.strip() for s in raw.split(",") if s.strip()]
+
+
+def _example_payload(ai_fields: dict[str, Any]) -> str:
+    """Render a vetted Paperless extraction back as a DocumentExtraction-shaped JSON.
+
+    Skips ai_monetary_amount on purpose: Paperless stores it in ISO+amount
+    form (e.g. EUR149.99) which conflicts with the German format the system
+    prompt asks the model to produce. Showing the wrong format would teach
+    the model the wrong thing.
+    """
+    payload = {
+        "document_type": ai_fields.get("ai_document_type"),
+        "correspondent": ai_fields.get("ai_correspondent"),
+        "key_dates": {
+            "issue": ai_fields.get("ai_issue_date"),
+            "due": ai_fields.get("ai_due_date"),
+            "expiry": ai_fields.get("ai_expiry_date"),
+        },
+        "reference_numbers": _split_csv(ai_fields.get("ai_reference_numbers")),
+        "suggested_tags": _split_csv(ai_fields.get("ai_suggested_tags")),
+        "summary_de": ai_fields.get("ai_summary_de") or "",
+        "confidence": ai_fields.get("ai_confidence", 1.0),
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+async def _build_few_shot_block(paperless: PaperlessClient, n: int) -> str:
+    """Pull N most-recently-propagated docs and render a few-shot block.
+
+    Paperless's list endpoint already returns content + custom_fields per
+    document, so this needs one API call for the listing plus one (cached)
+    custom-field-id lookup — no per-example doc GETs.
+    """
+    if n <= 0:
+        return ""
+    docs = await paperless.get_documents_with_tag(
+        "ai-propagated", batch_size=n, ordering="-modified"
+    )
+    if not docs:
+        return ""
+    name_by_id = await paperless.get_custom_field_name_by_id()
+    blocks: list[str] = []
+    for d in docs:
+        text = (d.get("content") or "").strip()
+        if not text:
+            continue
+        ai_fields = {
+            name_by_id[cf["field"]]: cf.get("value")
+            for cf in d.get("custom_fields", [])
+            if cf.get("field") in name_by_id
+        }
+        if not ai_fields.get("ai_document_type"):
+            continue
+        excerpt = text[:_FEW_SHOT_TEXT_LIMIT]
+        if len(text) > _FEW_SHOT_TEXT_LIMIT:
+            excerpt += "\n[...gekürzt]"
+        blocks.append(
+            f"Eingabe-Text:\n{excerpt}\n\nErwartete Ausgabe (JSON):\n{_example_payload(ai_fields)}"
+        )
+    if not blocks:
+        return ""
+    return (
+        "Hier sind Beispiele aus geprüften, früheren Extraktionen — "
+        "halte dich an Stil und Detailtiefe der Korrespondent- und Zusammenfassungsangaben:\n\n"
+        + "\n\n---\n\n".join(blocks)
+    )
 
 
 def _route_lifecycle_tags(extraction: DocumentExtraction, settings: Settings) -> list[str]:
@@ -100,8 +176,19 @@ async def process_document(
         return
 
     text = _truncate_text(content, settings.max_tokens_input)
+    system_prompt = SYSTEM_PROMPT
+    if settings.few_shot_examples > 0:
+        try:
+            few_shot = await _build_few_shot_block(paperless, settings.few_shot_examples)
+        except Exception as exc:
+            # Few-shot is best-effort — never let it block extraction.
+            logger.warning("few_shot_build_failed", error=str(exc))
+            few_shot = ""
+        if few_shot:
+            system_prompt = SYSTEM_PROMPT + "\n\n---\n\n" + few_shot
+            logger.info("few_shot_attached", chars=len(few_shot))
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": f"Dokumenttext:\n\n{text}"},
     ]
 

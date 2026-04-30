@@ -1,10 +1,8 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { DocumentPreviewModal } from "../components/DocumentPreviewModal";
 import { Nav } from "../components/Nav";
 import { ProcessingBadge } from "../components/ProcessingBadge";
-import type { DocumentSummary } from "../lib/ai";
 import type { LibraryItem, LibraryQuery } from "../lib/library";
 import { DOC_TYPES, useLibrary } from "../lib/library";
 
@@ -61,7 +59,6 @@ function formToSearch(f: LocalForm, page: number): Search {
 export function Library({ search }: { search: Search }) {
   const navigate = useNavigate();
   const [form, setForm] = useState<LocalForm>(() => searchToForm(search));
-  const [previewing, setPreviewing] = useState<LibraryItem | null>(null);
 
   // Re-hydrate the form when the URL changes externally (e.g. back button).
   // Tracked via a ref so user keystrokes don't get clobbered during typing.
@@ -252,7 +249,12 @@ export function Library({ search }: { search: Search }) {
                   <Row
                     key={row.id}
                     row={row}
-                    onClick={() => setPreviewing(row)}
+                    onClick={() =>
+                      navigate({
+                        to: "/library/$id",
+                        params: { id: String(row.id) },
+                      })
+                    }
                   />
                 ))}
               </tbody>
@@ -284,13 +286,6 @@ export function Library({ search }: { search: Search }) {
           )}
         </section>
       </main>
-
-      {previewing && (
-        <DocumentPreviewModal
-          doc={toDocSummary(previewing)}
-          onClose={() => setPreviewing(null)}
-        />
-      )}
     </div>
   );
 }
@@ -332,14 +327,3 @@ function Field({
   );
 }
 
-function toDocSummary(row: LibraryItem): DocumentSummary {
-  return {
-    id: row.id,
-    title: row.title,
-    correspondent: row.correspondent,
-    document_type: row.document_type,
-    created: row.created,
-    monetary_amount: row.monetary_amount,
-    lifecycle_tags: row.lifecycle_tags,
-  };
-}

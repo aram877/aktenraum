@@ -3,7 +3,7 @@ from typing import TypeVar
 
 import ollama
 import structlog
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 log = structlog.get_logger()
 T = TypeVar("T", bound=BaseModel)
@@ -28,11 +28,15 @@ class OllamaBackend:
 
         # Inject schema into the system message
         augmented = list(messages)
+        schema_instruction = (
+            "\n\nAntworte ausschließlich mit validem JSON gemäß diesem Schema:\n"
+            f"{schema_str}"
+        )
         for i, msg in enumerate(augmented):
             if msg.get("role") == "system":
                 augmented[i] = {
                     "role": "system",
-                    "content": msg["content"] + f"\n\nAntworte ausschließlich mit validem JSON gemäß diesem Schema:\n{schema_str}",
+                    "content": msg["content"] + schema_instruction,
                 }
                 break
 

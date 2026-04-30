@@ -1,5 +1,5 @@
 import re
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 import structlog
@@ -32,7 +32,7 @@ _CURRENCY_SYMBOLS = {"€": "EUR", "$": "USD", "£": "GBP", "¥": "JPY"}
 _PAPERLESS_STRING_MAX = 128
 
 
-def _truncate_string_field(value: Optional[str]) -> Optional[str]:
+def _truncate_string_field(value: str | None) -> str | None:
     if value is None:
         return None
     if len(value) <= _PAPERLESS_STRING_MAX:
@@ -40,7 +40,7 @@ def _truncate_string_field(value: Optional[str]) -> Optional[str]:
     return value[: _PAPERLESS_STRING_MAX - 1] + "…"
 
 
-def _normalize_monetary(value: Optional[str]) -> Optional[str]:
+def _normalize_monetary(value: str | None) -> str | None:
     """Convert a freeform monetary string to Paperless format (e.g. 'EUR149.99').
 
     Paperless's `monetary` custom field requires a 3-letter ISO code prefix and
@@ -53,7 +53,7 @@ def _normalize_monetary(value: Optional[str]) -> Optional[str]:
     if not text:
         return None
 
-    code: Optional[str] = None
+    code: str | None = None
     upper = text.upper()
     for c in _CURRENCY_CODES:
         if c in upper:
@@ -135,7 +135,7 @@ class PaperlessClient:
     ) -> None:
         field_map = await self._get_custom_field_ids()
 
-        def fv(name: str, value: Any) -> Optional[dict]:
+        def fv(name: str, value: Any) -> dict | None:
             fid = field_map.get(name)
             if fid is None or value is None:
                 return None
@@ -148,8 +148,14 @@ class PaperlessClient:
             fv("ai_due_date", extraction.key_dates.due),
             fv("ai_expiry_date", extraction.key_dates.expiry),
             fv("ai_monetary_amount", _normalize_monetary(extraction.monetary_amount)),
-            fv("ai_reference_numbers", _truncate_string_field(", ".join(extraction.reference_numbers) or None)),
-            fv("ai_suggested_tags", _truncate_string_field(", ".join(extraction.suggested_tags) or None)),
+            fv(
+                "ai_reference_numbers",
+                _truncate_string_field(", ".join(extraction.reference_numbers) or None),
+            ),
+            fv(
+                "ai_suggested_tags",
+                _truncate_string_field(", ".join(extraction.suggested_tags) or None),
+            ),
             fv("ai_summary_de", _truncate_string_field(extraction.summary_de)),
             fv("ai_confidence", extraction.confidence),
             fv("ai_backend", _truncate_string_field(backend_name)),
@@ -216,10 +222,10 @@ class PaperlessClient:
         self,
         doc_id: int,
         *,
-        correspondent: Optional[int] = None,
-        document_type: Optional[int] = None,
-        created_date: Optional[str] = None,
-        tags: Optional[list[int]] = None,
+        correspondent: int | None = None,
+        document_type: int | None = None,
+        created_date: str | None = None,
+        tags: list[int] | None = None,
     ) -> None:
         payload: dict[str, Any] = {}
         if correspondent is not None:
@@ -289,7 +295,7 @@ class PaperlessClient:
         resp.raise_for_status()
         return resp.json()["id"]
 
-    async def _get_tag_id(self, name: str) -> Optional[int]:
+    async def _get_tag_id(self, name: str) -> int | None:
         resp = await self._client.get("/api/tags/", params={"name": name})
         resp.raise_for_status()
         results = resp.json().get("results", [])

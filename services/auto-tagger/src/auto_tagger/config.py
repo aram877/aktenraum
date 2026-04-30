@@ -5,17 +5,23 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
 
     # Paperless
-    paperless_base_url: str = Field(..., description="Base URL of Paperless instance, no trailing slash")
+    paperless_base_url: str = Field(
+        ..., description="Base URL of Paperless instance, no trailing slash"
+    )
     paperless_api_token: str = Field(..., description="Paperless REST API token")
 
     # LLM backend selection
     llm_backend: str = Field("anthropic", description="'anthropic' or 'ollama'")
 
     # Anthropic
-    anthropic_api_key: str = Field("", description="Anthropic API key (required when llm_backend=anthropic)")
+    anthropic_api_key: str = Field(
+        "", description="Anthropic API key (required when llm_backend=anthropic)"
+    )
     anthropic_model: str = Field("claude-sonnet-4-6")
 
     # Ollama
@@ -64,7 +70,9 @@ class Settings(BaseSettings):
         return v
 
     # Text processing
-    max_tokens_input: int = Field(8000, ge=100, description="Approx token limit; text truncated at 4x chars")
+    max_tokens_input: int = Field(
+        8000, ge=100, description="Approx token limit; text truncated at 4x chars"
+    )
 
     # Logging
     log_level: str = Field("INFO")
@@ -75,4 +83,6 @@ class Settings(BaseSettings):
         if self.llm_backend == "ollama" and not self.ollama_base_url:
             raise ValueError("OLLAMA_BASE_URL is required when LLM_BACKEND=ollama")
         if self.llm_backend not in ("anthropic", "ollama"):
-            raise ValueError(f"Unknown LLM_BACKEND: {self.llm_backend!r}. Must be 'anthropic' or 'ollama'.")
+            raise ValueError(
+                f"Unknown LLM_BACKEND: {self.llm_backend!r}. Must be 'anthropic' or 'ollama'."
+            )

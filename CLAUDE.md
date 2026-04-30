@@ -91,7 +91,7 @@ docker compose exec paperless curl -sS -H "Content-Type: application/json" \
 ### Paperless API gotchas (each cost a debug session)
 
 - **`?name=` is silently ignored on `/api/tags/`** — it returns the default first page regardless. Use `?name__iexact=<name>` for exact match. The Python-side equality check stays as defence in depth (see `aktenraum_core.paperless.client._get_or_create_named`).
-- **Custom fields with `data_type=string` have a hard 128-char DB limit.** Anything longer 400s the entire PATCH. We truncate at the boundary with `_truncate_string_field` (in `aktenraum_core.paperless.normalisers`, ellipsis at 128 chars).
+- **Custom fields with `data_type=string` have a hard 128-char DB limit.** Anything longer 400s the entire PATCH. We truncate at the boundary with `_truncate_string_field` (in `aktenraum_core.paperless.normalisers`, ellipsis at 128 chars). The complementary `data_type=longtext` (Paperless 2.x+) has no length cap; fields backed by it must NOT be truncated. Use `truncate_for_field(name, value)` at the boundary — it consults the `LONGTEXT_FIELDS` allowlist (currently `{"ai_summary_de"}`) and skips truncation for those. To add a new longtext field: extend `LONGTEXT_FIELDS`, add the matching `ensure_custom_field … "longtext"` line in `scripts/bootstrap-paperless.sh`, and run `scripts/migrate-ai-summary-to-longtext.sh` (rename for the new field) to migrate existing installs.
 - **Custom fields with `data_type=monetary` require the format `<ISO_CODE><amount>`** (e.g., `EUR149.99`) — the German format `149,99 EUR` is rejected. We normalise via `_normalize_monetary` (handles symbols, German/Anglophone thousands separators).
 - **Custom fields with `data_type=date` require strict YYYY-MM-DD.** German `DD.MM.YYYY`, slashes, month-year-only all rejected. We normalise via `_normalize_date`.
 - **Paperless's content-OCR date detector cannot be disabled.** It runs in the consumer (`documents/consumer.py:430`) when the parser ships no PDF metadata date and grabs *any* date from the OCR text. It commonly picks up birthdates from CVs / IDs. Workaround: rely on the AI's `ai_issue_date` being correct so propagation overrides it; for a known recurring bad date use `PAPERLESS_IGNORE_DATES` env var.
@@ -263,7 +263,7 @@ Local LLMs (especially small ones like gemma4 8B) emit data the Paperless API re
 | LLM returns int in a list of strings (e.g. `[42, "text"]`) | `models.CoercedStr` (BeforeValidator) | Coerces to str |
 | LLM emits monetary as German `"149,99 EUR"`; Paperless wants `"EUR149.99"` | `paperless._normalize_monetary` | Regex parse + ISO-format reformat |
 | LLM emits date as `"01.12.2024"` or `"12-2024"`; Paperless wants `"YYYY-MM-DD"` | `paperless._normalize_date` | strptime against a list of common formats |
-| LLM emits a string longer than Paperless's 128-char custom-field limit | `paperless._truncate_string_field` | Truncate with `…` ellipsis |
+| LLM emits a string longer than Paperless's 128-char custom-field limit | `paperless.truncate_for_field` | Truncates `string` fields; passes `longtext` fields (e.g. `ai_summary_de`) through unmodified |
 | LLM suggests a lifecycle tag (`ai-approved`) as a real tag | `propagator._split_suggested_tags` | Filter out lifecycle names |
 | LLM suggests a tag truncated by the 128-char limit (ends with `…`) | `propagator._split_suggested_tags` | Drop fragments ending in ellipsis |
 | Paperless 4xx hides the validation reason | `paperless.patch_document_native_fields` + `_get_or_create_named` | Log response body via `paperless_patch_rejected` / `paperless_create_rejected` events |
@@ -307,7 +307,7 @@ Use `/opsx:apply` skill to implement tasks from an approved change.
 | Python source changes don't take effect on restart | `docker compose up -d --build auto-tagger` to rebuild |
 | Git Bash converts `/usr/local/bin/...` to Windows path in `docker exec` | Prefix with `MSYS_NO_PATHCONV=1` and use `//usr/local/bin/...` |
 | Paperless `?name=` filter is silently ignored on `/api/tags/` (returns first page regardless) | Use `?name__iexact=<name>`; keep the Python equality re-check as defence in depth |
-| Paperless `data_type=string` custom fields have a hard 128-char limit | Use `_truncate_string_field` at the boundary; ellipsis on overflow |
+| Paperless `data_type=string` custom fields have a hard 128-char limit | Use `truncate_for_field` at the boundary; ellipsis on overflow. Use `data_type=longtext` (Paperless 2.x+) for fields that need more — extend the `LONGTEXT_FIELDS` set so truncation is skipped |
 | Paperless `data_type=monetary` requires `<ISO><amount>` format | Use `_normalize_monetary` |
 | Paperless `data_type=date` requires strict YYYY-MM-DD | Use `_normalize_date` |
 | Paperless's content-OCR date detector cannot be turned off via env var | Rely on AI extracting `ai_issue_date` correctly so propagation overrides; or use `PAPERLESS_IGNORE_DATES` for known recurring bad dates |
@@ -335,7 +335,7 @@ Use `/opsx:apply` skill to implement tasks from an approved change.
 | Few-shot exemplars from propagated corpus | ✅ Available (`FEW_SHOT_EXAMPLES > 0`) |
 | Per-correspondent history hint | ✅ Default on |
 | Webhook trigger from paperless `post_consume_script` | ✅ Running |
-| Pytest suite + ruff + GitHub Actions CI | ✅ Running (227 tests) |
+| Pytest suite + ruff + GitHub Actions CI | ✅ Running (231 tests) |
 | Custom Vite + React SPA shell | ✅ Running (`apps/web`, served by nginx on `:8080`) |
 | Find docs (`/api/ai/find` + `/find` page) | ✅ Phase 2 — closed-enum SearchFilter, editable chips, Open + Download per result |
 | Ask AI conversational Q&A (`/api/ai/answer` + `/ask`) | ✅ Phase 2.5 — German prose answer with citations; small model for filter, big model for answer |

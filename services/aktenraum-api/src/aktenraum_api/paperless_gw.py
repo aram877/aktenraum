@@ -9,7 +9,7 @@ import structlog
 from aktenraum_core.paperless.normalisers import (
     _normalize_date,
     _normalize_monetary,
-    _truncate_string_field,
+    truncate_for_field,
 )
 
 log = structlog.get_logger()
@@ -346,7 +346,9 @@ def _normalise_field_values(name_to_value: dict[str, Any]) -> dict[str, Any]:
             out[name] = value
             continue
         if isinstance(value, str):
-            out[name] = _truncate_string_field(value)
+            # truncate_for_field is a no-op for longtext fields like
+            # ai_summary_de, so user edits keep their full length.
+            out[name] = truncate_for_field(name, value)
             continue
         out[name] = value
     return out

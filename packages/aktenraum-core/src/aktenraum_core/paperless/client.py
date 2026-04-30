@@ -4,7 +4,11 @@ import httpx
 import structlog
 
 from ..models import DocumentExtraction
-from .normalisers import _normalize_date, _normalize_monetary, _truncate_string_field
+from .normalisers import (
+    _normalize_date,
+    _normalize_monetary,
+    truncate_for_field,
+)
 
 log = structlog.get_logger()
 
@@ -83,24 +87,39 @@ class PaperlessClient:
             return {"field": fid, "value": value}
 
         custom_fields = [
-            fv("ai_document_type", _truncate_string_field(extraction.document_type.value)),
-            fv("ai_correspondent", _truncate_string_field(extraction.correspondent)),
+            fv(
+                "ai_document_type",
+                truncate_for_field("ai_document_type", extraction.document_type.value),
+            ),
+            fv(
+                "ai_correspondent",
+                truncate_for_field("ai_correspondent", extraction.correspondent),
+            ),
             fv("ai_issue_date", _normalize_date(extraction.key_dates.issue)),
             fv("ai_due_date", _normalize_date(extraction.key_dates.due)),
             fv("ai_expiry_date", _normalize_date(extraction.key_dates.expiry)),
             fv("ai_monetary_amount", _normalize_monetary(extraction.monetary_amount)),
             fv(
                 "ai_reference_numbers",
-                _truncate_string_field(", ".join(extraction.reference_numbers) or None),
+                truncate_for_field(
+                    "ai_reference_numbers",
+                    ", ".join(extraction.reference_numbers) or None,
+                ),
             ),
             fv(
                 "ai_suggested_tags",
-                _truncate_string_field(", ".join(extraction.suggested_tags) or None),
+                truncate_for_field(
+                    "ai_suggested_tags",
+                    ", ".join(extraction.suggested_tags) or None,
+                ),
             ),
-            fv("ai_summary_de", _truncate_string_field(extraction.summary_de)),
+            fv(
+                "ai_summary_de",
+                truncate_for_field("ai_summary_de", extraction.summary_de),
+            ),
             fv("ai_confidence", extraction.confidence),
-            fv("ai_backend", _truncate_string_field(backend_name)),
-            fv("ai_model", _truncate_string_field(model_name)),
+            fv("ai_backend", truncate_for_field("ai_backend", backend_name)),
+            fv("ai_model", truncate_for_field("ai_model", model_name)),
         ]
 
         resp = await self._client.patch(

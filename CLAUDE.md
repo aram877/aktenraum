@@ -294,6 +294,8 @@ openspec instructions <id> --change "<name>"  # get writing instructions per art
 Artifacts: `proposal.md` → `design.md` + `specs/` → `tasks.md` → implement.
 Completed changes: `aktenraum-foundation`, `backup-timer`. In flight: `extract-aktenraum-core` (foundation for the custom-frontend roadmap; see `docs/plans/custom-frontend.md`).
 
+**Distribution direction (binding)**: aktenraum is being built for sale as a Tauri desktop app wrapping the Docker Compose stack — not as a Docker tarball. See `docs/adr/002-distribution-desktop-app.md` for the constraints this places on every change (no committed secrets, configurable data dir, idempotent first-run, model auto-pull, etc.) and `docs/plans/desktop-app.md` for the phased roadmap. **Phase 0 — self-bootstrapping compose — is the unblocker; nothing Tauri-specific lands until Phase 0 is done.**
+
 Use `/openspec-propose` skill to create a full change in one step.
 Use `/opsx:apply` skill to implement tasks from an approved change.
 

@@ -159,6 +159,13 @@ async def retrieve_chunks_for_question(
         if payload is None:
             continue
         out.append(_payload_to_retrieved(payload, r.score))
+    log.info(
+        "rag_retrieve_complete",
+        candidates=len(hits),
+        reranked=len(ranked),
+        returned=len(out),
+        top_doc_ids=[c.doc_id for c in out],
+    )
     return out
 
 

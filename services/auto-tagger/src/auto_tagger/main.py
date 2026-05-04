@@ -4,8 +4,10 @@ import logging
 import structlog
 from aktenraum_core.llm import LLMBackend, create_backend
 from aktenraum_core.paperless import LIFECYCLE_TAGS, PaperlessClient
+from aktenraum_core.rag import OllamaEmbedder, QdrantVectorStore
 
 from .config import Settings
+from .indexer import IndexingDeps, index_document
 from .propagator import process_approved_document
 from .tagger import process_document
 from .webhook import run_http_server
@@ -101,7 +103,11 @@ async def _extraction_poller(
         await asyncio.sleep(settings.poll_interval_seconds)
 
 
-async def _propagation_loop(settings: Settings, paperless: PaperlessClient) -> None:
+async def _propagation_loop(
+    settings: Settings,
+    paperless: PaperlessClient,
+    indexing_queue: asyncio.Queue[int] | None,
+) -> None:
     log = structlog.get_logger().bind(loop="propagation")
     while True:
         try:
@@ -111,13 +117,41 @@ async def _propagation_loop(settings: Settings, paperless: PaperlessClient) -> N
             if docs:
                 log.info("poll_found_approved", count=len(docs))
                 for doc in docs:
-                    await process_approved_document(doc, paperless)
+                    await process_approved_document(
+                        doc, paperless, indexing_queue=indexing_queue
+                    )
             else:
                 log.debug("poll_no_approved")
         except Exception as exc:
             log.exception("poll_error", error=str(exc))
 
         await asyncio.sleep(settings.poll_interval_seconds)
+
+
+async def _indexer_worker(
+    queue: asyncio.Queue[int], deps: IndexingDeps
+) -> None:
+    """Drain the indexing queue, RAG-index one doc at a time.
+
+    Sequential rather than concurrent: bge-m3 inference is the
+    bottleneck and Ollama already manages batching internally — adding
+    a layer of asyncio fan-out wouldn't increase throughput on a
+    single-GPU host. If/when this changes (multi-GPU, dedicated
+    inference server), bump to a fan-out worker pool.
+
+    Per-doc errors are caught inside `index_document` so this loop
+    never exits — exiting would cancel the whole asyncio.gather
+    (extraction worker, poller, propagation, http server) due to how
+    asyncio handles exceptions across tasks.
+    """
+    log = structlog.get_logger().bind(loop="indexer_worker")
+    log.info("indexer_worker_started")
+    while True:
+        doc_id = await queue.get()
+        try:
+            await index_document(doc_id, deps)
+        finally:
+            queue.task_done()
 
 
 async def run() -> None:
@@ -145,18 +179,61 @@ async def run() -> None:
     )
     queue: asyncio.Queue[int] = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
 
+    # RAG indexing is opt-in: when QDRANT_URL is empty we don't construct a
+    # vector store, don't run the indexer worker, and don't enqueue from the
+    # propagator. Existing extraction + propagation paths are unchanged.
+    indexing_queue: asyncio.Queue[int] | None = None
+    indexer_deps: IndexingDeps | None = None
+    if settings.qdrant_url:
+        indexing_queue = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
+        log.info(
+            "indexing_enabled",
+            qdrant_url=settings.qdrant_url,
+            embedding_model=settings.embedding_model,
+        )
+
     async with PaperlessClient(
         settings.paperless_base_url, settings.paperless_api_token
     ) as paperless:
+        # Construct RAG deps inside the PaperlessClient context so the
+        # vector store's connection-pool lifetime is bounded by the same
+        # `async with` shutdown.
+        vector_store: QdrantVectorStore | None = None
+        if settings.qdrant_url:
+            vector_store = QdrantVectorStore(
+                url=settings.qdrant_url,
+                # bge-m3 dense dim. The wrapper has the same default but
+                # surfacing it here makes the dependency explicit for ops.
+                dense_dim=1024,
+            )
+            await vector_store.ensure_collection()
+            indexer_deps = IndexingDeps(
+                paperless=paperless,
+                embedder=OllamaEmbedder(
+                    base_url=settings.ollama_base_url,
+                    model=settings.embedding_model,
+                ),
+                vector_store=vector_store,
+            )
+
         loops = [
             _extraction_worker(queue, paperless, backend, settings),
             _extraction_poller(queue, paperless, settings),
         ]
         if settings.enable_propagation:
-            loops.append(_propagation_loop(settings, paperless))
+            loops.append(
+                _propagation_loop(settings, paperless, indexing_queue)
+            )
         if settings.enable_http_server:
             loops.append(run_http_server(queue, settings))
-        await asyncio.gather(*loops)
+        if indexing_queue is not None and indexer_deps is not None:
+            loops.append(_indexer_worker(indexing_queue, indexer_deps))
+
+        try:
+            await asyncio.gather(*loops)
+        finally:
+            if vector_store is not None:
+                await vector_store.aclose()
 
 
 def main() -> None:

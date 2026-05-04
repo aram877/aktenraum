@@ -94,6 +94,14 @@ class Settings(BaseSettings):
         8000, ge=100, description="Approx token limit; text truncated at 4x chars"
     )
 
+    # RAG indexing (Phase 1)
+    # When `qdrant_url` is empty (default), the indexer worker is not
+    # started, the propagator does not enqueue, and the extraction +
+    # propagation path stays untouched. Set both `qdrant_url` and
+    # `embedding_model` to enable indexing.
+    qdrant_url: str = Field("")
+    embedding_model: str = Field("bge-m3")
+
     # Logging
     log_level: str = Field("INFO")
 

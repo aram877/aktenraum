@@ -97,3 +97,50 @@ class Settings(BaseSettings):
             "can reliably read structured fields and cite by id."
         ),
     )
+
+    # RAG retrieval (Phase 1.8)
+    qdrant_url: str = Field(
+        "",
+        description=(
+            "Qdrant URL for query-time retrieval. The compose stack defaults "
+            "this to http://qdrant:6333 (in-network); override only for "
+            "development against a host-side qdrant. Empty disables RAG "
+            "retrieval; the answer endpoint falls back to the structural-only "
+            "path."
+        ),
+    )
+    embedding_model: str = Field(
+        "bge-m3",
+        description=(
+            "Ollama-served embedding model used to embed the user's query "
+            "at retrieval time. Must match the model that produced the chunk "
+            "embeddings during indexing — different models / dims cannot "
+            "share a Qdrant collection."
+        ),
+    )
+    reranker_model: str = Field(
+        "BAAI/bge-reranker-v2-m3",
+        description=(
+            "HuggingFace model id for the cross-encoder reranker. "
+            "Loaded lazily on the first /ask request via "
+            "sentence-transformers; first load downloads ~600 MB."
+        ),
+    )
+    rag_retrieval_top_k: int = Field(
+        50,
+        ge=1,
+        le=200,
+        description=(
+            "Top-K candidates fetched from Qdrant before reranking. "
+            "Higher values help recall at the cost of reranker latency."
+        ),
+    )
+    rag_rerank_top_k: int = Field(
+        5,
+        ge=1,
+        le=50,
+        description=(
+            "Top-K candidates kept after reranking and fed into the answer "
+            "LLM as document context."
+        ),
+    )

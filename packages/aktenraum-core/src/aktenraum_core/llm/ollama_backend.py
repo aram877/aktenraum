@@ -1,9 +1,9 @@
 import json
-from typing import TypeVar
+from typing import Any, TypeVar
 
 import ollama
 import structlog
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 log = structlog.get_logger()
 T = TypeVar("T", bound=BaseModel)
@@ -47,7 +47,28 @@ class OllamaBackend:
 
         raw = response["message"]["content"]
         raw = _clean_json(raw)
-        return response_schema.model_validate_json(raw)
+        try:
+            return response_schema.model_validate_json(raw)
+        except ValidationError:
+            # Some local models (notably the gpt-oss / Harmony family) leak
+            # control tokens like `<|channel|>` directly into JSON keys, so
+            # we end up with `{"answer_<|channel|>{": "…"}` instead of
+            # `{"answer_de": "…"}`. Try to rescue once by renaming garbled
+            # keys whose prefix matches a canonical schema field, then
+            # re-validate. If that still fails, surface the original error.
+            try:
+                parsed: Any = json.loads(raw)
+            except json.JSONDecodeError:
+                raise
+            recovered = _recover_keys_for_schema(parsed, response_schema)
+            if recovered is parsed:
+                raise
+            log.warning(
+                "ollama_json_keys_recovered",
+                model=self._model,
+                original_keys=sorted(parsed.keys()) if isinstance(parsed, dict) else None,
+            )
+            return response_schema.model_validate(recovered)
 
 
 def _clean_json(text: str) -> str:
@@ -59,3 +80,35 @@ def _clean_json(text: str) -> str:
         lines = text.splitlines()
         text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
     return text.strip()
+
+
+def _recover_keys_for_schema(parsed: Any, schema: type[BaseModel]) -> Any:
+    """Best-effort rename of garbled top-level keys to canonical schema names.
+
+    Heuristic: when a canonical schema field is missing AND exactly one sibling
+    key shares the same first underscore-segment as that field (e.g. "answer_de"
+    and "answer_<|channel|>{" both start with "answer"), rename the sibling.
+    Returns a new dict on rescue, or the original `parsed` value when nothing
+    can be recovered (so the caller can detect a no-op).
+    """
+    if not isinstance(parsed, dict):
+        return parsed
+    fields = schema.model_fields
+    out = dict(parsed)
+    changed = False
+    for canonical in fields:
+        if canonical in out:
+            continue
+        prefix = canonical.split("_", 1)[0]
+        candidates = [
+            k
+            for k in out
+            if isinstance(k, str)
+            and k != canonical
+            and k.split("_", 1)[0] == prefix
+            and k not in fields  # don't poach a different valid field name
+        ]
+        if len(candidates) == 1:
+            out[canonical] = out.pop(candidates[0])
+            changed = True
+    return out if changed else parsed

@@ -76,16 +76,52 @@ services:
     networks:
       - internal
 
+  qdrant:
+    # Vector store for the RAG indexing + retrieval pipeline (RAG Phase 1).
+    # REST API on 6333 (used by the Python client we wired in 1.3); gRPC on
+    # 6334 left exposed inside the network in case a future feature wants the
+    # streaming API. Neither port is published to the host: the desktop shell
+    # never needs to talk to qdrant directly, only via aktenraum-api.
+    image: qdrant/qdrant:v1.17.1
+    restart: unless-stopped
+    volumes:
+      - ~/aktenraum/qdrant:/qdrant/storage
+    expose:
+      - "6333"
+      - "6334"
+    healthcheck:
+      # The qdrant image is debian-slim with bash but no wget/curl. We invoke
+      # bash explicitly (CMD form, not CMD-SHELL) because /dev/tcp is a bash
+      # built-in and CMD-SHELL would route through dash, which doesn't
+      # understand it. Coarser than hitting /readyz over HTTP (a serving-
+      # but-misconfigured qdrant looks healthy here) but reliable across
+      # image variants without needing to apt-install curl.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/6333"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    networks:
+      - internal
+
   auto-tagger:
     build:
       context: ..
       dockerfile: services/auto-tagger/Dockerfile
     restart: unless-stopped
     depends_on:
-      - paperless
+      paperless:
+        condition: service_started
+      qdrant:
+        condition: service_healthy
     env_file:
       - path: auto-tagger.env
         required: false
+    environment:
+      # Default the Qdrant URL to the in-network address so a fresh install
+      # works without env editing (per ADR-002). Override in auto-tagger.env
+      # for development against a local qdrant on the host.
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
     expose:
       # HTTP listener for paperless's post_consume hook. Internal-network only;
       # never published to the host.
@@ -101,6 +137,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      qdrant:
+        condition: service_healthy
     env_file:
       - path: .env
         required: false
@@ -109,6 +147,7 @@ services:
     environment:
       # Built from PAPERLESS_DB* in .env so DB credentials live in one place.
       DATABASE_URL: postgresql+asyncpg://${PAPERLESS_DBUSER:-paperless}:${PAPERLESS_DBPASS}@postgres:5432/aktenraum
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
     expose:
       - "8002"
     networks:

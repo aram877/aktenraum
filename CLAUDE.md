@@ -300,6 +300,8 @@ Completed changes: `aktenraum-foundation`, `backup-timer`. In flight: `extract-a
 
 **RAG direction (binding)**: the answer pipeline is being upgraded to production-grade local retrieval — Qdrant + bge-m3 (dense+sparse) + bge-reranker-v2-m3 + hybrid query-time retrieval, all running locally via Ollama. See `docs/plans/rag-phase-1.md` for the architecture, schema, sub-phasing (1.1–1.12), and the eval harness that gates merges. The current Q&A pipeline (`/api/ai/answer/stream`) only sees AI metadata; RAG Phase 1 indexes the full OCR'd text so questions whose answers live in the document body (CV employment durations, contract clauses, etc.) start working.
 
+**Documentation cadence (binding)**: every working session ends with a session summary at `docs/sessions/YYYY-MM-DD.md` listing what shipped, by feature, with commit hashes; a "things to pick up next session" block; and the active roadmap progress for any plan in `docs/plans/`. Architectural decisions go to `docs/adr/NNN-name.md` (template at `docs/adr/000-template.md`). Multi-phase initiatives go to `docs/plans/<topic>.md`. Whenever a session changes any of these (new feature, new gotcha, new constraint, finished phase), CLAUDE.md is updated in the same commit so future sessions see current state without trawling git log.
+
 Use `/openspec-propose` skill to create a full change in one step.
 Use `/opsx:apply` skill to implement tasks from an approved change.
 

@@ -45,9 +45,11 @@ class _FakeQdrantClient:
         *,
         collection_exists: bool = False,
         search_points: list[models.ScoredPoint] | None = None,
+        chunk_count: int = 0,
     ) -> None:
         self._collection_exists = collection_exists
         self._search_points = search_points or []
+        self._chunk_count = chunk_count
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
     async def collection_exists(self, name: str) -> bool:
@@ -68,6 +70,16 @@ class _FakeQdrantClient:
 
     async def delete(self, **kwargs: Any) -> None:
         self.calls.append(("delete", kwargs))
+
+    async def count(self, **kwargs: Any) -> Any:
+        self.calls.append(("count", kwargs))
+
+        class _CountResult:
+            count = 0
+
+        result = _CountResult()
+        result.count = self._chunk_count
+        return result
 
     async def query_points(self, **kwargs: Any) -> Any:
         self.calls.append(("query_points", kwargs))
@@ -326,6 +338,31 @@ async def test_search_without_filter_omits_query_filter():
 
 
 # ---- health_check ---------------------------------------------------------
+
+
+async def test_count_chunks_for_doc_filters_on_doc_id():
+    """Backfill needs a cheap "is this doc indexed?" probe — we use
+    Qdrant's count API with a doc_id filter. Pin the filter shape so
+    a refactor can't silently change the where clause."""
+    fake = _FakeQdrantClient(chunk_count=7)
+    store = _make_store(fake)
+
+    count = await store.count_chunks_for_doc(42)
+
+    assert count == 7
+    count_kwargs = next(c[1] for c in fake.calls if c[0] == "count")
+    assert count_kwargs["collection_name"] == "aktenraum_chunks"
+    assert count_kwargs["exact"] is True
+    must = count_kwargs["count_filter"].must
+    assert len(must) == 1
+    assert must[0].key == "doc_id"
+    assert must[0].match.value == 42
+
+
+async def test_count_chunks_for_doc_returns_zero_when_doc_not_indexed():
+    fake = _FakeQdrantClient(chunk_count=0)
+    store = _make_store(fake)
+    assert await store.count_chunks_for_doc(99) == 0
 
 
 async def test_health_check_true_when_collection_exists():

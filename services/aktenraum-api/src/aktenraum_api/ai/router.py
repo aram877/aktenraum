@@ -30,6 +30,15 @@ router = APIRouter(prefix="/ai", tags=["ai"])
 
 _NO_MATCH_DE = "Ich habe keine passenden Dokumente gefunden."
 
+# Soft-failure message when the answer LLM emits structurally invalid JSON.
+# The retrieval step still returned candidates, so we degrade to "couldn't
+# write the prose answer, but here are the documents I found" rather than
+# bouncing the whole request with a 422.
+_ANSWER_LLM_FAILED_DE = (
+    "Ich konnte die Antwort nicht zuverlässig formulieren. "
+    "Schau bitte direkt in die unten gelisteten Dokumente."
+)
+
 # How many results to feed to the answer LLM. Personal-DMS scale; we want a
 # small enough context that the prompt stays cheap, large enough that we don't
 # miss the right document.
@@ -131,20 +140,70 @@ async def answer(
             answer_messages, response_schema=AnswerOutput
         )
     except ValidationError as e:
+        # Soft-fail rather than 422 the whole request: retrieval already gave
+        # us a useful set of candidate docs, so we surface them as citations
+        # with a German "couldn't formulate an answer" message. Beats the
+        # alternative — a raw pydantic error in the UI for an issue the user
+        # cannot fix from their end (small local model leaks control tokens).
         log.warning("ai_answer_validation_failed", error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"LLM emitted an invalid answer: {e.errors()}",
-        ) from e
+        return AnswerResponse(
+            question=body.question,
+            answer_de=_ANSWER_LLM_FAILED_DE,
+            citations=results[:_ANSWER_CONTEXT_SIZE],
+            filter=search_filter,
+            total=total,
+        )
+
+    answer_text = answer_out.answer_de.strip()
+    if _is_degenerate_answer(answer_text):
+        # The model echoed the schema or gave up. Treat the same as a
+        # validation failure: surface the retrieved docs as citations with a
+        # soft message so the user can read the source themselves.
+        log.warning(
+            "ai_answer_degenerate",
+            answer_de=answer_text,
+            cited_ids=answer_out.cited_ids,
+        )
+        return AnswerResponse(
+            question=body.question,
+            answer_de=_ANSWER_LLM_FAILED_DE,
+            citations=results[:_ANSWER_CONTEXT_SIZE],
+            filter=search_filter,
+            total=total,
+        )
 
     citations = _resolve_citations(answer_out.cited_ids, results)
+    # If the model wrote a real answer but cited nothing, fall back to the
+    # retrieved candidates so the user always has a doc to verify against —
+    # the prose is only useful with a source.
+    if not citations:
+        citations = results[:_ANSWER_CONTEXT_SIZE]
     return AnswerResponse(
         question=body.question,
-        answer_de=answer_out.answer_de.strip() or _NO_MATCH_DE,
+        answer_de=answer_text or _NO_MATCH_DE,
         citations=citations,
         filter=search_filter,
         total=total,
     )
+
+
+# Field names from AnswerOutput that small models sometimes echo verbatim
+# instead of producing prose. Lowercased for case-insensitive comparison.
+_DEGENERATE_ANSWER_TOKENS: frozenset[str] = frozenset(
+    {"answer_de", "answer", "answer de", "antwort", "string"}
+)
+
+
+def _is_degenerate_answer(text: str) -> bool:
+    """True when the model echoed the schema instead of writing an answer.
+
+    Trips on exact matches against known schema-echo strings, plus generic
+    "no real content" cases (empty, single word that is itself a schema field
+    name). Keep the check tight — false positives drop real one-word answers.
+    """
+    if not text:
+        return True
+    return text.lower().strip(" .:") in _DEGENERATE_ANSWER_TOKENS
 
 
 def _broaden_for_answer(f: SearchFilter) -> SearchFilter:

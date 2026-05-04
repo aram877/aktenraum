@@ -387,6 +387,147 @@ async def test_answer_keeps_text_when_only_text_constraint(client_factory):
     assert sent_params.get("query") == "urlaubsantrag"
 
 
+async def test_answer_soft_fails_when_answer_llm_emits_invalid_schema(client_factory):
+    """If the answer LLM produces JSON that pydantic can't validate (e.g. a
+    small local model leaks a control token into a key name), the route must
+    NOT 422 — it should still return 200 with the retrieved candidates as
+    citations and a German "couldn't formulate an answer" message.
+    """
+    from pydantic import ValidationError
+
+    app, _settings, transport = await _logged_in(client_factory)
+    real_doc = _doc(
+        17,
+        title="Perso Aram",
+        correspondent_id=12,
+        document_type_id=5,
+        custom_fields=[{"field": 9, "value": "Sicht auf den Personalausweis."}],
+    )
+    # Build a real ValidationError the same way the production path would see it.
+    try:
+        AnswerOutput.model_validate({"answer_<channel|>{": "broken"})
+    except ValidationError as ve:
+        bad_validation = ve
+
+    backend = _ScriptedBackend(
+        on_filter=SearchFilter(document_type=DocumentType.Ausweis),
+        on_answer=bad_validation,
+    )
+    gateway = _make_gateway(
+        document_types={"Ausweis": 5},
+        documents=[real_doc],
+        field_ids={"ai_summary_de": 9},
+    )
+    app.dependency_overrides[get_llm_backend] = lambda: backend
+    app.dependency_overrides[get_answer_llm_backend] = lambda: backend
+    app.dependency_overrides[get_paperless_gateway] = lambda: gateway
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.post(
+                "/api/ai/answer",
+                json={"question": "wie lange habe ich bei Kopfstand gearbeitet"},
+            )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    # Retrieved candidates surface as citations so the user still sees docs.
+    assert [c["id"] for c in body["citations"]] == [17]
+    # Soft-failure message in German, not a stack trace / pydantic error blob.
+    assert "nicht zuverlässig" in body["answer_de"]
+    assert "Dokumente" in body["answer_de"]
+
+
+async def test_answer_degenerate_text_falls_back_to_citations(client_factory):
+    """When the LLM echoes the schema field name as the answer (a small-model
+    failure mode), the route should treat it as a soft-fail: surface the
+    retrieved docs and a German "couldn't formulate" message instead of
+    showing the user the literal string `answer_de`.
+    """
+    app, _settings, transport = await _logged_in(client_factory)
+    cv_doc = _doc(
+        16,
+        title="Aram Keushgerian CV EN",
+        correspondent_id=None,
+        document_type_id=None,
+        custom_fields=[
+            {"field": 9, "value": "Lebenslauf — Frontend bei Kopfstand seit 2022."},
+        ],
+    )
+    backend = _ScriptedBackend(
+        on_filter=SearchFilter(tags=["Lebenslauf"]),
+        on_answer=AnswerOutput(answer_de="answer_de", cited_ids=[]),
+    )
+    gateway = _make_gateway(
+        documents=[cv_doc],
+        field_ids={"ai_summary_de": 9},
+    )
+    # Tag the gateway so the SearchFilter("Lebenslauf") resolves to a real id
+    # and the retrieval step does not short-circuit to empty results.
+    gateway.list_tags = AsyncMock(return_value={"Lebenslauf": 99})
+    app.dependency_overrides[get_llm_backend] = lambda: backend
+    app.dependency_overrides[get_answer_llm_backend] = lambda: backend
+    app.dependency_overrides[get_paperless_gateway] = lambda: gateway
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.post(
+                "/api/ai/answer",
+                json={"question": "Wie lange habe ich bei Kopfstand gearbeitet?"},
+            )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    # The literal "answer_de" must never reach the user.
+    assert body["answer_de"] != "answer_de"
+    assert "nicht zuverlässig" in body["answer_de"]
+    # The retrieved doc surfaces as a citation so the user can read the source.
+    assert [c["id"] for c in body["citations"]] == [16]
+
+
+async def test_answer_real_prose_with_no_cited_ids_still_surfaces_candidates(client_factory):
+    """If the model writes a real answer but forgets to cite anything, fall
+    back to the retrieved candidates — an answer without a source has no
+    way for the user to verify it.
+    """
+    app, _settings, transport = await _logged_in(client_factory)
+    cv_doc = _doc(
+        16,
+        title="Aram CV",
+        correspondent_id=None,
+        document_type_id=None,
+        custom_fields=[{"field": 9, "value": "Frontend bei Kopfstand seit 2022."}],
+    )
+    backend = _ScriptedBackend(
+        on_filter=SearchFilter(tags=["Lebenslauf"]),
+        on_answer=AnswerOutput(
+            answer_de="Du arbeitest seit 2022 bei Kopfstand.",
+            cited_ids=[],  # forgot to cite
+        ),
+    )
+    gateway = _make_gateway(
+        documents=[cv_doc], field_ids={"ai_summary_de": 9}
+    )
+    gateway.list_tags = AsyncMock(return_value={"Lebenslauf": 99})
+    app.dependency_overrides[get_llm_backend] = lambda: backend
+    app.dependency_overrides[get_answer_llm_backend] = lambda: backend
+    app.dependency_overrides[get_paperless_gateway] = lambda: gateway
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.post(
+                "/api/ai/answer", json={"question": "Wo arbeite ich?"}
+            )
+
+    body = resp.json()
+    # Real prose passes through; citations get backfilled from retrieval.
+    assert "2022" in body["answer_de"]
+    assert [c["id"] for c in body["citations"]] == [16]
+
+
 async def test_answer_503_when_paperless_token_unset(client_factory):
     # Bypass _logged_in (which forces PAPERLESS_API_TOKEN=dummy); we want the
     # gateway-not-configured path that 503s on /api/ai/*.

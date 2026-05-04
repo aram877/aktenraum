@@ -8,5 +8,6 @@ stays I/O-light so individual pieces stay independently testable.
 """
 
 from .chunker import Chunk, chunk_text
+from .embedder import Embedder, OllamaEmbedder
 
-__all__ = ["Chunk", "chunk_text"]
+__all__ = ["Chunk", "Embedder", "OllamaEmbedder", "chunk_text"]

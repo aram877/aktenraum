@@ -17,6 +17,12 @@ dependencies = [
     "pydantic-settings>=2.7.0",
     "structlog>=24.4.0",
     "python-multipart>=0.0.20",
+    # RAG reranker (Phase 1.7). Pulls in torch + transformers, ~1.5 GB
+    # of installed weight. We accept this in aktenraum-api because
+    # reranking is a query-time concern; auto-tagger doesn't need it
+    # (its dep tree stays slim). When Ollama gains first-class reranker
+    # support we can drop this and route through Ollama.
+    "sentence-transformers>=3.3.0",
 ]
 
 [dependency-groups]

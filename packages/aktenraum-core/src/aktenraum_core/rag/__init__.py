@@ -9,6 +9,13 @@ stays I/O-light so individual pieces stay independently testable.
 
 from .chunker import Chunk, chunk_text
 from .embedder import Embedder, OllamaEmbedder
+from .reranker import (
+    DEFAULT_RERANKER_MODEL,
+    LocalReranker,
+    RerankCandidate,
+    Reranker,
+    RerankResult,
+)
 from .vector_store import (
     ChunkPayload,
     QdrantVectorStore,
@@ -17,11 +24,16 @@ from .vector_store import (
 )
 
 __all__ = [
+    "DEFAULT_RERANKER_MODEL",
     "Chunk",
     "ChunkPayload",
     "Embedder",
+    "LocalReranker",
     "OllamaEmbedder",
     "QdrantVectorStore",
+    "RerankCandidate",
+    "RerankResult",
+    "Reranker",
     "SearchFilter",
     "SearchHit",
     "chunk_text",

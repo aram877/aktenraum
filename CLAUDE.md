@@ -298,6 +298,8 @@ Completed changes: `aktenraum-foundation`, `backup-timer`. In flight: `extract-a
 
 **Distribution direction (binding)**: aktenraum is being built for sale as a Tauri desktop app wrapping the Docker Compose stack — not as a Docker tarball. See `docs/adr/002-distribution-desktop-app.md` for the constraints this places on every change (no committed secrets, configurable data dir, idempotent first-run, model auto-pull, etc.) and `docs/plans/desktop-app.md` for the phased roadmap. **Phase 0 — self-bootstrapping compose — is the unblocker; nothing Tauri-specific lands until Phase 0 is done.**
 
+**RAG direction (binding)**: the answer pipeline is being upgraded to production-grade local retrieval — Qdrant + bge-m3 (dense+sparse) + bge-reranker-v2-m3 + hybrid query-time retrieval, all running locally via Ollama. See `docs/plans/rag-phase-1.md` for the architecture, schema, sub-phasing (1.1–1.12), and the eval harness that gates merges. The current Q&A pipeline (`/api/ai/answer/stream`) only sees AI metadata; RAG Phase 1 indexes the full OCR'd text so questions whose answers live in the document body (CV employment durations, contract clauses, etc.) start working.
+
 Use `/openspec-propose` skill to create a full change in one step.
 Use `/opsx:apply` skill to implement tasks from an approved change.
 

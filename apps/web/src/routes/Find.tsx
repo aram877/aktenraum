@@ -16,10 +16,20 @@ export function Find() {
     await findMutation.mutateAsync({ query: query.trim() }).catch(() => {});
   };
 
-  const onClearChip = async (key: keyof SearchFilter) => {
+  const onClearScalar = async (key: keyof Omit<SearchFilter, "tags">) => {
     const current = findMutation.data?.filter;
     if (!current) return;
     const next: SearchFilter = { ...current, [key]: null };
+    await findMutation.mutateAsync({ filter: next }).catch(() => {});
+  };
+
+  const onClearTag = async (tag: string) => {
+    const current = findMutation.data?.filter;
+    if (!current) return;
+    const next: SearchFilter = {
+      ...current,
+      tags: (current.tags ?? []).filter((t) => t !== tag),
+    };
     await findMutation.mutateAsync({ filter: next }).catch(() => {});
   };
 
@@ -61,7 +71,8 @@ export function Find() {
         {findMutation.data && (
           <ResultsPanel
             data={findMutation.data}
-            onClearChip={onClearChip}
+            onClearScalar={onClearScalar}
+            onClearTag={onClearTag}
             disabled={findMutation.isPending}
           />
         )}
@@ -72,11 +83,13 @@ export function Find() {
 
 function ResultsPanel({
   data,
-  onClearChip,
+  onClearScalar,
+  onClearTag,
   disabled,
 }: {
   data: FindResponse;
-  onClearChip: (key: keyof SearchFilter) => void;
+  onClearScalar: (key: keyof Omit<SearchFilter, "tags">) => void;
+  onClearTag: (tag: string) => void;
   disabled: boolean;
 }) {
   return (
@@ -85,7 +98,12 @@ function ResultsPanel({
         {data.explanation}
       </div>
 
-      <FilterChips filter={data.filter} onClear={onClearChip} disabled={disabled} />
+      <FilterChips
+        filter={data.filter}
+        onClearScalar={onClearScalar}
+        onClearTag={onClearTag}
+        disabled={disabled}
+      />
 
       <div className="text-xs text-neutral-500">
         {data.total === 0

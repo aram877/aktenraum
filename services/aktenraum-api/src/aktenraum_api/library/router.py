@@ -9,7 +9,7 @@ from ..auth.deps import get_current_user
 from ..db.models import User
 from ..paperless_gw import PaperlessAuthError, PaperlessGateway
 from . import service
-from .schemas import LibraryList
+from .schemas import LibraryList, TagFacetList
 
 router = APIRouter(prefix="/library", tags=["library"])
 
@@ -34,6 +34,13 @@ async def list_library(
     min_amount: float | None = Query(None, ge=0),
     max_amount: float | None = Query(None, ge=0),
     text: str | None = Query(None, description="Free-text Paperless full-text search"),
+    tags: list[str] | None = Query(
+        None,
+        description=(
+            "Tag names; AND semantics — a doc must carry every requested tag. "
+            "Repeat the param for multiple tags (?tags=Lebenslauf&tags=Versicherung)."
+        ),
+    ),
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=100),
     ordering: str = Query("-created"),
@@ -55,10 +62,25 @@ async def list_library(
             min_amount=min_amount,
             max_amount=max_amount,
             text=text,
+            tags=tags,
             page=page,
             page_size=page_size,
             ordering=ordering,
         )
+    except PaperlessAuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Paperless rejected the API token",
+        ) from e
+
+
+@router.get("/tags", response_model=TagFacetList)
+async def list_tag_facet(
+    _user: User = Depends(get_current_user),
+    gateway: PaperlessGateway = Depends(get_paperless_gateway),
+) -> TagFacetList:
+    try:
+        return await service.list_tag_facet(gateway)
     except PaperlessAuthError as e:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

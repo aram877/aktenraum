@@ -72,6 +72,7 @@ type LibrarySearch = {
   min_amount?: number;
   max_amount?: number;
   text?: string;
+  tags?: string[];
   page?: number;
 };
 
@@ -82,11 +83,12 @@ const libraryRoute = createRoute({
   // Coerce raw URL params (always strings) into the typed shape the page expects.
   validateSearch: (search: Record<string, unknown>): LibrarySearch => {
     const out: LibrarySearch = {};
-    const str = (k: keyof LibrarySearch) =>
+    type ScalarKey = Exclude<keyof LibrarySearch, "tags">;
+    const str = (k: ScalarKey) =>
       typeof search[k] === "string" && search[k] !== ""
         ? (search[k] as string)
         : undefined;
-    const num = (k: keyof LibrarySearch) => {
+    const num = (k: ScalarKey) => {
       const v = search[k];
       if (typeof v === "number") return v;
       if (typeof v === "string" && v !== "") {
@@ -95,6 +97,19 @@ const libraryRoute = createRoute({
       }
       return undefined;
     };
+    // Tag URL state: a single ?tags=foo collapses to a string while
+    // ?tags=foo&tags=bar arrives as string[]. Normalise both shapes to a
+    // string[] without empties so downstream code sees one type.
+    const tagsRaw = search["tags"];
+    let tags: string[] | undefined;
+    if (Array.isArray(tagsRaw)) {
+      tags = tagsRaw.filter(
+        (t): t is string => typeof t === "string" && t !== "",
+      );
+    } else if (typeof tagsRaw === "string" && tagsRaw !== "") {
+      tags = [tagsRaw];
+    }
+    if (tags && tags.length > 0) out.tags = tags;
     out.document_type = str("document_type");
     out.correspondent = str("correspondent");
     out.date_from = str("date_from");

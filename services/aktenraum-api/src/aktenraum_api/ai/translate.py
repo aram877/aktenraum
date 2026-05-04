@@ -21,12 +21,15 @@ def filter_to_paperless_params(
     *,
     correspondent_id: int | None,
     document_type_id: int | None,
+    tag_ids: list[int] | None = None,
 ) -> dict[str, Any]:
     """Map the populated fields of `f` to a dict of Paperless query params.
 
     `correspondent_id` and `document_type_id` are the resolved native ids the
     caller looked up beforehand. If a name was supplied but not found, the
     caller passes None and is responsible for falling back to `text`.
+    `tag_ids` is the resolved id list for `f.tags`; AND semantics translate
+    to Paperless's `tags__id__all` (comma-separated).
     """
     # Paperless's `/api/documents/?correspondent=` and `?document_type=` are
     # silently ignored (returning the unfiltered list) — same gotcha as `?name=`
@@ -43,6 +46,8 @@ def filter_to_paperless_params(
         params["created__date__lte"] = _iso(f.date_to)
     if f.text:
         params["query"] = f.text
+    if tag_ids:
+        params["tags__id__all"] = ",".join(str(i) for i in tag_ids)
     return params
 
 

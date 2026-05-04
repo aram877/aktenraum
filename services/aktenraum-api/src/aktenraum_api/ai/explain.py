@@ -30,6 +30,9 @@ def explain_filter(f: SearchFilter) -> str:
         parts.append(f"Betrag höchstens {_fmt(f.max_amount)}€")
     if f.text:
         parts.append(f"Stichwort '{f.text}'")
+    if f.tags:
+        joined = ", ".join(f"'{t}'" for t in f.tags)
+        parts.append(f"Tags {joined}")
 
     if not parts:
         return "Ich habe verstanden: keine Einschränkungen."

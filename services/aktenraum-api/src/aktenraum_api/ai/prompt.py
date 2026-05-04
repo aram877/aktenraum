@@ -45,6 +45,7 @@ _DOC_TYPE_HINTS: dict[str, str] = {
 }
 
 _MAX_CORRESPONDENTS = 200
+_MAX_TAGS = 200
 
 # Few-shot exemplars. Kept short; each one demonstrates one or two filter shapes.
 # When tweaking, keep the count ≥4 — the test suite asserts this.
@@ -74,22 +75,35 @@ _FEW_SHOT_EXAMPLES: list[tuple[str, dict]] = [
         "Steuerbescheide unter 100 Euro",
         {"document_type": "Steuer", "max_amount": 100},
     ),
+    # Tag-driven query: doc_type alone is unreliable for things like
+    # "Lebenslauf" (often misclassified as Arbeitszeugnis), so prefer the tag.
+    (
+        "Mein Lebenslauf",
+        {"tags": ["Lebenslauf"]},
+    ),
 ]
 
 
-def build_messages(query: str, *, correspondents: list[str]) -> list[dict]:
+def build_messages(
+    query: str,
+    *,
+    correspondents: list[str],
+    tags: list[str] | None = None,
+) -> list[dict]:
     """Return a list[{role, content}] pair: system + user.
 
     `correspondents` is the live list of known names; capped at 200 inline.
+    `tags` is the live tag vocabulary (cap 200); pass `None` (or empty) to
+    omit the section entirely.
     """
-    system = _build_system_prompt(correspondents=correspondents)
+    system = _build_system_prompt(correspondents=correspondents, tags=tags or [])
     return [
         {"role": "system", "content": system},
         {"role": "user", "content": query},
     ]
 
 
-def _build_system_prompt(*, correspondents: list[str]) -> str:
+def _build_system_prompt(*, correspondents: list[str], tags: list[str]) -> str:
     parts: list[str] = []
     parts.append(
         "Du bist ein Suchassistent für ein deutsches Dokumentenmanagementsystem. "
@@ -103,6 +117,15 @@ def _build_system_prompt(*, correspondents: list[str]) -> str:
     parts.append("Bekannte Korrespondenten (nutze einen exakten Namen oder null):")
     truncated = correspondents[:_MAX_CORRESPONDENTS]
     parts.append(", ".join(truncated) if truncated else "(keine bekannt)")
+
+    parts.append(
+        "Bekannte Tags (frei wählbar, mehrere möglich; Liste leer lassen wenn "
+        "keiner passt). Tags helfen besonders, wenn der Dokumenttyp unklar ist "
+        "(z. B. ein Lebenslauf wird oft als 'Arbeitszeugnis' erkannt — der Tag "
+        "'Lebenslauf' ist dann zuverlässiger):"
+    )
+    truncated_tags = tags[:_MAX_TAGS]
+    parts.append(", ".join(truncated_tags) if truncated_tags else "(keine bekannt)")
 
     parts.append("Datumsregeln:")
     parts.append("- 'aus 2023' → date_from=2023-01-01, date_to=2023-12-31")
@@ -118,7 +141,8 @@ def _build_system_prompt(*, correspondents: list[str]) -> str:
 
     parts.append(
         "Freitextregel: Begriffe ohne strukturelle Bedeutung (Stichworte, "
-        "Inhaltsfragmente) gehören in das Feld `text`."
+        "Inhaltsfragmente) gehören in das Feld `text`. Bevorzuge passende Tags "
+        "gegenüber Freitext."
     )
 
     parts.append("Beispiele:")

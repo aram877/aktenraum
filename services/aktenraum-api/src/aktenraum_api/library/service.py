@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from datetime import date
 from typing import Any
 
@@ -7,12 +8,27 @@ from aktenraum_core.paperless import LIFECYCLE_TAGS
 
 from ..ai.translate import _parse_amount
 from ..paperless_gw import PaperlessGateway
-from .schemas import LibraryItem, LibraryList
+from .schemas import LibraryItem, LibraryList, TagFacet, TagFacetList
 
 # Lifecycle tags we surface as badges. Excludes ai-pending (filtered out
 # entirely) and ai-low-confidence (an auxiliary that only matters for the
 # review queue).
 _BADGE_TAGS = frozenset(LIFECYCLE_TAGS) - {"ai-pending"}
+
+# Tags that must NEVER appear in the user-facing tag chip / facet vocabulary —
+# the lifecycle vocabulary plus the auxiliary low-confidence flag.
+_INTERNAL_TAGS = frozenset(LIFECYCLE_TAGS) | {"ai-low-confidence"}
+
+# How many non-pending documents to sample for the tag-facet aggregation. One
+# upstream call instead of N. Personal-DMS scale: 500 covers years of intake;
+# beyond that the facet undercounts but never lies (counts come from a real
+# sample, not the inflated `tag.document_count` which includes pending docs).
+_FACET_SAMPLE_SIZE = 500
+
+# Hide tags below this prevalence so the cloud stays readable. The LLM
+# occasionally invents thin tags; this filter keeps them out without us having
+# to gate every extraction.
+_FACET_MIN_COUNT = 2
 
 
 async def list_library(
@@ -25,15 +41,16 @@ async def list_library(
     min_amount: float | None,
     max_amount: float | None,
     text: str | None,
+    tags: list[str] | None,
     page: int,
     page_size: int,
     ordering: str,
 ) -> LibraryList:
     correspondents = await gateway.list_correspondents()
     document_types = await gateway.list_document_types()
-    tags = await gateway.list_tags()
+    tag_name_to_id = await gateway.list_tags()
 
-    pending_id = tags.get("ai-pending")
+    pending_id = tag_name_to_id.get("ai-pending")
 
     params: dict[str, Any] = {
         "ordering": ordering,
@@ -60,13 +77,22 @@ async def list_library(
     if pending_id is not None:
         params["tags__id__none"] = pending_id
 
+    requested_tag_ids = _resolve_tag_ids(tags, tag_name_to_id)
+    if tags and len(requested_tag_ids) < len([t for t in tags if t]):
+        # At least one requested tag does not exist in Paperless — AND
+        # semantics say zero matches without us having to round-trip.
+        return LibraryList(results=[], total=0, page=page, page_size=page_size)
+    if requested_tag_ids:
+        # Paperless's `tags__id__all` expects a comma-separated string for AND.
+        params["tags__id__all"] = ",".join(str(i) for i in requested_tag_ids)
+
     payload = await gateway.search_documents(params, page_size=page_size)
     raw_results = payload.get("results", [])
     total_native = payload.get("count", len(raw_results))
 
     correspondent_by_id = {v: k for k, v in correspondents.items()}
     document_type_by_id = {v: k for k, v in document_types.items()}
-    tag_name_by_id = {v: k for k, v in tags.items()}
+    tag_name_by_id = {v: k for k, v in tag_name_to_id.items()}
     field_id_to_name = await _custom_field_id_to_name(gateway)
 
     items = [
@@ -91,6 +117,61 @@ async def list_library(
     )
 
 
+async def list_tag_facet(gateway: PaperlessGateway) -> TagFacetList:
+    """Aggregate tag occurrences across the most recent non-pending docs.
+
+    Counts come from a real sample (not Paperless's per-tag `document_count`,
+    which includes pending docs and would inflate the facet). Lifecycle and
+    auxiliary tags are excluded; tags below the prevalence threshold drop out
+    so the cloud stays readable.
+    """
+    tag_name_to_id = await gateway.list_tags()
+    pending_id = tag_name_to_id.get("ai-pending")
+    tag_name_by_id = {v: k for k, v in tag_name_to_id.items()}
+
+    params: dict[str, Any] = {"ordering": "-created"}
+    if pending_id is not None:
+        params["tags__id__none"] = pending_id
+
+    payload = await gateway.search_documents(params, page_size=_FACET_SAMPLE_SIZE)
+    raw_results = payload.get("results", [])
+
+    counter: Counter[str] = Counter()
+    for doc in raw_results:
+        for tid in doc.get("tags") or []:
+            name = tag_name_by_id.get(tid)
+            if not name or name in _INTERNAL_TAGS:
+                continue
+            counter[name] += 1
+
+    facets = [
+        TagFacet(name=name, count=count)
+        for name, count in counter.most_common()
+        if count >= _FACET_MIN_COUNT
+    ]
+    return TagFacetList(results=facets)
+
+
+def _resolve_tag_ids(
+    requested: list[str] | None, name_to_id: dict[str, int]
+) -> list[int]:
+    """Map requested tag names to ids; drop empties; preserve order."""
+    if not requested:
+        return []
+    seen: set[int] = set()
+    out: list[int] = []
+    for name in requested:
+        clean = name.strip()
+        if not clean:
+            continue
+        tid = name_to_id.get(clean)
+        if tid is None or tid in seen:
+            continue
+        out.append(tid)
+        seen.add(tid)
+    return out
+
+
 async def _custom_field_id_to_name(gateway: PaperlessGateway) -> dict[int, str]:
     name_to_id = await gateway._get_custom_field_ids()  # noqa: SLF001
     return {fid: name for name, fid in name_to_id.items()}
@@ -107,6 +188,7 @@ def _project(
     custom_fields = _custom_field_values(doc, field_id_to_name)
     tag_names = [tag_name_by_id.get(tid) for tid in (doc.get("tags") or [])]
     lifecycle = [n for n in tag_names if n and n in _BADGE_TAGS]
+    user_tags = [n for n in tag_names if n and n not in _INTERNAL_TAGS]
 
     return LibraryItem(
         id=doc["id"],
@@ -118,6 +200,7 @@ def _project(
         or custom_fields.get("ai_document_type"),
         monetary_amount=custom_fields.get("ai_monetary_amount"),
         lifecycle_tags=lifecycle,
+        tags=user_tags,
     )
 
 

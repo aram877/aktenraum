@@ -48,6 +48,27 @@ def test_translate_only_text():
     assert params == {"query": "urlaubsantrag"}
 
 
+def test_translate_tags_use_id_all_csv():
+    f = SearchFilter(tags=["Lebenslauf", "Versicherung"])
+    params = filter_to_paperless_params(
+        f,
+        correspondent_id=None,
+        document_type_id=None,
+        tag_ids=[42, 7],
+    )
+    # AND semantics — Paperless's `tags__id__all` takes a comma-separated id list.
+    # Order is preserved so the URL stays stable for caching.
+    assert params == {"tags__id__all": "42,7"}
+
+
+def test_translate_empty_tag_ids_omits_param():
+    f = SearchFilter()
+    params = filter_to_paperless_params(
+        f, correspondent_id=None, document_type_id=None, tag_ids=[]
+    )
+    assert "tags__id__all" not in params
+
+
 def _doc(doc_id: int, **overrides):
     base = {
         "id": doc_id,

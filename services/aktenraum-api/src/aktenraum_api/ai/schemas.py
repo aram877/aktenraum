@@ -10,7 +10,9 @@ class SearchFilter(BaseModel):
     """Closed-enum filter the LLM emits and the SPA edits.
 
     Every field is optional individually. An empty filter means "no constraints"
-    and translates to the broadest Paperless query.
+    and translates to the broadest Paperless query. `tags` is open-vocabulary
+    (anything the auto-tagger has emitted) and applied with AND semantics —
+    a result must carry every requested tag.
     """
 
     document_type: DocumentType | None = None
@@ -20,6 +22,7 @@ class SearchFilter(BaseModel):
     min_amount: float | None = None
     max_amount: float | None = None
     text: str | None = None
+    tags: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _strip_strings(self) -> SearchFilter:
@@ -29,6 +32,19 @@ class SearchFilter(BaseModel):
         if self.text is not None:
             stripped = self.text.strip()
             self.text = stripped or None
+        # Drop empty/whitespace tags and dedupe while preserving order. Keeps
+        # the rendered chip list clean even when an LLM emits ["", "Foo", "Foo"].
+        seen: set[str] = set()
+        cleaned: list[str] = []
+        for raw in self.tags:
+            if raw is None:
+                continue
+            stripped = raw.strip()
+            if not stripped or stripped in seen:
+                continue
+            cleaned.append(stripped)
+            seen.add(stripped)
+        self.tags = cleaned
         return self
 
 

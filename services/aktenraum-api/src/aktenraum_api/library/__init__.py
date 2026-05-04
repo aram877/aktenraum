@@ -1,4 +1,4 @@
 from .router import router
-from .schemas import LibraryItem, LibraryList
+from .schemas import LibraryItem, LibraryList, TagFacet, TagFacetList
 
-__all__ = ["LibraryItem", "LibraryList", "router"]
+__all__ = ["LibraryItem", "LibraryList", "TagFacet", "TagFacetList", "router"]

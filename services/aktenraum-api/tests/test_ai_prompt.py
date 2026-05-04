@@ -59,3 +59,45 @@ def test_user_message_is_query_verbatim():
 def test_prompt_handles_empty_correspondents():
     text = _system_text(build_messages("test", correspondents=[]))
     assert "(keine bekannt)" in text
+
+
+def test_prompt_lists_known_tags():
+    text = _system_text(
+        build_messages(
+            "test",
+            correspondents=[],
+            tags=["Lebenslauf", "Versicherung", "Auto"],
+        )
+    )
+    assert "Bekannte Tags" in text
+    assert "Lebenslauf" in text
+    assert "Versicherung" in text
+    assert "Auto" in text
+
+
+def test_prompt_caps_tags_at_200():
+    text = _system_text(
+        build_messages(
+            "test", correspondents=[], tags=[f"Tag-{i}" for i in range(500)]
+        )
+    )
+    assert "Tag-199" in text
+    assert "Tag-200" not in text
+
+
+def test_prompt_handles_empty_tag_list():
+    text = _system_text(build_messages("test", correspondents=[], tags=[]))
+    # The "Bekannte Tags" section still renders so the schema shape is stable;
+    # an empty list collapses to the same "(keine bekannt)" sentinel as
+    # correspondents.
+    assert "Bekannte Tags" in text
+    assert text.count("(keine bekannt)") >= 2
+
+
+def test_prompt_includes_lebenslauf_few_shot():
+    """Anchor exemplar that demonstrates picking a tag over an unreliable
+    document_type — the user's CV case (Arbeitszeugnis vs. Lebenslauf)."""
+    text = _system_text(build_messages("test", correspondents=[]))
+    assert "Mein Lebenslauf" in text
+    # The exemplar's filter must contain the tag so the LLM sees the mapping.
+    assert '"tags": ["Lebenslauf"]' in text

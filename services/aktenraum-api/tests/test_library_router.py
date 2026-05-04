@@ -251,6 +251,113 @@ async def test_library_rejects_unsafe_ordering(client_factory):
     assert resp.status_code == 422
 
 
+async def test_library_tags_filter_emits_tags_id_all_csv(client_factory):
+    app, _settings, transport = await _logged_in(client_factory)
+    gateway = _make_gateway(documents=[])
+    # Replace the tag map so the test can assert the resolved id list.
+    gateway.list_tags = AsyncMock(
+        return_value={
+            "ai-pending": TAG_IDS["ai-pending"],
+            "Lebenslauf": 50,
+            "Versicherung": 51,
+        }
+    )
+    app.dependency_overrides[get_paperless_gateway] = lambda: gateway
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.get(
+                "/api/library/?tags=Lebenslauf&tags=Versicherung"
+            )
+
+    assert resp.status_code == 200
+    sent = gateway.search_documents.await_args.args[0]
+    assert sent.get("tags__id__all") == "50,51"
+
+
+async def test_library_unknown_tag_short_circuits_without_calling_paperless(client_factory):
+    app, _settings, transport = await _logged_in(client_factory)
+    gateway = _make_gateway(documents=[])
+    gateway.list_tags = AsyncMock(
+        return_value={"ai-pending": TAG_IDS["ai-pending"], "Lebenslauf": 50}
+    )
+    app.dependency_overrides[get_paperless_gateway] = lambda: gateway
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.get("/api/library/?tags=DoesNotExist")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["results"] == []
+    assert body["total"] == 0
+    gateway.search_documents.assert_not_awaited()
+
+
+async def test_library_projects_user_tags_excluding_lifecycle(client_factory):
+    app, _settings, transport = await _logged_in(client_factory)
+    docs = [
+        _doc(
+            1,
+            tags=[
+                TAG_IDS["ai-propagated"],
+                TAG_IDS["ai-low-confidence"],
+                TAG_IDS["sonstiges"],
+            ],
+        )
+    ]
+    gateway = _make_gateway(documents=docs)
+    app.dependency_overrides[get_paperless_gateway] = lambda: gateway
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.get("/api/library/")
+
+    body = resp.json()
+    row = body["results"][0]
+    assert row["lifecycle_tags"] == ["ai-propagated"]
+    # User-facing tag list excludes the lifecycle vocabulary AND the
+    # ai-low-confidence auxiliary so the chip cloud stays clean.
+    assert row["tags"] == ["sonstiges"]
+
+
+async def test_tag_facet_counts_only_non_pending_user_tags(client_factory):
+    app, _settings, transport = await _logged_in(client_factory)
+    # Three docs: two carry "Lebenslauf", one has only the lifecycle tag.
+    # The facet should ignore lifecycle/auxiliary names and apply the
+    # min-count threshold (≥2) so thin tags drop out.
+    docs = [
+        _doc(1, tags=[TAG_IDS["ai-propagated"], 50]),
+        _doc(2, tags=[TAG_IDS["ai-approved"], 50]),
+        _doc(3, tags=[TAG_IDS["ai-propagated"], 51]),  # "Versicherung" appears once
+    ]
+    gateway = _make_gateway(documents=docs)
+    gateway.list_tags = AsyncMock(
+        return_value={
+            **TAG_IDS,
+            "Lebenslauf": 50,
+            "Versicherung": 51,
+        }
+    )
+    app.dependency_overrides[get_paperless_gateway] = lambda: gateway
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.get("/api/library/tags")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    # Only "Lebenslauf" (count 2) clears the threshold; lifecycle/auxiliary
+    # names never appear regardless of count.
+    assert body["results"] == [{"name": "Lebenslauf", "count": 2}]
+    sent = gateway.search_documents.await_args.args[0]
+    assert sent.get("tags__id__none") == TAG_IDS["ai-pending"]
+
+
 async def test_library_pagination_defaults(client_factory):
     app, _settings, transport = await _logged_in(client_factory)
     gateway = _make_gateway(documents=[])

@@ -35,11 +35,12 @@ def _make_fake_gateway(
     document_types: dict[str, int] | None = None,
     documents: list[dict] | None = None,
     monetary_field_id: int | None = None,
+    tags: dict[str, int] | None = None,
 ):
     gateway = AsyncMock()
     gateway.list_correspondents = AsyncMock(return_value=correspondents or {})
     gateway.list_document_types = AsyncMock(return_value=document_types or {})
-    gateway.list_tags = AsyncMock(return_value={})
+    gateway.list_tags = AsyncMock(return_value=tags or {})
     gateway.search_documents = AsyncMock(
         return_value={"results": documents or [], "count": len(documents or [])}
     )
@@ -224,3 +225,104 @@ async def test_ask_unknown_correspondent_falls_through_to_text(client_factory):
     # Vodafone is unknown → no correspondent__id param; falls through to query=
     assert "correspondent__id" not in params
     assert params.get("query") == "Vodafone"
+
+
+async def test_find_filter_branch_with_tags_emits_id_all(client_factory):
+    app, _settings, transport = await _logged_in(
+        client_factory, PAPERLESS_API_TOKEN="dummy"
+    )
+    fake_gateway = _make_fake_gateway(
+        correspondents={},
+        document_types={},
+        tags={"Lebenslauf": 42, "Versicherung": 7, "ai-pending": 1},
+        documents=[],
+    )
+    app.dependency_overrides[get_paperless_gateway] = lambda: fake_gateway
+    app.dependency_overrides[get_llm_backend] = lambda: _FakeBackend(
+        returns=SearchFilter()
+    )
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.post(
+                "/api/ai/find",
+                json={"filter": {"tags": ["Lebenslauf", "Versicherung"]}},
+            )
+
+    assert resp.status_code == 200
+    args, _ = fake_gateway.search_documents.await_args
+    params = args[0]
+    assert params.get("tags__id__all") == "42,7"
+
+
+async def test_find_filter_branch_unknown_tag_short_circuits_to_zero(client_factory):
+    app, _settings, transport = await _logged_in(
+        client_factory, PAPERLESS_API_TOKEN="dummy"
+    )
+    fake_gateway = _make_fake_gateway(
+        correspondents={},
+        document_types={},
+        tags={"Lebenslauf": 42},
+        documents=[
+            {"id": 99, "title": "should not surface", "custom_fields": []}
+        ],
+    )
+    app.dependency_overrides[get_paperless_gateway] = lambda: fake_gateway
+    app.dependency_overrides[get_llm_backend] = lambda: _FakeBackend(
+        returns=SearchFilter()
+    )
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.post(
+                "/api/ai/find",
+                json={"filter": {"tags": ["Lebenslauf", "DoesNotExist"]}},
+            )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    # Unknown tag in an AND filter ⇒ no document can match. Short-circuited
+    # before paperless was even called.
+    assert body["results"] == []
+    assert body["total"] == 0
+    fake_gateway.search_documents.assert_not_awaited()
+
+
+async def test_find_query_branch_passes_user_tag_vocab_to_prompt(client_factory):
+    """The filter-extraction prompt must see the live user-tag list — and only
+    the user-facing names, not the lifecycle vocabulary."""
+    app, _settings, transport = await _logged_in(
+        client_factory, PAPERLESS_API_TOKEN="dummy"
+    )
+    fake_backend = _FakeBackend(returns=SearchFilter())
+    fake_gateway = _make_fake_gateway(
+        correspondents={"Telekom": 12},
+        document_types={},
+        tags={
+            "Lebenslauf": 42,
+            "Versicherung": 7,
+            "ai-pending": 1,
+            "ai-approved": 2,
+            "ai-low-confidence": 3,
+        },
+        documents=[],
+    )
+    app.dependency_overrides[get_llm_backend] = lambda: fake_backend
+    app.dependency_overrides[get_paperless_gateway] = lambda: fake_gateway
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            await c.post("/api/ai/find", json={"query": "mein lebenslauf"})
+
+    assert fake_backend.calls, "LLM was not invoked"
+    system_msg = fake_backend.calls[0][0]["content"]
+    assert "Lebenslauf" in system_msg
+    assert "Versicherung" in system_msg
+    # Lifecycle / auxiliary tags must never reach the prompt — they're internal
+    # state, not vocabulary the LLM should suggest.
+    assert "ai-pending" not in system_msg
+    assert "ai-approved" not in system_msg
+    assert "ai-low-confidence" not in system_msg

@@ -44,3 +44,10 @@ def test_only_min_amount():
 def test_only_max_amount():
     out = explain_filter(SearchFilter(max_amount=50))
     assert "höchstens" in out
+
+
+def test_tags_render_as_quoted_list():
+    out = explain_filter(SearchFilter(tags=["Lebenslauf", "Auto"]))
+    assert "Tags" in out
+    assert "'Lebenslauf'" in out
+    assert "'Auto'" in out

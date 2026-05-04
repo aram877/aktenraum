@@ -3,8 +3,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Nav } from "../components/Nav";
 import { ProcessingBadge } from "../components/ProcessingBadge";
-import type { LibraryItem, LibraryQuery } from "../lib/library";
-import { DOC_TYPES, useLibrary } from "../lib/library";
+import type { LibraryItem, LibraryQuery, TagFacet } from "../lib/library";
+import { DOC_TYPES, useLibrary, useTagFacet } from "../lib/library";
 
 const DEFAULT_PAGE_SIZE = 25;
 
@@ -16,6 +16,7 @@ type Search = {
   min_amount?: number;
   max_amount?: number;
   text?: string;
+  tags?: string[];
   page?: number;
 };
 
@@ -41,7 +42,11 @@ function searchToForm(s: Search): LocalForm {
   };
 }
 
-function formToSearch(f: LocalForm, page: number): Search {
+function formToSearch(
+  f: LocalForm,
+  page: number,
+  tags: string[] | undefined,
+): Search {
   const out: Search = {};
   if (f.document_type) out.document_type = f.document_type;
   if (f.correspondent) out.correspondent = f.correspondent;
@@ -52,6 +57,7 @@ function formToSearch(f: LocalForm, page: number): Search {
   if (!Number.isNaN(min)) out.min_amount = min;
   if (!Number.isNaN(max)) out.max_amount = max;
   if (f.text) out.text = f.text;
+  if (tags && tags.length > 0) out.tags = tags;
   if (page > 1) out.page = page;
   return out;
 }
@@ -59,6 +65,7 @@ function formToSearch(f: LocalForm, page: number): Search {
 export function Library({ search }: { search: Search }) {
   const navigate = useNavigate();
   const [form, setForm] = useState<LocalForm>(() => searchToForm(search));
+  const facet = useTagFacet();
 
   // Re-hydrate the form when the URL changes externally (e.g. back button).
   // Tracked via a ref so user keystrokes don't get clobbered during typing.
@@ -72,9 +79,10 @@ export function Library({ search }: { search: Search }) {
 
   // Debounce form → URL. Selects/dates feel snappy at 200ms; text/number
   // inputs benefit from a longer wait so a refetch doesn't fire on every key.
+  // Tags are URL-only state, so this debounce never alters them.
   useEffect(() => {
     const timer = setTimeout(() => {
-      const next = formToSearch(form, 1);
+      const next = formToSearch(form, 1, search.tags);
       const current = { ...search };
       delete current.page;
       if (JSON.stringify(next) !== JSON.stringify(current)) {
@@ -105,6 +113,21 @@ export function Library({ search }: { search: Search }) {
     void navigate({
       to: "/library",
       search: { ...search, page: page > 1 ? page : undefined },
+    });
+  };
+
+  const toggleTag = (tag: string) => {
+    const current = search.tags ?? [];
+    const next = current.includes(tag)
+      ? current.filter((t) => t !== tag)
+      : [...current, tag];
+    void navigate({
+      to: "/library",
+      search: {
+        ...search,
+        tags: next.length > 0 ? next : undefined,
+        page: undefined,
+      },
     });
   };
 
@@ -210,6 +233,13 @@ export function Library({ search }: { search: Search }) {
               Filter zurücksetzen
             </button>
           </div>
+
+          <TagFacetPanel
+            facet={facet.data?.results}
+            isLoading={facet.isLoading}
+            selected={search.tags ?? []}
+            onToggle={toggleTag}
+          />
         </aside>
 
         <section className="min-w-0 flex-1">
@@ -219,6 +249,28 @@ export function Library({ search }: { search: Search }) {
               {list.isLoading ? "…" : `${total} Dokumente`}
             </span>
           </div>
+
+          {(search.tags ?? []).length > 0 && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+                Aktive Tags
+              </span>
+              {(search.tags ?? []).map((tag) => (
+                <button
+                  key={tag}
+                  type="button"
+                  onClick={() => toggleTag(tag)}
+                  className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs text-emerald-900 hover:bg-emerald-100"
+                  title="Tag entfernen"
+                >
+                  {tag}
+                  <span aria-hidden className="text-emerald-500">
+                    ×
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
 
           {errorDetail && (
             <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -249,6 +301,8 @@ export function Library({ search }: { search: Search }) {
                   <Row
                     key={row.id}
                     row={row}
+                    selectedTags={search.tags ?? []}
+                    onTagClick={toggleTag}
                     onClick={() =>
                       navigate({
                         to: "/library/$id",
@@ -290,10 +344,108 @@ export function Library({ search }: { search: Search }) {
   );
 }
 
-function Row({ row, onClick }: { row: LibraryItem; onClick: () => void }) {
+function TagFacetPanel({
+  facet,
+  isLoading,
+  selected,
+  onToggle,
+}: {
+  facet: TagFacet[] | undefined;
+  isLoading: boolean;
+  selected: string[];
+  onToggle: (tag: string) => void;
+}) {
+  return (
+    <div className="mt-6">
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+        Tags
+      </h2>
+      {isLoading && (
+        <p className="mt-2 text-xs text-neutral-500">Lade Tags…</p>
+      )}
+      {!isLoading && facet && facet.length === 0 && (
+        <p className="mt-2 text-xs text-neutral-500">
+          Noch keine Tags mit ≥2 Dokumenten.
+        </p>
+      )}
+      {facet && facet.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {facet.map((t) => {
+            const active = selected.includes(t.name);
+            return (
+              <button
+                key={t.name}
+                type="button"
+                onClick={() => onToggle(t.name)}
+                className={
+                  active
+                    ? "inline-flex items-center gap-1 rounded-full border border-emerald-400 bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-900"
+                    : "inline-flex items-center gap-1 rounded-full border border-neutral-300 bg-white px-2.5 py-1 text-xs text-neutral-700 hover:bg-neutral-100"
+                }
+                title={
+                  active
+                    ? `Tag '${t.name}' aktiv — klicken zum Entfernen`
+                    : `Tag '${t.name}' anwenden`
+                }
+              >
+                <span>{t.name}</span>
+                <span
+                  className={
+                    active ? "text-emerald-700" : "text-neutral-400"
+                  }
+                >
+                  {t.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Row({
+  row,
+  selectedTags,
+  onTagClick,
+  onClick,
+}: {
+  row: LibraryItem;
+  selectedTags: string[];
+  onTagClick: (tag: string) => void;
+  onClick: () => void;
+}) {
   return (
     <tr onClick={onClick} className="cursor-pointer hover:bg-neutral-50">
-      <td className="px-2 py-2 font-medium text-neutral-900">{row.title}</td>
+      <td className="px-2 py-2">
+        <div className="font-medium text-neutral-900">{row.title}</div>
+        {row.tags.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {row.tags.slice(0, 5).map((t) => {
+              const active = selectedTags.includes(t);
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onTagClick(t);
+                  }}
+                  className={
+                    active
+                      ? "rounded-full border border-emerald-400 bg-emerald-100 px-2 py-0.5 text-[10px] text-emerald-900"
+                      : "rounded-full border border-neutral-200 bg-neutral-50 px-2 py-0.5 text-[10px] text-neutral-600 hover:bg-neutral-100"
+                  }
+                  title={`Auf Tag '${t}' filtern`}
+                >
+                  {t}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </td>
       <td className="px-2 py-2 text-neutral-700">{row.document_type ?? "—"}</td>
       <td className="px-2 py-2 text-neutral-700">
         {row.correspondent ?? "—"}
@@ -326,4 +478,3 @@ function Field({
     </label>
   );
 }
-

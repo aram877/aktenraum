@@ -33,6 +33,7 @@ export type SearchFilter = {
   min_amount?: number | null;
   max_amount?: number | null;
   text?: string | null;
+  tags?: string[];
 };
 
 export type DocumentSummary = {

@@ -84,11 +84,14 @@ async def answer(
     """
     try:
         correspondents = list((await gateway.list_correspondents()).keys())
+        tag_vocab = _user_tag_vocabulary(await gateway.list_tags())
     except PaperlessAuthError as e:
         raise _bad_gateway() from e
 
     # Step 1 — filter extraction: same prompt the /find endpoint uses.
-    messages = build_messages(body.question, correspondents=correspondents)
+    messages = build_messages(
+        body.question, correspondents=correspondents, tags=tag_vocab
+    )
     try:
         search_filter = await llm.complete(messages, response_schema=SearchFilter)
     except ValidationError as e:
@@ -148,9 +151,9 @@ def _broaden_for_answer(f: SearchFilter) -> SearchFilter:
     """Strip free-text from a filter when any structural field is already set.
 
     Q&A retrieval prefers recall: as long as document_type / correspondent /
-    a date bound / an amount bound exists, that's enough scope, and dropping
-    the noisier `text` field avoids killing matches over conjugated verbs the
-    OCR will never contain ("verlängern", "kostete", "ablaufen").
+    tags / a date bound / an amount bound exists, that's enough scope, and
+    dropping the noisier `text` field avoids killing matches over conjugated
+    verbs the OCR will never contain ("verlängern", "kostete", "ablaufen").
     """
     has_structural = any(
         v is not None
@@ -162,7 +165,7 @@ def _broaden_for_answer(f: SearchFilter) -> SearchFilter:
             f.min_amount,
             f.max_amount,
         )
-    )
+    ) or bool(f.tags)
     if has_structural and f.text:
         return f.model_copy(update={"text": None})
     return f
@@ -176,9 +179,12 @@ async def _resolve_filter(
     assert body.query is not None
     try:
         correspondents = list((await gateway.list_correspondents()).keys())
+        tag_vocab = _user_tag_vocabulary(await gateway.list_tags())
     except PaperlessAuthError as e:
         raise _bad_gateway() from e
-    messages = build_messages(body.query, correspondents=correspondents)
+    messages = build_messages(
+        body.query, correspondents=correspondents, tags=tag_vocab
+    )
     try:
         return await llm.complete(messages, response_schema=SearchFilter)
     except ValidationError as e:
@@ -187,6 +193,14 @@ async def _resolve_filter(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"LLM emitted an invalid filter: {e.errors()}",
         ) from e
+
+
+def _user_tag_vocabulary(name_to_id: dict[str, int]) -> list[str]:
+    """User-facing tag names — strip the lifecycle vocabulary so the LLM
+    cannot suggest internal flags as filters.
+    """
+    excluded = frozenset(LIFECYCLE_TAGS) | {"ai-low-confidence"}
+    return [name for name in name_to_id if name not in excluded]
 
 
 async def _execute_filter(
@@ -206,8 +220,21 @@ async def _execute_filter(
             update={"text": (f.text + " " if f.text else "") + f.correspondent}
         )
 
+    # Resolve tag names → ids. Unknown tag names short-circuit to zero results
+    # (AND semantics: if the doc must carry a non-existent tag, nothing matches).
+    tag_ids: list[int] = []
+    if f.tags:
+        for name in f.tags:
+            tid = tags.get(name)
+            if tid is None:
+                return [], 0
+            tag_ids.append(tid)
+
     params = filter_to_paperless_params(
-        f, correspondent_id=correspondent_id, document_type_id=document_type_id
+        f,
+        correspondent_id=correspondent_id,
+        document_type_id=document_type_id,
+        tag_ids=tag_ids,
     )
     payload = await gateway.search_documents(params)
     raw_results = payload.get("results", [])

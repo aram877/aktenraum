@@ -116,11 +116,17 @@ def _user_prompt(question: str, candidates: list[dict]) -> str:
     return "\n".join(parts)
 
 
-def _render_candidate(c: dict) -> str:
+def _render_candidate(c: dict, *, chunks: list[str] | None = None) -> str:
     """Compact one-block representation per candidate.
 
     Skipping null fields keeps the prompt small and avoids confusing the LLM
     with empty values it might try to reason about.
+
+    `chunks` is the optional list of relevant text excerpts pulled from
+    Qdrant by the RAG retrieval (Phase 1.9). When present, each chunk
+    is rendered under "Relevante Auszüge:" so the model can answer
+    questions whose answers live in the document body — durations,
+    clauses, table values — not in the AI metadata fields.
     """
     fields: list[tuple[str, str | int | None]] = [
         ("ID", c.get("id")),
@@ -140,6 +146,19 @@ def _render_candidate(c: dict) -> str:
     summary = c.get("ai_summary_de")
     if summary:
         rendered += f"\n  Zusammenfassung: {summary}"
+    if chunks:
+        rendered += "\n  Relevante Auszüge:"
+        for i, chunk in enumerate(chunks, start=1):
+            # The chunker bounds individual chunks to ~500 tokens
+            # (~3 KB chars) by design. The reranker has already picked
+            # the top-N most relevant chunks. So no per-chunk truncation
+            # here — clipping mid-chunk would silently hide the
+            # answer-relevant span (the original 2 KB cap dropped the
+            # back-half of long CVs and contracts where employment
+            # durations and clauses tend to live). The total prompt
+            # stays bounded by candidate count × chunks-per-candidate
+            # × token target, all already enforced upstream.
+            rendered += f"\n    [{i}] {chunk}"
     return f"- Dokument {c.get('id')}:\n{rendered}\n"
 
 
@@ -149,7 +168,10 @@ def _to_json(d: dict) -> str:
 
 
 def build_streaming_answer_messages(
-    question: str, *, candidates: list[dict]
+    question: str,
+    *,
+    candidates: list[dict],
+    chunks_by_doc: dict[int, list[str]] | None = None,
 ) -> list[dict]:
     """Variant of `build_answer_messages` for the SSE streaming path.
 
@@ -157,10 +179,24 @@ def build_streaming_answer_messages(
     envelope) and cites with `[Quelle: <id>]` markers we can regex out
     server-side. JSON-mode would block streaming until the whole document
     is decoded, defeating the point.
+
+    `chunks_by_doc` is the new RAG hook (Phase 1.9): for each candidate
+    doc id, the top reranked text chunks from Qdrant. When provided,
+    each candidate's prompt block carries its chunks under
+    "Relevante Auszüge:" — that's where the answer LLM finds answers
+    that aren't in the AI metadata fields (CV employment durations,
+    contract clauses, table cells, etc.). When None or empty, the
+    prompt falls back to the structural-only AI-metadata path so a
+    deployment without Qdrant still works.
     """
     return [
         {"role": "system", "content": _streaming_system_prompt()},
-        {"role": "user", "content": _streaming_user_prompt(question, candidates)},
+        {
+            "role": "user",
+            "content": _streaming_user_prompt(
+                question, candidates, chunks_by_doc=chunks_by_doc or {}
+            ),
+        },
     ]
 
 
@@ -204,7 +240,12 @@ def _streaming_system_prompt() -> str:
     return "\n".join(parts)
 
 
-def _streaming_user_prompt(question: str, candidates: list[dict]) -> str:
+def _streaming_user_prompt(
+    question: str,
+    candidates: list[dict],
+    *,
+    chunks_by_doc: dict[int, list[str]] | None = None,
+) -> str:
     parts: list[str] = []
     parts.append("Beispiele für korrektes Format:")
     parts.append(
@@ -225,7 +266,9 @@ def _streaming_user_prompt(question: str, candidates: list[dict]) -> str:
         parts.append("(keine)")
     else:
         for c in candidates:
-            parts.append(_render_candidate(c))
+            parts.append(
+                _render_candidate(c, chunks=(chunks_by_doc or {}).get(c.get("id"), []))
+            )
     parts.append("")
     parts.append("Schreibe jetzt die Antwort:")
     return "\n".join(parts)

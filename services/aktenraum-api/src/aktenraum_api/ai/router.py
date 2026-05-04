@@ -15,9 +15,15 @@ from ..auth.deps import get_current_user
 from ..db.models import User
 from ..paperless_gw import PaperlessAuthError, PaperlessGateway
 from .answer_prompt import build_answer_messages, build_streaming_answer_messages
-from .deps import get_answer_llm_backend, get_llm_backend, get_paperless_gateway
+from .deps import (
+    get_answer_llm_backend,
+    get_llm_backend,
+    get_paperless_gateway,
+    get_retrieval_deps,
+)
 from .explain import explain_filter
 from .prompt import build_messages
+from .retrieval import RetrievalDeps, RetrievedChunk, retrieve_chunks_for_question
 from .schemas import (
     AnswerOutput,
     AnswerRequest,
@@ -199,6 +205,7 @@ async def answer_stream(
     gateway: PaperlessGateway = Depends(get_paperless_gateway),
     llm: LLMBackend = Depends(get_llm_backend),
     answer_llm: LLMBackend = Depends(get_answer_llm_backend),
+    retrieval_deps: RetrievalDeps | None = Depends(get_retrieval_deps),
 ) -> StreamingResponse:
     """SSE-streamed variant of /answer.
 
@@ -225,7 +232,7 @@ async def answer_stream(
     render a graceful fallback rather than a half-finished answer.
     """
     return StreamingResponse(
-        _stream_answer_events(body, gateway, llm, answer_llm),
+        _stream_answer_events(body, gateway, llm, answer_llm, retrieval_deps),
         media_type="text/event-stream",
         # Disable nginx response buffering on this endpoint so chunks reach
         # the browser as soon as they're emitted; the global config also
@@ -239,12 +246,108 @@ async def answer_stream(
 # "Dein Pass läuft am 12.05.2030 ab. [Quelle: 17]". Captures the bare id.
 _CITATION_MARKER_RE = re.compile(r"\[Quelle:\s*(\d+)\s*\]", re.IGNORECASE)
 
+# Max number of chunks per doc rendered into the prompt. The reranker
+# returns up to `rag_rerank_top_k` (5) chunks total across all docs, so
+# in practice this cap mostly matters when the same doc dominates the
+# result set. Three is enough context to read; more is just budget burn.
+_MAX_CHUNKS_PER_DOC_IN_PROMPT = 3
+
+
+def _ranked_unique_doc_ids(chunks: list[RetrievedChunk]) -> list[int]:
+    """Dedupe doc ids while preserving the reranker's order."""
+    seen: set[int] = set()
+    out: list[int] = []
+    for c in chunks:
+        if c.doc_id in seen:
+            continue
+        seen.add(c.doc_id)
+        out.append(c.doc_id)
+    return out
+
+
+def _group_chunks_by_doc(
+    chunks: list[RetrievedChunk],
+) -> dict[int, list[str]]:
+    """Bucket chunks by doc_id, keeping rank order, capped per doc.
+
+    With reranker top-5 the same doc rarely contributes more than two
+    chunks; the cap is here for the edge case where a long contract
+    sweeps the top-K and would otherwise crowd out other docs in the
+    prompt.
+    """
+    by_doc: dict[int, list[str]] = {}
+    for c in chunks:
+        bucket = by_doc.setdefault(c.doc_id, [])
+        if len(bucket) < _MAX_CHUNKS_PER_DOC_IN_PROMPT:
+            bucket.append(c.text)
+    return by_doc
+
+
+async def _reorder_or_fetch(
+    structural_results: list[DocumentSummary],
+    rag_doc_ids: list[int],
+    gateway: PaperlessGateway,
+) -> list[DocumentSummary]:
+    """Match RAG's doc-id ordering against the structural results;
+    fetch any RAG doc that wasn't in the structural set so it can
+    still appear as a citation.
+
+    RAG and structural retrieval narrow on different signals (semantic
+    similarity vs. closed-enum payload match), so the two sets only
+    partially overlap. Without this step a chunk-level retrieval hit
+    would have no DocumentSummary for the SPA to render as a citation.
+    Capped at `_ANSWER_CONTEXT_SIZE` so the answer prompt never grows
+    unbounded.
+    """
+    by_id = {r.id: r for r in structural_results}
+    out: list[DocumentSummary] = []
+    for doc_id in rag_doc_ids[:_ANSWER_CONTEXT_SIZE]:
+        if doc_id in by_id:
+            out.append(by_id[doc_id])
+            continue
+        # RAG-only doc — fetch a minimal DocumentSummary via the
+        # PaperlessGateway. Best-effort: if the fetch fails we skip the
+        # doc rather than crash the whole answer.
+        try:
+            doc = await gateway.get_document(doc_id)
+            out.append(_doc_to_summary(doc))
+        except Exception:
+            log.warning("rag_doc_summary_fetch_failed", doc_id=doc_id)
+            continue
+    return out
+
+
+def _doc_to_summary(doc: dict) -> DocumentSummary:
+    """Project a raw Paperless doc dict into the SPA-facing summary
+    shape — same projection `_execute_filter` does, minus the
+    custom-fields read (we don't need ai_monetary_amount in the
+    citation card; the reranker already used the body)."""
+    from datetime import date as _date
+
+    created_raw = doc.get("created_date") or doc.get("created")
+    created: _date | None = None
+    if isinstance(created_raw, str):
+        try:
+            created = _date.fromisoformat(created_raw[:10])
+        except ValueError:
+            created = None
+    return DocumentSummary(
+        id=doc["id"],
+        title=doc.get("title") or f"Dokument #{doc['id']}",
+        correspondent=None,
+        document_type=None,
+        created=created,
+        monetary_amount=None,
+        lifecycle_tags=[],
+    )
+
 
 async def _stream_answer_events(
     body: AnswerRequest,
     gateway: PaperlessGateway,
     llm: LLMBackend,
     answer_llm: LLMBackend,
+    retrieval_deps: RetrievalDeps | None = None,
 ) -> AsyncIterator[bytes]:
     # Step 1 — filter extraction (non-streamed; cheap and we need its output
     # before we can pick candidates). Stream errors as `error` events so the
@@ -291,12 +394,39 @@ async def _stream_answer_events(
         )
         return
 
-    # Step 3 — streamed prose. Accumulate so the terminal `final` event can
-    # carry the full text for archival, and so post-hoc citation extraction
-    # has the complete answer to scan.
-    candidates = await _enrich_with_ai_fields(gateway, results[:_ANSWER_CONTEXT_SIZE])
+    # Step 3a — RAG retrieval (Phase 1.9). When QDRANT_URL is set, the
+    # answer LLM gets the actual document body chunks alongside the AI
+    # metadata fields it already saw. This is the difference between
+    # "could only answer questions about dates and amounts" and "can
+    # answer questions about anything in the document text". When RAG
+    # is disabled or returns nothing, the prompt falls back to the
+    # AI-metadata-only path so the existing behaviour is preserved.
+    rag_chunks: list[RetrievedChunk] = []
+    if retrieval_deps is not None:
+        rag_chunks = await retrieve_chunks_for_question(
+            body.question,
+            deps=retrieval_deps,
+            structural_filter=search_filter,
+        )
+
+    # Step 3b — pick which docs make it into the prompt. With RAG, the
+    # reranker has already picked the top-N most relevant chunks; we
+    # use those docs as candidates (deduped by doc_id, preserving rank
+    # order). Without RAG, fall back to the structural retrieval order.
+    rag_doc_ids = _ranked_unique_doc_ids(rag_chunks)
+    if rag_doc_ids:
+        prompt_results = _reorder_or_fetch(results, rag_doc_ids, gateway)
+        prompt_results = await prompt_results
+    else:
+        prompt_results = results[:_ANSWER_CONTEXT_SIZE]
+
+    # Step 3c — streamed prose. Accumulate so the terminal `final` event
+    # can carry the full text for archival, and so post-hoc citation
+    # extraction has the complete answer to scan.
+    candidates = await _enrich_with_ai_fields(gateway, prompt_results)
+    chunks_by_doc = _group_chunks_by_doc(rag_chunks)
     answer_messages = build_streaming_answer_messages(
-        body.question, candidates=candidates
+        body.question, candidates=candidates, chunks_by_doc=chunks_by_doc
     )
     full_text = ""
     try:
@@ -320,9 +450,25 @@ async def _stream_answer_events(
         answer_text = full_text
 
     cited_ids = _extract_inline_citations(full_text)
-    citations = _resolve_citations(cited_ids, results)
+    # Look up citations against the union of structural results and
+    # RAG-promoted prompt_results. Without the union, an answer that
+    # cites a RAG-only doc would silently drop the citation because
+    # `results` doesn't include it.
+    citation_pool: list[DocumentSummary] = list(results)
+    structural_ids = {r.id for r in results}
+    for doc in prompt_results:
+        if doc.id not in structural_ids:
+            citation_pool.append(doc)
+    citations = _resolve_citations(cited_ids, citation_pool)
     if not citations:
-        citations = results[:_ANSWER_CONTEXT_SIZE]
+        # Prefer the RAG-promoted set when available — those are the
+        # docs the answer actually drew from. Fall back to structural
+        # top-N when RAG was off.
+        citations = (
+            prompt_results[:_ANSWER_CONTEXT_SIZE]
+            if prompt_results
+            else results[:_ANSWER_CONTEXT_SIZE]
+        )
 
     yield _sse(
         "final",

@@ -310,6 +310,27 @@ class QdrantVectorStore:
             for p in result.points
         ]
 
+    async def count_chunks_for_doc(self, doc_id: int) -> int:
+        """How many chunks are currently stored for `doc_id`.
+
+        Used by the backfill script to skip already-indexed docs without
+        a full payload read. Implemented via Qdrant's count API (cheap
+        — no vector returned, just a tally over an indexed payload field).
+        """
+        result = await self._client.count(
+            collection_name=self._collection,
+            count_filter=models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="doc_id",
+                        match=models.MatchValue(value=doc_id),
+                    )
+                ]
+            ),
+            exact=True,
+        )
+        return int(result.count)
+
     async def health_check(self) -> bool:
         """Returns True if the collection exists and Qdrant is responsive.
 

@@ -50,9 +50,62 @@ export function Ask() {
           </p>
         )}
 
-        {askMutation.data && <AnswerPanel data={askMutation.data} />}
+        {askMutation.isPending && <LoadingCard />}
+
+        {askMutation.data && !askMutation.isPending && (
+          <AnswerPanel data={askMutation.data} />
+        )}
       </main>
     </div>
+  );
+}
+
+function LoadingCard() {
+  return (
+    <section className="mt-6 space-y-4" aria-busy="true" aria-live="polite">
+      <div className="rounded-md border border-neutral-200 bg-white p-4">
+        <div className="flex items-center gap-3 text-sm text-neutral-700">
+          <Spinner />
+          <span className="font-medium">Denke nach…</span>
+        </div>
+        <p className="mt-2 text-xs text-neutral-500">
+          Frage wird analysiert, passende Dokumente werden gesucht und eine
+          Antwort formuliert. Bei lokalen Modellen kann das bis zu 30 Sekunden
+          dauern.
+        </p>
+        <div className="mt-4 space-y-2">
+          <div className="h-3 w-11/12 animate-pulse rounded bg-neutral-200" />
+          <div className="h-3 w-9/12 animate-pulse rounded bg-neutral-200" />
+          <div className="h-3 w-10/12 animate-pulse rounded bg-neutral-200" />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Spinner() {
+  return (
+    <svg
+      className="h-4 w-4 animate-spin text-neutral-500"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <circle
+        cx="12"
+        cy="12"
+        r="10"
+        stroke="currentColor"
+        strokeWidth="3"
+        className="opacity-25"
+      />
+      <path
+        d="M22 12a10 10 0 0 1-10 10"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+      />
+    </svg>
   );
 }
 

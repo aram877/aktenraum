@@ -1,3 +1,5 @@
+import asyncio
+
 import structlog
 from aktenraum_core.paperless import LIFECYCLE_TAGS, PaperlessClient
 
@@ -24,7 +26,12 @@ def _split_suggested_tags(raw: str | None) -> list[str]:
     return out
 
 
-async def process_approved_document(doc: dict, paperless: PaperlessClient) -> None:
+async def process_approved_document(
+    doc: dict,
+    paperless: PaperlessClient,
+    *,
+    indexing_queue: asyncio.Queue[int] | None = None,
+) -> None:
     """Copy AI custom fields onto native Paperless fields and swap tag state.
 
     Reads the document's ai_correspondent / ai_document_type / ai_issue_date /
@@ -39,6 +46,12 @@ async def process_approved_document(doc: dict, paperless: PaperlessClient) -> No
 
     On failure, swaps ai-approved for ai-propagation-error so the doc does not
     loop on every poll cycle.
+
+    On success, enqueues the doc id on `indexing_queue` (when supplied) so
+    the RAG indexer worker (`indexer.index_document`) can chunk + embed +
+    upsert it. The queue is optional so a deployment that runs without
+    Qdrant (QDRANT_URL empty) keeps the existing extraction +
+    propagation path working untouched.
     """
     doc_id: int = doc["id"]
     title: str = doc.get("title", f"doc-{doc_id}")
@@ -88,6 +101,15 @@ async def process_approved_document(doc: dict, paperless: PaperlessClient) -> No
             created_date=created_date,
             tags_added=len(suggested_tag_ids),
         )
+        if indexing_queue is not None:
+            # `put_nowait` here rather than `await put` so propagation never
+            # blocks waiting for the indexer; the queue is bounded upstream
+            # and a full queue logs and drops (we'd rather miss an index
+            # event than stall propagation).
+            try:
+                indexing_queue.put_nowait(doc_id)
+            except asyncio.QueueFull:
+                logger.warning("indexing_queue_full", doc_id=doc_id)
     except Exception as exc:
         logger.exception("propagation_failed", error=str(exc))
         try:

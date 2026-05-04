@@ -92,7 +92,8 @@ class _ScriptedBackend:
 
     The answer endpoint makes two LLM calls: filter extraction (SearchFilter)
     then answer generation (AnswerOutput). Map by schema so the tests stay
-    declarative without coupling to call order.
+    declarative without coupling to call order. `stream_text` is also
+    scriptable so tests can drive the SSE endpoint deterministically.
     """
 
     def __init__(
@@ -100,9 +101,11 @@ class _ScriptedBackend:
         *,
         on_filter: SearchFilter,
         on_answer: AnswerOutput | Exception | None = None,
+        stream_chunks: list[str] | Exception | None = None,
     ) -> None:
         self._on_filter = on_filter
         self._on_answer = on_answer
+        self._stream_chunks = stream_chunks
         self.calls: list[tuple[str, list[dict]]] = []
 
     async def complete(self, messages, response_schema: type[BaseModel]):
@@ -118,6 +121,13 @@ class _ScriptedBackend:
             )
             return self._on_answer
         raise AssertionError(f"Unexpected schema {response_schema!r}")
+
+    async def stream_text(self, messages):
+        self.calls.append(("stream", messages))
+        if isinstance(self._stream_chunks, Exception):
+            raise self._stream_chunks
+        for chunk in self._stream_chunks or []:
+            yield chunk
 
     @property
     def name(self) -> str:
@@ -526,6 +536,224 @@ async def test_answer_real_prose_with_no_cited_ids_still_surfaces_candidates(cli
     # Real prose passes through; citations get backfilled from retrieval.
     assert "2022" in body["answer_de"]
     assert [c["id"] for c in body["citations"]] == [16]
+
+
+async def test_answer_stream_emits_meta_chunks_and_final(client_factory):
+    """Happy-path SSE stream: meta first, then chunk events for each delta,
+    then a final event with citations resolved from inline `[Quelle: N]`.
+    """
+    app, _settings, transport = await _logged_in(client_factory)
+    cv_doc = _doc(
+        17,
+        title="Aram CV",
+        correspondent_id=None,
+        document_type_id=None,
+        custom_fields=[
+            {"field": 9, "value": "Frontend bei Kopfstand seit 2022."}
+        ],
+    )
+    backend = _ScriptedBackend(
+        on_filter=SearchFilter(tags=["Lebenslauf"]),
+        stream_chunks=[
+            "Du arbeitest ",
+            "seit 2022 bei Kopfstand. ",
+            "[Quelle: 17]",
+        ],
+    )
+    gateway = _make_gateway(
+        documents=[cv_doc], field_ids={"ai_summary_de": 9}
+    )
+    gateway.list_tags = AsyncMock(return_value={"Lebenslauf": 99})
+    app.dependency_overrides[get_llm_backend] = lambda: backend
+    app.dependency_overrides[get_answer_llm_backend] = lambda: backend
+    app.dependency_overrides[get_paperless_gateway] = lambda: gateway
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.post(
+                "/api/ai/answer/stream",
+                json={"question": "Wie lange habe ich bei Kopfstand gearbeitet?"},
+            )
+
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/event-stream")
+    events = _parse_sse(resp.text)
+    event_names = [e[0] for e in events]
+    # Required event ordering: meta first, ≥1 chunk, final last.
+    assert event_names[0] == "meta"
+    assert event_names[-1] == "final"
+    assert event_names.count("chunk") == 3
+
+    final = next(payload for name, payload in events if name == "final")
+    # Stream prose stitched together verbatim.
+    assert "Du arbeitest seit 2022 bei Kopfstand." in final["answer_de"]
+    # Inline `[Quelle: 17]` resolved against the retrieved set.
+    assert [c["id"] for c in final["citations"]] == [17]
+
+
+async def test_answer_stream_no_results_short_circuits_to_friendly_message(client_factory):
+    app, _settings, transport = await _logged_in(client_factory)
+    backend = _ScriptedBackend(
+        on_filter=SearchFilter(text="non-existent"),
+        stream_chunks=[],  # would not even be invoked
+    )
+    gateway = _make_gateway(documents=[])
+    app.dependency_overrides[get_llm_backend] = lambda: backend
+    app.dependency_overrides[get_answer_llm_backend] = lambda: backend
+    app.dependency_overrides[get_paperless_gateway] = lambda: gateway
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.post(
+                "/api/ai/answer/stream", json={"question": "wo ist xyz"}
+            )
+
+    events = _parse_sse(resp.text)
+    final = next(payload for name, payload in events if name == "final")
+    # Friendly German fallback; no citations fabricated.
+    assert "nicht" in final["answer_de"].lower() or "keine" in final["answer_de"].lower()
+    assert final["citations"] == []
+    # Stream LLM was never invoked since retrieval was empty.
+    assert "stream" not in [c[0] for c in backend.calls]
+
+
+async def test_answer_stream_backfills_citations_when_no_inline_marker(client_factory):
+    """If the model writes prose but forgets the [Quelle: N] markers, the
+    server backfills citations from the retrieval set so the UI always
+    has at least one source card to render.
+    """
+    app, _settings, transport = await _logged_in(client_factory)
+    cv_doc = _doc(
+        16,
+        title="Aram CV",
+        correspondent_id=None,
+        document_type_id=None,
+        custom_fields=[{"field": 9, "value": "Frontend bei Kopfstand."}],
+    )
+    backend = _ScriptedBackend(
+        on_filter=SearchFilter(tags=["Lebenslauf"]),
+        stream_chunks=["Antwort ohne Zitat."],
+    )
+    gateway = _make_gateway(
+        documents=[cv_doc], field_ids={"ai_summary_de": 9}
+    )
+    gateway.list_tags = AsyncMock(return_value={"Lebenslauf": 99})
+    app.dependency_overrides[get_llm_backend] = lambda: backend
+    app.dependency_overrides[get_answer_llm_backend] = lambda: backend
+    app.dependency_overrides[get_paperless_gateway] = lambda: gateway
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.post(
+                "/api/ai/answer/stream", json={"question": "Wo arbeite ich?"}
+            )
+
+    final = next(p for n, p in _parse_sse(resp.text) if n == "final")
+    assert [c["id"] for c in final["citations"]] == [16]
+
+
+async def test_answer_stream_degenerate_text_swaps_to_softfail(client_factory):
+    app, _settings, transport = await _logged_in(client_factory)
+    cv_doc = _doc(
+        16,
+        title="Aram CV",
+        correspondent_id=None,
+        document_type_id=None,
+        custom_fields=[{"field": 9, "value": "Frontend."}],
+    )
+    backend = _ScriptedBackend(
+        on_filter=SearchFilter(tags=["Lebenslauf"]),
+        stream_chunks=["answer_de"],
+    )
+    gateway = _make_gateway(
+        documents=[cv_doc], field_ids={"ai_summary_de": 9}
+    )
+    gateway.list_tags = AsyncMock(return_value={"Lebenslauf": 99})
+    app.dependency_overrides[get_llm_backend] = lambda: backend
+    app.dependency_overrides[get_answer_llm_backend] = lambda: backend
+    app.dependency_overrides[get_paperless_gateway] = lambda: gateway
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.post(
+                "/api/ai/answer/stream", json={"question": "?"}
+            )
+
+    final = next(p for n, p in _parse_sse(resp.text) if n == "final")
+    assert final["answer_de"] != "answer_de"
+    assert "nicht zuverlässig" in final["answer_de"]
+    assert [c["id"] for c in final["citations"]] == [16]
+
+
+async def test_answer_stream_handles_mid_stream_error(client_factory):
+    """The stream yields some text, then the backend raises. The endpoint
+    must not surface a 500 — it logs, replaces empty text with the soft-
+    fail message (or keeps partial text), and emits a final event.
+    """
+    app, _settings, transport = await _logged_in(client_factory)
+    cv_doc = _doc(
+        16,
+        title="Aram CV",
+        correspondent_id=None,
+        document_type_id=None,
+        custom_fields=[{"field": 9, "value": "Frontend."}],
+    )
+    backend = _ScriptedBackend(
+        on_filter=SearchFilter(tags=["Lebenslauf"]),
+        stream_chunks=RuntimeError("ollama dead"),
+    )
+    gateway = _make_gateway(
+        documents=[cv_doc], field_ids={"ai_summary_de": 9}
+    )
+    gateway.list_tags = AsyncMock(return_value={"Lebenslauf": 99})
+    app.dependency_overrides[get_llm_backend] = lambda: backend
+    app.dependency_overrides[get_answer_llm_backend] = lambda: backend
+    app.dependency_overrides[get_paperless_gateway] = lambda: gateway
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.post(
+                "/api/ai/answer/stream", json={"question": "?"}
+            )
+
+    assert resp.status_code == 200
+    events = _parse_sse(resp.text)
+    names = [n for n, _ in events]
+    assert names[-1] == "final"
+    final = next(p for n, p in events if n == "final")
+    # No prose accumulated before the exception → soft-fail message lands.
+    assert "nicht zuverlässig" in final["answer_de"]
+    assert [c["id"] for c in final["citations"]] == [16]
+
+
+def _parse_sse(body: str) -> list[tuple[str, dict]]:
+    """Parse an SSE response into [(event_name, json_payload), ...].
+
+    Records are separated by a blank line; within a record, `event:` and
+    `data:` lines carry the type and JSON-encoded payload.
+    """
+    out: list[tuple[str, dict]] = []
+    for record in body.split("\n\n"):
+        if not record.strip():
+            continue
+        event_name = "message"
+        data_payload = ""
+        for line in record.split("\n"):
+            if line.startswith("event:"):
+                event_name = line.split(":", 1)[1].strip()
+            elif line.startswith("data:"):
+                data_payload += line.split(":", 1)[1].strip()
+        if not data_payload:
+            continue
+        import json as _json
+
+        out.append((event_name, _json.loads(data_payload)))
+    return out
 
 
 async def test_answer_503_when_paperless_token_unset(client_factory):

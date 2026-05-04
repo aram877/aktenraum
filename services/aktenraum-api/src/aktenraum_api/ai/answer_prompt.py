@@ -146,3 +146,86 @@ def _render_candidate(c: dict) -> str:
 def _to_json(d: dict) -> str:
     """Used by tests asserting that example output is valid JSON."""
     return json.dumps(d, ensure_ascii=False)
+
+
+def build_streaming_answer_messages(
+    question: str, *, candidates: list[dict]
+) -> list[dict]:
+    """Variant of `build_answer_messages` for the SSE streaming path.
+
+    Same candidate context, but the prompt asks for prose only (no JSON
+    envelope) and cites with `[Quelle: <id>]` markers we can regex out
+    server-side. JSON-mode would block streaming until the whole document
+    is decoded, defeating the point.
+    """
+    return [
+        {"role": "system", "content": _streaming_system_prompt()},
+        {"role": "user", "content": _streaming_user_prompt(question, candidates)},
+    ]
+
+
+def _streaming_system_prompt() -> str:
+    parts: list[str] = []
+    parts.append(
+        "Du bist ein Assistent für ein persönliches Dokumenten-System. "
+        "Beantworte die Frage des Nutzers AUSSCHLIESSLICH auf Basis der "
+        "bereitgestellten Dokumente. Wenn die Antwort nicht in den Dokumenten "
+        "steht, sage das ehrlich."
+    )
+    parts.append("Regeln:")
+    parts.append("- Antworte auf Deutsch.")
+    parts.append("- Halte die Antwort kurz: höchstens 3 Sätze.")
+    parts.append(
+        "- KEIN JSON. Antworte direkt im Fließtext — die Antwort wird "
+        "Zeichen-für-Zeichen an den Nutzer gestreamt."
+    )
+    parts.append(
+        "- Zitiere jedes verwendete Dokument inline mit '[Quelle: <id>]', "
+        "z. B. 'Dein Pass läuft am 12.05.2030 ab. [Quelle: 17]'. Nutze nur "
+        "IDs aus der unten gelisteten Liste; erfinde keine."
+    )
+    parts.append(
+        "- Wenn keines der Dokumente die Frage beantwortet, antworte kurz "
+        "'Ich konnte das in den Dokumenten nicht finden.' ohne Quelle."
+    )
+    parts.append(f"- Heute ist {date.today().isoformat()}.")
+    parts.append("")
+    parts.append("Feld-Hinweise (wichtig — nutze diese Felder direkt!):")
+    parts.append(
+        "- 'Wann läuft … ab?' / 'verlängern' / 'gültig' → Feld 'Ablauf'."
+    )
+    parts.append("- 'wann ausgestellt' → Feld 'Ausstellung'.")
+    parts.append("- 'bis wann zahlen' → Feld 'Fällig'.")
+    parts.append("- 'wieviel' / 'kosten' → Feld 'Betrag'.")
+    parts.append(
+        "- Wenn ein passendes Feld bereits einen Wert hat, IST das die Antwort. "
+        "Sage NICHT 'keine Information', wenn das Feld gefüllt ist."
+    )
+    return "\n".join(parts)
+
+
+def _streaming_user_prompt(question: str, candidates: list[dict]) -> str:
+    parts: list[str] = []
+    parts.append("Beispiele für korrektes Format:")
+    parts.append(
+        "  Frage: 'Wann läuft mein Pass ab?'\n"
+        "  Dokument hat Ablauf: 2030-05-12\n"
+        "  → 'Dein Pass läuft am 12.05.2030 ab. [Quelle: 17]'"
+    )
+    parts.append(
+        "  Frage: 'Was hat die Stromrechnung gekostet?'\n"
+        "  Dokument hat Betrag: EUR149.99\n"
+        "  → 'Die Stromrechnung betrug 149,99 €. [Quelle: 23]'"
+    )
+    parts.append("")
+    parts.append(f"Frage: {question}")
+    parts.append("")
+    parts.append("Verfügbare Dokumente:")
+    if not candidates:
+        parts.append("(keine)")
+    else:
+        for c in candidates:
+            parts.append(_render_candidate(c))
+    parts.append("")
+    parts.append("Schreibe jetzt die Antwort:")
+    return "\n".join(parts)

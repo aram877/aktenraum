@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+import json
+import re
+from collections.abc import AsyncIterator
+
 import structlog
 from aktenraum_core.llm import LLMBackend
 from aktenraum_core.paperless import LIFECYCLE_TAGS
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
 
 from ..auth.deps import get_current_user
 from ..db.models import User
 from ..paperless_gw import PaperlessAuthError, PaperlessGateway
-from .answer_prompt import build_answer_messages
+from .answer_prompt import build_answer_messages, build_streaming_answer_messages
 from .deps import get_answer_llm_backend, get_llm_backend, get_paperless_gateway
 from .explain import explain_filter
 from .prompt import build_messages
@@ -185,6 +190,184 @@ async def answer(
         filter=search_filter,
         total=total,
     )
+
+
+@router.post("/answer/stream")
+async def answer_stream(
+    body: AnswerRequest,
+    _user: User = Depends(get_current_user),
+    gateway: PaperlessGateway = Depends(get_paperless_gateway),
+    llm: LLMBackend = Depends(get_llm_backend),
+    answer_llm: LLMBackend = Depends(get_answer_llm_backend),
+) -> StreamingResponse:
+    """SSE-streamed variant of /answer.
+
+    Same pipeline (filter → retrieve → generate), but the generation step
+    streams prose tokens as Server-Sent Events so the user sees the answer
+    arrive incrementally instead of waiting 20–30s for one JSON blob. The
+    answer LLM is asked to cite inline as `[Quelle: <id>]`; we regex those
+    out post-hoc and intersect with the retrieved set, falling back to the
+    retrieval candidates when nothing was cited.
+
+    Event sequence (`event:` line, then `data:` JSON line, then blank):
+      - `meta`     {filter, explanation, total} — sent before any prose so
+                   the SPA can render the chip strip while text streams.
+      - `chunk`    {text} — zero or more, delta updates. Concatenate client-
+                   side. The same `chunk` event fires once with the soft-
+                   fail message when the LLM stream errors out partway.
+      - `final`    {citations, answer_de, total} — terminal payload with
+                   the resolved citations and the full prose for archival.
+      - `error`    {detail} — terminal-with-error variant when retrieval or
+                   filter extraction fails before any chunk has streamed.
+
+    Resilient to backend errors: any exception during the prose stream is
+    caught, logged, and surfaced as a final `error` event so the UI can
+    render a graceful fallback rather than a half-finished answer.
+    """
+    return StreamingResponse(
+        _stream_answer_events(body, gateway, llm, answer_llm),
+        media_type="text/event-stream",
+        # Disable nginx response buffering on this endpoint so chunks reach
+        # the browser as soon as they're emitted; the global config also
+        # turns proxy_buffering off but a per-response header is the belt-
+        # and-braces version.
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+    )
+
+
+# Inline citation marker the streaming prompt asks the model to use:
+# "Dein Pass läuft am 12.05.2030 ab. [Quelle: 17]". Captures the bare id.
+_CITATION_MARKER_RE = re.compile(r"\[Quelle:\s*(\d+)\s*\]", re.IGNORECASE)
+
+
+async def _stream_answer_events(
+    body: AnswerRequest,
+    gateway: PaperlessGateway,
+    llm: LLMBackend,
+    answer_llm: LLMBackend,
+) -> AsyncIterator[bytes]:
+    # Step 1 — filter extraction (non-streamed; cheap and we need its output
+    # before we can pick candidates). Stream errors as `error` events so the
+    # UI never sees a torn 5xx.
+    try:
+        correspondents = list((await gateway.list_correspondents()).keys())
+        tag_vocab = _user_tag_vocabulary(await gateway.list_tags())
+    except PaperlessAuthError:
+        yield _sse("error", {"detail": "Paperless rejected the API token"})
+        return
+
+    messages = build_messages(
+        body.question, correspondents=correspondents, tags=tag_vocab
+    )
+    try:
+        search_filter = await llm.complete(messages, response_schema=SearchFilter)
+    except ValidationError as e:
+        log.warning("ai_filter_validation_failed", error=str(e))
+        yield _sse("error", {"detail": "Filter konnte nicht extrahiert werden."})
+        return
+
+    # Step 2 — retrieval (broadened the same way the JSON answer endpoint does it).
+    retrieval_filter = _broaden_for_answer(search_filter)
+    try:
+        results, total = await _execute_filter(gateway, retrieval_filter)
+    except PaperlessAuthError:
+        yield _sse("error", {"detail": "Paperless rejected the API token"})
+        return
+
+    yield _sse(
+        "meta",
+        {
+            "filter": _filter_to_jsonable(search_filter),
+            "explanation": explain_filter(search_filter),
+            "total": total,
+        },
+    )
+
+    if not results:
+        yield _sse("chunk", {"text": _NO_MATCH_DE})
+        yield _sse(
+            "final",
+            {"answer_de": _NO_MATCH_DE, "citations": [], "total": 0},
+        )
+        return
+
+    # Step 3 — streamed prose. Accumulate so the terminal `final` event can
+    # carry the full text for archival, and so post-hoc citation extraction
+    # has the complete answer to scan.
+    candidates = await _enrich_with_ai_fields(gateway, results[:_ANSWER_CONTEXT_SIZE])
+    answer_messages = build_streaming_answer_messages(
+        body.question, candidates=candidates
+    )
+    full_text = ""
+    try:
+        async for delta in answer_llm.stream_text(answer_messages):
+            full_text += delta
+            yield _sse("chunk", {"text": delta})
+    except Exception:
+        # Catch ALL exceptions, not just specific ones — at this point the
+        # event stream is open and the browser is reading; we cannot raise.
+        log.warning("ai_answer_stream_failed", exc_info=True)
+        if not full_text:
+            full_text = _ANSWER_LLM_FAILED_DE
+            yield _sse("chunk", {"text": full_text})
+
+    answer_text = full_text.strip()
+    if _is_degenerate_answer(answer_text):
+        log.warning("ai_answer_stream_degenerate", text=answer_text)
+        full_text = _ANSWER_LLM_FAILED_DE
+        # Reset the visible answer to the soft message; the SPA replaces
+        # accumulated text on receipt of `final` so this lands cleanly.
+        answer_text = full_text
+
+    cited_ids = _extract_inline_citations(full_text)
+    citations = _resolve_citations(cited_ids, results)
+    if not citations:
+        citations = results[:_ANSWER_CONTEXT_SIZE]
+
+    yield _sse(
+        "final",
+        {
+            "answer_de": answer_text,
+            "citations": [_doc_summary_to_jsonable(c) for c in citations],
+            "total": total,
+        },
+    )
+
+
+def _extract_inline_citations(text: str) -> list[int]:
+    """Pull citation ids out of `[Quelle: <id>]` markers, in first-seen order."""
+    seen: set[int] = set()
+    out: list[int] = []
+    for match in _CITATION_MARKER_RE.finditer(text):
+        try:
+            value = int(match.group(1))
+        except ValueError:
+            continue
+        if value in seen:
+            continue
+        seen.add(value)
+        out.append(value)
+    return out
+
+
+def _sse(event: str, payload: dict) -> bytes:
+    """Encode one SSE record. Browsers parse `event:`, `data:`, blank line.
+
+    The data line MUST be a single line — newlines in the JSON would split
+    the record. `json.dumps` produces single-line output by default; the
+    blank line at the end separates records.
+    """
+    encoded = json.dumps(payload, ensure_ascii=False, default=str)
+    return f"event: {event}\ndata: {encoded}\n\n".encode()
+
+
+def _filter_to_jsonable(f: SearchFilter) -> dict:
+    """Pydantic SearchFilter → plain dict suitable for SSE JSON payloads."""
+    return f.model_dump(mode="json")
+
+
+def _doc_summary_to_jsonable(doc: DocumentSummary) -> dict:
+    return doc.model_dump(mode="json")
 
 
 # Field names from AnswerOutput that small models sometimes echo verbatim

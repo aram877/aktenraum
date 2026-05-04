@@ -6,6 +6,19 @@ from fastapi import Depends, HTTPException, Request, status
 from ..auth.deps import get_settings
 from ..config import Settings
 from ..paperless_gw import PaperlessGateway
+from .retrieval import RetrievalDeps
+
+
+def get_retrieval_deps(request: Request) -> RetrievalDeps | None:
+    """Return the per-process RAG retrieval deps, or None if disabled.
+
+    The deps are constructed once during lifespan startup (in main.py)
+    when QDRANT_URL is configured — building a fresh embedder + vector
+    store + reranker per request would re-pay the bge-reranker
+    600 MB load every time. None means RAG is disabled; calling
+    endpoints fall back to their structural-only path.
+    """
+    return getattr(request.app.state, "retrieval_deps", None)
 
 
 def get_paperless_gateway(request: Request) -> PaperlessGateway:

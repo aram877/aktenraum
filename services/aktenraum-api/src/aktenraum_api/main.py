@@ -3,9 +3,11 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import structlog
+from aktenraum_core.rag import LocalReranker, OllamaEmbedder, QdrantVectorStore
 from fastapi import FastAPI
 
 from .ai import router as ai_router
+from .ai.retrieval import RetrievalDeps
 from .auth import bootstrap_user_if_empty
 from .auth import router as auth_router
 from .config import Settings
@@ -51,10 +53,48 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         else:
             app.state.paperless_gateway = None
+
+        # RAG retrieval deps (Phase 1.8): only constructed when
+        # QDRANT_URL is set. Built once at startup so the bge-reranker
+        # 600 MB load doesn't repeat per request. The reranker is
+        # lazy-loaded internally — its model isn't pulled into memory
+        # until the first /ask request actually uses it. None when
+        # disabled; the deps function in ai/deps.py returns None and
+        # the answer endpoint falls back to its structural path.
+        if settings.qdrant_url:
+            vector_store = QdrantVectorStore(
+                url=settings.qdrant_url,
+                dense_dim=1024,
+            )
+            try:
+                await vector_store.ensure_collection()
+                app.state.rag_vector_store = vector_store
+                app.state.retrieval_deps = RetrievalDeps(
+                    embedder=OllamaEmbedder(
+                        base_url=settings.ollama_base_url,
+                        model=settings.embedding_model,
+                    ),
+                    vector_store=vector_store,
+                    reranker=LocalReranker(
+                        model_name=settings.reranker_model
+                    ),
+                )
+            except Exception:
+                # Don't crash the API on Qdrant unreachable at boot —
+                # the rest of the API stays usable, just without RAG.
+                app.state.rag_vector_store = None
+                app.state.retrieval_deps = None
+        else:
+            app.state.rag_vector_store = None
+            app.state.retrieval_deps = None
+
         yield
         gateway = getattr(app.state, "paperless_gateway", None)
         if gateway is not None:
             await gateway.aclose()
+        rag_store = getattr(app.state, "rag_vector_store", None)
+        if rag_store is not None:
+            await rag_store.aclose()
         await engine.dispose()
 
     app = FastAPI(

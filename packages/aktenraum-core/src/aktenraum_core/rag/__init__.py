@@ -9,5 +9,20 @@ stays I/O-light so individual pieces stay independently testable.
 
 from .chunker import Chunk, chunk_text
 from .embedder import Embedder, OllamaEmbedder
+from .vector_store import (
+    ChunkPayload,
+    QdrantVectorStore,
+    SearchFilter,
+    SearchHit,
+)
 
-__all__ = ["Chunk", "Embedder", "OllamaEmbedder", "chunk_text"]
+__all__ = [
+    "Chunk",
+    "ChunkPayload",
+    "Embedder",
+    "OllamaEmbedder",
+    "QdrantVectorStore",
+    "SearchFilter",
+    "SearchHit",
+    "chunk_text",
+]

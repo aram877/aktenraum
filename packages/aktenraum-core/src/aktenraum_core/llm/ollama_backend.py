@@ -1,4 +1,5 @@
 import json
+from collections.abc import AsyncIterator
 from typing import Any, TypeVar
 
 import ollama
@@ -69,6 +70,26 @@ class OllamaBackend:
                 original_keys=sorted(parsed.keys()) if isinstance(parsed, dict) else None,
             )
             return response_schema.model_validate(recovered)
+
+
+    async def stream_text(self, messages: list[dict]) -> AsyncIterator[str]:
+        """Stream a prose response chunk-by-chunk.
+
+        No `format="json"` here — this path is intentionally unstructured so
+        the model's natural-language output flows through Paperless tokens
+        rather than getting blocked behind JSON-mode tokenization. The caller
+        is expected to apply any post-hoc parsing (e.g. matching `Dokument N`
+        ids) after the stream completes.
+        """
+        stream = await self._client.chat(
+            model=self._model,
+            messages=messages,
+            stream=True,
+        )
+        async for chunk in stream:
+            content = chunk.get("message", {}).get("content", "")
+            if content:
+                yield content
 
 
 def _clean_json(text: str) -> str:

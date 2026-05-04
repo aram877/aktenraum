@@ -1,3 +1,4 @@
+from collections.abc import AsyncIterator
 from typing import TypeVar
 
 import anthropic
@@ -6,6 +7,9 @@ from pydantic import BaseModel
 
 log = structlog.get_logger()
 T = TypeVar("T", bound=BaseModel)
+
+
+_STREAM_MAX_TOKENS = 1024
 
 
 class AnthropicBackend:
@@ -42,3 +46,41 @@ class AnthropicBackend:
                 return response_schema.model_validate(block.input)
 
         raise ValueError("Anthropic response contained no tool_use block")
+
+    async def stream_text(self, messages: list[dict]) -> AsyncIterator[str]:
+        """Stream prose deltas via Anthropic's messages.stream API.
+
+        Splits a system message off the front (Anthropic takes `system` as a
+        kwarg, not a role) so callers can keep using the OpenAI-style message
+        list shape end-to-end.
+        """
+        system, user_messages = _split_system(messages)
+        kwargs: dict = {
+            "model": self._model,
+            "max_tokens": _STREAM_MAX_TOKENS,
+            "messages": user_messages,
+        }
+        if system:
+            kwargs["system"] = system
+        async with self._client.messages.stream(**kwargs) as stream:
+            async for text in stream.text_stream:
+                if text:
+                    yield text
+
+
+def _split_system(messages: list[dict]) -> tuple[str | None, list[dict]]:
+    """Pull the first system message out; return it plus the rest verbatim.
+
+    Anthropic rejects `role: "system"` inside the messages array — system
+    prompts must travel as the top-level `system` kwarg. The OpenAI-style
+    callers we have in the codebase put the prompt as a system role, so this
+    adapter normalises that shape.
+    """
+    system: str | None = None
+    rest: list[dict] = []
+    for msg in messages:
+        if msg.get("role") == "system" and system is None:
+            system = msg.get("content", "")
+            continue
+        rest.append(msg)
+    return system, rest

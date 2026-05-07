@@ -134,6 +134,12 @@ services:
       context: ..
       dockerfile: services/aktenraum-api/Dockerfile
     restart: unless-stopped
+    volumes:
+      # RAG eval cases (Phase 1.10). Bind-mounted instead of baked into
+      # the image so editing golden-questions.yaml doesn't require a
+      # rebuild — the runner re-reads the file on every invocation.
+      # Read-only so a buggy runner can never trash the cases.
+      - ../evals:/app/evals:ro
     depends_on:
       postgres:
         condition: service_healthy

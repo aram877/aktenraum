@@ -1,0 +1,43 @@
+# Golden questions for the aktenraum RAG eval harness (Phase 1.10).
+#
+# Each entry pins a question that the system MUST be able to answer
+# from the corpus, identified by the doc id(s) where the answer lives.
+# The eval runner (`python -m aktenraum_api.eval.runner`) feeds every
+# question through `retrieve_chunks_for_question` and reports
+# recall@K + MRR across the whole set.
+#
+# The doc ids below are the dev maintainer's local Paperless ids and
+# WILL NOT match a fresh install — buyers / new collaborators copy
+# this file to a private location (e.g. `evals/local.yaml`,
+# gitignored) and re-pin against their own corpus. The committed file
+# documents the structure and serves as the dev-corpus regression set.
+#
+# Schema:
+#   id:                  kebab-case stable handle (string, required)
+#   question:            German prose question (string, required)
+#   expected_doc_ids:    one or more doc ids that count as correct
+#                        (list[int], required)
+#   expected_in_top_k:   recall threshold for this case (int, default 5)
+#   category:            free-form classifier for slicing reports
+#   language:            ISO 639-1 (default "de")
+
+- id: cv-employment-duration-kopfstand
+  question: "Wie lange habe ich bei Kopfstand gearbeitet?"
+  expected_doc_ids: [25]
+  expected_in_top_k: 5
+  category: cv-employment
+  language: de
+
+- id: cv-employment-mediengestalter
+  question: "In welchen Jahren habe ich als Mediengestalter gearbeitet?"
+  expected_doc_ids: [16, 25]
+  expected_in_top_k: 5
+  category: cv-employment
+  language: de
+
+- id: cv-degree-economics
+  question: "Wo habe ich Wirtschaft studiert?"
+  expected_doc_ids: [16, 25]
+  expected_in_top_k: 5
+  category: cv-education
+  language: de

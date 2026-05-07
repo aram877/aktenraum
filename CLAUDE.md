@@ -4,7 +4,7 @@ Self-hosted personal DMS built on Paperless-ngx with an AI classification layer.
 
 ---
 
-## Stack (9 services — all in `docker/docker-compose.yml`)
+## Stack (10 services — all in `docker/docker-compose.yml`)
 
 | Service | Image | Role | Port |
 |---|---|---|---|
@@ -13,8 +13,9 @@ Self-hosted personal DMS built on Paperless-ngx with an AI classification layer.
 | redis | redis:7 | Paperless task queue | internal |
 | gotenberg | gotenberg/gotenberg:8 | PDF conversion | internal |
 | tika | apache/tika | Document parsing | internal |
-| auto-tagger | local build | AI extraction worker (event-driven) | internal |
-| aktenraum-api | local build | FastAPI HTTP API for the SPA (auth, AI features) | internal (8002) |
+| qdrant | qdrant/qdrant:v1.17.1 | RAG vector store (chunks + payload) | internal (6333 REST, 6334 gRPC) |
+| auto-tagger | local build | AI extraction worker + RAG indexer (event-driven) | internal |
+| aktenraum-api | local build | FastAPI HTTP API for the SPA (auth, AI features, RAG retrieval) | internal (8002) |
 | nginx | local build | Edge: serves SPA static + reverse-proxies `/api/*` | `127.0.0.1:8080` (override via `AKTENRAUM_WEB_PORT`) |
 | backup | local build | Daily restic backup via crond | internal |
 
@@ -353,7 +354,8 @@ Use `/opsx:apply` skill to implement tasks from an approved change.
 | Upload (`POST /api/documents/upload` + `/upload`) | ✅ Drag-and-drop dropzone, single + multi-file, per-file progress + status, isolated failures; uploads stream through aktenraum-api so the Paperless token stays server-side |
 | Reprocess (`POST /api/documents/{id}/reprocess`) | ✅ Clears all 7 lifecycle tags; pings auto-tagger webhook (with optional `WEBHOOK_SECRET`) for instant turnaround; falls back to the 30s poller. Reprocess button on the preview modal |
 | Processing visibility (`/documents/in-flight`, `/task/{uuid}`, `/{id}/status`, ProcessingBadge) | ✅ DocumentSummary carries `lifecycle_tags`; shared SPA badge (Wartet auf KI / Wird übertragen / Verarbeitet / In Inbox / Fehler / etc.) renders on Library rows + Find/Ask cards; Upload page polls task → doc-status → lifecycle for live progress; Nav shows a global "N in Bearbeitung" pill, refetched every 30s |
-| Semantic search / RAG | 🔲 Planned (Phase 6, only if structured-filter search hits a ceiling) |
+| RAG retrieval (Qdrant + bge-m3 + bge-reranker-v2-m3) | ✅ Phase 1 — chunker, embedder, vector store, indexer task in auto-tagger, backfill script, hybrid retrieval, reranker, eval harness all live. `/api/ai/answer/stream` serves chunk-grounded answers with `[Quelle: <id>]` citations. Opt-in via `QDRANT_URL` (set in compose by default; empty disables and falls back to AI-metadata-only path). 10/12 sub-phases done; 1.11 (model auto-pull) joins desktop-app 0.3, 1.12 (docs) ongoing. See `docs/plans/rag-phase-1.md`. |
+| RAG eval harness | ✅ Phase 1.10 — `python -m aktenraum_api.eval.runner` (or `bash scripts/run-rag-eval.sh`) reports recall@K + MRR over `evals/golden-questions.yaml`. JSON output for CI threshold gates. |
 | HTTPS / Tailscale | 🔲 Planned (TODO in runbook) |
 | Backup integrity checks (`restic check`) | 🔲 Planned |
 | Health endpoint / Prometheus metrics | 🔲 Planned |
@@ -428,6 +430,63 @@ For a full-stack dev cycle, keep the compose stack up (`docker compose up -d`) s
 - Retrieval broadens the filter for the answer step: when any structural field (doc_type, correspondent, dates, amounts) is set, we drop the `text` constraint — verbs like "verlängern" / "kostete" land in `text` from the filter LLM but rarely appear in OCR'd content, so keeping them kills recall. `/find` keeps `text` honored.
 - The answer prompt (`aktenraum_api.ai.answer_prompt`) ships three German few-shot exemplars showing question→field mappings ("Wann läuft … ab?" → Ablauf field, "Was hat … gekostet?" → Betrag, "Bis wann muss ich zahlen?" → Fällig).
 - Two LLM backends: the filter-extraction call uses `OLLAMA_MODEL` / `ANTHROPIC_MODEL`; the answer call optionally uses `OLLAMA_ANSWER_MODEL` / `ANTHROPIC_ANSWER_MODEL` so a deployer can pair a fast 8B for filters with a smarter 14B+ for answers (the 8B is too small to read citations reliably).
+
+### AI: Streaming answer + RAG (`/api/ai/answer/stream`)
+
+The user-facing /ask page consumes this endpoint, NOT `/api/ai/answer`. The streaming variant adds two things:
+
+1. **SSE token-by-token streaming.** Replaces the silent ~30s wait with `meta` → `chunk*` → `final` events. Inline `[Quelle: <id>]` markers in the streamed prose are regex-extracted post-hoc and intersected with retrieved docs to populate citations. The streaming-specific prompt (`build_streaming_answer_messages`) instructs the model to use the marker format and is prose-only (NOT JSON envelope).
+2. **RAG retrieval (Phase 1).** When `QDRANT_URL` is set, every question runs through `aktenraum_api.ai.retrieval.retrieve_chunks_for_question`: embed query (bge-m3) → Qdrant search top-50 with payload filter → bge-reranker-v2-m3 cross-encoder rerank → top-5 chunks. Those chunks land under "Relevante Auszüge:" inside each candidate's prompt block, alongside the existing AI metadata fields. This is what answers questions whose information is in the document body (CV employment durations, contract clauses, table values) — pre-RAG the LLM only ever saw `ai_summary_de` + dates + amounts.
+
+Resilience: any RAG stage failing degrades gracefully (embedder error → empty result, qdrant error → skip rerank, reranker error → fall through to dense-only ordering). Empty / `QDRANT_URL`-unset → falls back to the AI-metadata-only path so the endpoint keeps working.
+
+The bge-reranker-v2-m3 model is **lazy-loaded on the first /ask** — first call after a fresh container blocks ~5 minutes (HF download). Subsequent calls are fast (~50 ms × 50 candidates ≈ 2.5s rerank). Phase 0.3 will move the download to install time.
+
+### RAG: indexing pipeline (auto-tagger)
+
+Indexing fans out from propagation. When a doc reaches `ai-propagated`, the propagator enqueues its id on the `indexing_queue`; a fifth concurrent task in the auto-tagger drains the queue and runs:
+
+```
+fetch document by id from Paperless
+  ↓
+chunk content (paragraph-aware, ~500 tokens, ~50-token overlap)
+  ↓
+batch-embed via Ollama bge-m3 (single round-trip per doc)
+  ↓
+delete-by-doc-id from Qdrant (idempotent: re-index never duplicates)
+  ↓
+upsert with denormalised payload (doc_type, correspondent, tags, created_date)
+```
+
+Failures tag `ai-index-error` (auxiliary, NOT in `LIFECYCLE_TAGS`); success self-heals — clears the error tag if previously set. Cap of 200 chunks per doc protects against runaway OCR.
+
+**Opt-in via `QDRANT_URL`**: empty (or unset) disables the indexer worker and the propagator hook, so the existing extraction + propagation paths keep working when RAG is intentionally off.
+
+### RAG: backfill the existing corpus
+
+Newly-propagated docs index automatically; the existing corpus needs a one-shot. From repo root:
+
+```bash
+bash scripts/backfill-rag-index.sh           # idempotent, skip already-indexed
+bash scripts/backfill-rag-index.sh --force   # re-index everything
+```
+
+JSON-line events on stdout: `started → doc_skipped|doc_indexed|doc_failed* → completed`. Resumable: re-running on a fully-indexed corpus is a fast no-op (one cheap Qdrant `count` per doc, then skip).
+
+### RAG: eval harness
+
+Measures retrieval quality so prompt / model / chunker changes are evaluable rather than vibes-only.
+
+```bash
+bash scripts/run-rag-eval.sh                 # text report
+bash scripts/run-rag-eval.sh --json          # CI-friendly JSON
+```
+
+Cases live in `evals/golden-questions.yaml` (bind-mounted into the api container at `/app/evals/`). Each case: `id`, `question`, `expected_doc_ids`, optional `expected_in_top_k` (default 5). Multi-doc-expected supported (a question that could legitimately be answered by either of two filings).
+
+Output: per-case rank + hit/miss + aggregate `recall@K` and `MRR` (mean reciprocal rank). Exit code is 0 regardless of metrics — the wrapper / CI decides the threshold.
+
+The committed YAML is keyed to the dev maintainer's local Paperless ids; buyers / new collaborators copy to a private location and re-pin against their own corpus.
 
 ### Library (`/api/library/`)
 

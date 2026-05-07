@@ -23,6 +23,11 @@ dependencies = [
     # (its dep tree stays slim). When Ollama gains first-class reranker
     # support we can drop this and route through Ollama.
     "sentence-transformers>=3.3.0",
+    # RAG eval harness (Phase 1.10) loads golden-questions YAML.
+    # Already a transitive dep of huggingface-hub, but we name it
+    # explicitly so `python -m aktenraum_api.eval.runner` doesn't
+    # break if a transitive ever drops it.
+    "pyyaml>=6.0.0",
 ]
 
 [dependency-groups]

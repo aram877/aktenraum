@@ -1,5 +1,6 @@
+from dataclasses import dataclass
 from enum import StrEnum
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, BeforeValidator, Field
 
@@ -17,6 +18,15 @@ def _coerce_list(v: Any) -> Any:
 
 CoercedStr = Annotated[str, BeforeValidator(_coerce_str)]
 CoercedList = Annotated[list[CoercedStr], BeforeValidator(_coerce_list)]
+
+FieldType = Literal["string", "money", "date", "month", "year"]
+
+
+@dataclass(frozen=True)
+class FieldDef:
+    name: str
+    label_de: str
+    field_type: FieldType
 
 
 class DocumentType(StrEnum):

@@ -1,9 +1,10 @@
 import json
 from typing import Any
 
+import aiohttp
 import structlog
-from aktenraum_core.llm import LLMBackend
-from aktenraum_core.models import DocumentExtraction
+from aktenraum_core.llm import LLMBackend, extract_type_specific
+from aktenraum_core.models import TYPE_FIELD_SCHEMA, DocumentExtraction, DocumentType
 from aktenraum_core.paperless import PaperlessClient
 
 from .config import Settings
@@ -334,3 +335,56 @@ async def process_document(
             await paperless.add_tag_to_document(doc_id, "ai-error")
         except Exception as tag_exc:
             logger.error("paperless_tag_failed", error=str(tag_exc))
+        return
+
+    # Pass 2: type-specific extraction. Non-fatal — generic pass already
+    # completed successfully and lifecycle tags are set.
+    if extraction.document_type != DocumentType.Sonstiges:
+        await _run_type_specific_pass(
+            doc_id=doc_id,
+            doc_type=extraction.document_type,
+            text=text,
+            backend=backend,
+            settings=settings,
+            logger=logger,
+        )
+    return
+
+
+async def _run_type_specific_pass(
+    *,
+    doc_id: int,
+    doc_type: DocumentType,
+    text: str,
+    backend: LLMBackend,
+    settings: Settings,
+    logger: Any,
+) -> None:
+    if doc_type not in TYPE_FIELD_SCHEMA or not TYPE_FIELD_SCHEMA[doc_type]:
+        return
+    try:
+        fields = await extract_type_specific(doc_type, text, backend)
+        if not fields:
+            logger.info("type_specific_pass_empty", doc_type=doc_type.value)
+            return
+        url = f"{settings.aktenraum_api_url}/api/documents/{doc_id}/type-fields"
+        async with aiohttp.ClientSession() as session:
+            async with session.patch(url, json={"fields": fields}, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                if resp.status >= 400:
+                    body = await resp.text()
+                    logger.warning(
+                        "type_specific_patch_rejected",
+                        doc_id=doc_id,
+                        status=resp.status,
+                        body=body[:200],
+                    )
+                else:
+                    logger.info(
+                        "type_specific_pass_done",
+                        doc_type=doc_type.value,
+                        fields=list(fields.keys()),
+                    )
+    except Exception as exc:
+        logger.warning("type_specific_pass_failed", doc_id=doc_id, error=str(exc))
+
+

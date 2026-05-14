@@ -21,7 +21,8 @@
       "Bash(MSYS_NO_PATHCONV=1 PAPERLESS_* bash *)",
       "Bash(RESTIC_PASSWORD=* bash *)",
       "Bash(PAPERLESS_BASE_URL=* PAPERLESS_API_TOKEN=* bash *)",
-      "Bash(python3.exe -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('OK count=', d.get\\('count','?'\\)\\)\")"
+      "Bash(python3.exe -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('OK count=', d.get\\('count','?'\\)\\)\")",
+      "Bash(xxd)"
     ]
   },
   "hooks": {

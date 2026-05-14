@@ -102,6 +102,9 @@ class Settings(BaseSettings):
     qdrant_url: str = Field("")
     embedding_model: str = Field("bge-m3")
 
+    # aktenraum-api URL for writing type-specific fields (pass 2)
+    aktenraum_api_url: str = Field("http://aktenraum-api:8002")
+
     # Logging
     log_level: str = Field("INFO")
 

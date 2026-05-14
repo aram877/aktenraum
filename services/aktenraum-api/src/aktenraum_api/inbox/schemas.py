@@ -31,6 +31,7 @@ class InboxDetail(InboxItem):
     ai_model: str | None = None
     content_excerpt: str = ""
     tags: list[str] = Field(default_factory=list)
+    type_fields: dict[str, str] | None = None
 
 
 class InboxFieldUpdate(BaseModel):

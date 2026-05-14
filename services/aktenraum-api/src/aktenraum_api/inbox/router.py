@@ -4,9 +4,12 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from ..ai.deps import get_paperless_gateway
 from ..auth.deps import get_current_user
 from ..db.models import User
+from ..db.session import get_session
 from ..paperless_gw import (
     PaperlessAuthError,
     PaperlessGateway,
@@ -38,9 +41,10 @@ async def get_inbox_detail(
     doc_id: int,
     _user: User = Depends(get_current_user),
     gateway: PaperlessGateway = Depends(get_paperless_gateway),
+    session: AsyncSession = Depends(get_session),
 ) -> InboxDetail:
     try:
-        return await service.get_detail(gateway, doc_id)
+        return await service.get_detail(gateway, doc_id, session=session)
     except PaperlessNotFoundError as e:
         raise _not_found(doc_id) from e
     except PaperlessAuthError as e:

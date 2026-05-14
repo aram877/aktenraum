@@ -1,4 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
+import { TypeSpecificFieldsSection } from "../components/TypeSpecificFieldsSection";
 import { useEffect, useMemo, useState } from "react";
 
 import { Nav } from "../components/Nav";
@@ -278,6 +279,10 @@ export function InboxReview({ id }: { id: number }) {
                     <span className="text-neutral-500">Tags:</span>{" "}
                     {detail.data.tags.length ? detail.data.tags.join(", ") : "—"}
                   </div>
+                  <TypeSpecificFieldsSection
+                    docId={detail.data.id}
+                    documentType={detail.data.ai_document_type}
+                  />
                 </div>
               </div>
 

@@ -8,10 +8,13 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from ..ai.deps import get_paperless_gateway
 from ..auth.deps import get_current_user, get_settings
 from ..config import Settings
 from ..db.models import User
+from ..db.session import get_session
 from ..inbox import schemas as inbox_schemas
 from ..inbox import service as inbox_service
 from ..paperless_gw import (
@@ -190,6 +193,7 @@ async def get_document_detail(
     doc_id: int,
     _user: User = Depends(get_current_user),
     gateway: PaperlessGateway = Depends(get_paperless_gateway),
+    session: AsyncSession = Depends(get_session),
 ) -> inbox_schemas.InboxDetail:
     """Full review payload for any document (not just pending).
 
@@ -198,7 +202,7 @@ async def get_document_detail(
     stays in place for the existing review-queue UI.
     """
     try:
-        return await inbox_service.get_detail(gateway, doc_id)
+        return await inbox_service.get_detail(gateway, doc_id, session=session)
     except PaperlessNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

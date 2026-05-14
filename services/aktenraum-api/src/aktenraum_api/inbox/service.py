@@ -5,7 +5,10 @@ from typing import Any
 
 from aktenraum_core.paperless import LIFECYCLE_TAGS
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from ..paperless_gw import PaperlessGateway
+from ..type_fields import service as type_fields_service
 from .schemas import InboxDetail, InboxFieldUpdate, InboxItem, InboxList
 
 PENDING_TAG = "ai-pending"
@@ -46,15 +49,23 @@ async def list_pending(
     )
 
 
-async def get_detail(gateway: PaperlessGateway, doc_id: int) -> InboxDetail:
+async def get_detail(
+    gateway: PaperlessGateway,
+    doc_id: int,
+    session: AsyncSession | None = None,
+) -> InboxDetail:
     doc = await gateway.get_document(doc_id)
     field_id_to_name = await _custom_field_id_to_name(gateway)
     tag_id_to_name = {v: k for k, v in (await gateway.list_tags()).items()}
-    return _project_inbox_detail(
+    detail = _project_inbox_detail(
         doc,
         field_id_to_name=field_id_to_name,
         tag_id_to_name=tag_id_to_name,
     )
+    if session is not None:
+        row = await type_fields_service.get(session, doc_id)
+        detail.type_fields = dict(row.fields) if row and row.fields else None
+    return detail
 
 
 async def apply_field_update(

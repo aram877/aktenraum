@@ -1,5 +1,6 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import { TypeSpecificFieldsSection } from "../components/TypeSpecificFieldsSection";
 
 import { Nav } from "../components/Nav";
 import { ProcessingBadge } from "../components/ProcessingBadge";
@@ -267,8 +268,12 @@ export function LibraryReview({ id }: { id: number }) {
                     Bearbeitungen ändern nur die KI-Felder. Wenn auch die
                     nativen Paperless-Felder (Korrespondent, Dokumenttyp,
                     Datum) neu geschrieben werden sollen, klicke „Erneut
-                    verarbeiten“.
+                    verarbeiten".
                   </p>
+                  <TypeSpecificFieldsSection
+                    docId={detail.data.id}
+                    documentType={detail.data.ai_document_type}
+                  />
                 </div>
               </div>
 

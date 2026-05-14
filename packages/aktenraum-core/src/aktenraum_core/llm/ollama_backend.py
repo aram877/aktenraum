@@ -11,8 +11,8 @@ T = TypeVar("T", bound=BaseModel)
 
 
 class OllamaBackend:
-    def __init__(self, base_url: str, model: str = "llama3.1:8b") -> None:
-        self._client = ollama.AsyncClient(host=base_url)
+    def __init__(self, base_url: str, model: str = "llama3.1:8b", timeout: float = 120.0) -> None:
+        self._client = ollama.AsyncClient(host=base_url, timeout=timeout)
         self._model = model
 
     @property

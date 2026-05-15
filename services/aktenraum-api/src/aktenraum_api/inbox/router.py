@@ -3,7 +3,6 @@ from __future__ import annotations
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..ai.deps import get_paperless_gateway
@@ -39,7 +38,9 @@ async def list_inbox(
     if ordering not in _ORDERING_ALLOWLIST:
         ordering = "-modified"
     try:
-        return await service.list_pending(gateway, page=page, page_size=page_size, ordering=ordering)
+        return await service.list_pending(
+            gateway, page=page, page_size=page_size, ordering=ordering
+        )
     except PaperlessAuthError as e:
         raise _bad_gateway() from e
 

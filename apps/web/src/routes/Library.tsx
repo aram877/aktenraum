@@ -86,6 +86,7 @@ export function Library({ search }: { search: Search }) {
   useEffect(() => {
     const timer = setTimeout(() => {
       const next = formToSearch(form, 1, search.tags);
+      if (search.tab) next.tab = search.tab;
       const current = { ...search };
       delete current.page;
       if (JSON.stringify(next) !== JSON.stringify(current)) {
@@ -109,7 +110,7 @@ export function Library({ search }: { search: Search }) {
 
   const onResetFilters = () => {
     setForm(searchToForm({}));
-    void navigate({ to: "/library", search: {} });
+    void navigate({ to: "/library", search: search.tab ? { tab: search.tab } : {} });
   };
 
   const goToPage = (page: number) => {

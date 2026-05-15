@@ -4,7 +4,6 @@ from datetime import date
 from typing import Any
 
 from aktenraum_core.paperless import LIFECYCLE_TAGS
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..paperless_gw import PaperlessGateway

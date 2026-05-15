@@ -1,4 +1,5 @@
 import json
+from datetime import date
 from typing import Any
 
 import aiohttp
@@ -8,6 +9,54 @@ from aktenraum_core.models import TYPE_FIELD_SCHEMA, DocumentExtraction, Documen
 from aktenraum_core.paperless import PaperlessClient
 
 from .config import Settings
+
+_GERMAN_MONTHS = (
+    "",  # 1-indexed
+    "Januar",
+    "Februar",
+    "März",
+    "April",
+    "Mai",
+    "Juni",
+    "Juli",
+    "August",
+    "September",
+    "Oktober",
+    "November",
+    "Dezember",
+)
+
+
+def _format_issue_date_de(raw: str | None) -> str | None:
+    """Render an ISO date as a German "Monat Jahr" string for display titles.
+
+    Returns None when the input isn't parseable so callers can fall back to
+    the doc_type + correspondent shape without a stray "None" leaking in.
+    """
+    if not raw:
+        return None
+    try:
+        parsed = date.fromisoformat(raw[:10])
+    except ValueError:
+        return None
+    return f"{_GERMAN_MONTHS[parsed.month]} {parsed.year}"
+
+
+def _synthesize_ai_title(extraction: DocumentExtraction) -> str:
+    """Build a sensible Paperless-displayable title from the structured fields.
+
+    Used as a safety net when the LLM either returns null/empty for `ai_title`
+    or hallucinates something useless. The result is "<DocType> · <Correspondent>
+    · <Monat Jahr>" with the optional parts dropped when absent — guaranteed
+    non-empty because `document_type` is required on `DocumentExtraction`.
+    """
+    parts: list[str] = [extraction.document_type.value]
+    if extraction.correspondent:
+        parts.append(extraction.correspondent.strip())
+    date_part = _format_issue_date_de(extraction.key_dates.issue)
+    if date_part:
+        parts.append(date_part)
+    return " · ".join(parts)
 
 log = structlog.get_logger()
 
@@ -44,11 +93,33 @@ Weitere Regeln:
 - Datumsangaben immer im Format YYYY-MM-DD. OCR fragmentiert oft Ziffern mit Leerzeichen, z.B. "2 8. 0 2.24" oder "28. 0 2 . 2024" — interpretiere solche Muster trotzdem als Datum (28.02.2024). Bei zweistelligen Jahreszahlen ergänze sinnvoll: 24 → 2024, 87 → 1987 (laut Kontext).
 - key_dates.issue: das Datum, an dem dieses Dokument selbst ausgestellt/datiert wurde (z.B. Rechnungsdatum, Bescheiddatum, Vertragsabschluss, Ausstellungsdatum eines Ausweises — typischerweise neben "Datum:", "Ausgestellt am:", "vom"). NICHT verwenden für: Geburtsdaten, Beschäftigungs- oder Studienzeiträume, im Inhalt erwähnte Termine, Mietbeginn, Reisedaten o.Ä. Wenn das Dokument kein eigenes Ausstellungsdatum trägt (z.B. Lebenslauf, Notiz, Foto): null
 - correspondent: bei amtlichen Dokumenten die ausstellende Behörde/Authority (z.B. "STADT BIELEFELD", "Finanzamt Köln"); bei Rechnungen das Unternehmen, das die Rechnung schickt; bei Verträgen die Gegenpartei. Auch dieser Wert kann durch OCR-Fragmentierung verunreinigt sein — normalisiere Leerzeichen.
-- ai_title: ein prägnanter, sprechender Titel auf Deutsch (max. ~8 Wörter). Format: Dokumenttyp + Korrespondent + optional Monat/Jahr oder Stichwort. Beispiele: "Rechnung Stadtwerke März 2024", "Arbeitsvertrag Acme GmbH", "Steuerbescheid 2023 Finanzamt Köln". Lass das Feld null, wenn weder Typ noch Korrespondent ermittelbar sind.
+- ai_title: PFLICHTFELD. Gib IMMER einen prägnanten, sprechenden deutschen Titel zurück, sobald document_type erkennbar ist (~5–8 Wörter). Format: "{Dokumenttyp} {Korrespondent} {Monat/Jahr oder Stichwort}". Verwende den deutschen Monatsnamen, wenn ein Ausstellungsdatum existiert. Nur als allerletzten Ausweg null (z.B. unleserlicher Scan ohne erkennbaren Inhalt). Vorlagen pro Typ:
+  • Rechnung: "Rechnung {Firma} {Monat Jahr}" — z.B. "Rechnung Stadtwerke München März 2024"
+  • Gehaltsabrechnung: "Gehaltsabrechnung {Arbeitgeber} {Monat Jahr}" — z.B. "Gehaltsabrechnung Acme GmbH November 2024"
+  • Kontoauszug: "Kontoauszug {Bank} {Monat Jahr}" — z.B. "Kontoauszug Sparkasse Köln Februar 2024"
+  • Nebenkostenabrechnung: "Nebenkostenabrechnung {Vermieter/Hausverwaltung} {Jahr}" — z.B. "Nebenkostenabrechnung Mustermann Immobilien 2023"
+  • Mahnung: "Mahnung {Firma} {Rechnungsnr. oder Monat Jahr}" — z.B. "Mahnung Telekom Rechnung 12345"
+  • Vertrag: "{Vertragsart} {Gegenpartei}" — z.B. "Arbeitsvertrag Acme GmbH" oder "Mietvertrag Schiller-Str. 12"
+  • Kündigung: "Kündigung {Vertragsart} {Gegenpartei}" — z.B. "Kündigung Fitnessstudio McFit"
+  • Versicherung: "{Versicherungsart} {Versicherer} {Jahr}" — z.B. "Hausratversicherung Allianz 2024"
+  • Steuer: "{Dokumenttitel} {Jahr} {Finanzamt}" — z.B. "Steuerbescheid 2023 Finanzamt Köln" oder "Lohnsteuerbescheinigung 2024 Acme GmbH"
+  • Bescheid: "{Bescheidtitel} {Behörde} {Datum/Jahr}" — z.B. "Rentenbescheid Deutsche Rentenversicherung 2024"
+  • Behördenbrief: "{Behörde} – {Stichwort} {Datum}" — z.B. "Bürgeramt München – Meldebescheinigung 2024"
+  • Sozialversicherungsmeldung: "SV-Meldung {Arbeitgeber} {Jahr}" — z.B. "SV-Meldung Acme GmbH 2024"
+  • Kfz: "{Dokumenttitel} {Kennzeichen oder Marke}" — z.B. "Zulassungsbescheinigung K-AB-123" oder "TÜV-Bericht VW Golf"
+  • Arztbrief: "Arztbrief {Facharzt/Praxis} {Datum}" — z.B. "Arztbrief Dr. Müller März 2024"
+  • Garantie: "Garantie {Produkt} {Marke}" — z.B. "Garantie Waschmaschine Bosch"
+  • Urkunde: "{Urkundenart} {Name oder Datum}" — z.B. "Geburtsurkunde Max Mustermann"
+  • Ausweis: "{Ausweisart} {Inhabername}" — z.B. "Personalausweis Max Mustermann"
+  • Zeugnis: "{Zeugnisart} {Institution} {Jahr}" — z.B. "Abiturzeugnis Goethe-Gymnasium 2020"
+  • Arbeitszeugnis: "Arbeitszeugnis {Arbeitgeber} {Zeitraum}" — z.B. "Arbeitszeugnis Acme GmbH 2020–2024"
+  • Mitgliedschaft: "{Organisation} Mitgliedschaft {Jahr}" — z.B. "ADAC Mitgliedschaft 2024"
+  • Sonstiges: kurze inhaltliche Beschreibung — z.B. "Lebenslauf Max Mustermann" oder "Foto Reisepass"
 - Geldbeträge gehören NICHT in das generische Schema. Werte zu Beträgen, Gebühren, Bruttosummen, Nettosummen, Rückerstattungen, Forderungen, Prämien, Beiträgen etc. werden im typspezifischen Schritt (Pass 2) erfasst, falls der Dokumenttyp passende Felder vorsieht (z.B. Rechnung → gesamtbetrag, Mahnung → forderungsbetrag, Steuer → erstattung). Im hier vorliegenden Schritt KEINEN Geldbetrag ausgeben.
 - summary_de muss genau 3 Sätze auf Deutsch enthalten
 - confidence gibt an, wie sicher du dir bei der Extraktion bist (0.0 = unsicher, 1.0 = sehr sicher)
-- Bei nicht-ermittelbaren Skalar-Feldern (correspondent, ai_title, key_dates.*): null
+- ai_title NIE leer lassen, wenn document_type erkennbar ist — synthetisiere notfalls aus document_type + correspondent + Datum.
+- Bei nicht-ermittelbaren Skalar-Feldern (correspondent, key_dates.*): null
 - Bei nicht-ermittelbaren Listen-Feldern (reference_numbers, suggested_tags): leere Liste []
 """
 
@@ -317,6 +388,15 @@ async def process_document(
         document_type=extraction.document_type.value,
         confidence=extraction.confidence,
     )
+
+    # ai_title fallback: small local LLMs (gemma4 8B) routinely drop optional
+    # string fields. Synthesize a deterministic title from document_type +
+    # correspondent + issue date so Paperless's `title` is always meaningful
+    # after propagation. The LLM's value wins when present and non-empty.
+    if not (extraction.ai_title or "").strip():
+        synthesized = _synthesize_ai_title(extraction)
+        extraction = extraction.model_copy(update={"ai_title": synthesized})
+        logger.info("ai_title_synthesized", title=synthesized)
 
     try:
         await paperless.patch_document_ai_fields(doc_id, extraction, backend.name, backend.model)

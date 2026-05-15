@@ -41,6 +41,7 @@ class DocumentType(StrEnum):
     Steuer = "Steuer"
     Bescheid = "Bescheid"
     Behoerdenbrief = "Behördenbrief"
+    Sozialversicherungsmeldung = "Sozialversicherungsmeldung"
     Kfz = "Kfz"
     Arztbrief = "Arztbrief"
     Garantie = "Garantie"

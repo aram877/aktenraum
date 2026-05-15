@@ -68,6 +68,18 @@ TYPE_FIELD_SCHEMA: dict[DocumentType, list[FieldDef]] = {
         FieldDef("aktenzeichen", "Aktenzeichen", "string"),
         FieldDef("behoerde", "Behörde", "string"),
     ],
+    DocumentType.Sozialversicherungsmeldung: [
+        FieldDef("beitragszeitraum_von", "Beitragszeitraum von", "date"),
+        FieldDef("beitragszeitraum_bis", "Beitragszeitraum bis", "date"),
+        FieldDef("brutto_entgelt", "Brutto-Arbeitsentgelt", "money"),
+        FieldDef(
+            "beitragspflichtiges_entgelt", "Beitragspflichtiges Entgelt", "money"
+        ),
+        FieldDef(
+            "sozialversicherungsnummer", "Sozialversicherungsnummer (RV-Nr.)", "string"
+        ),
+        FieldDef("betriebsnummer", "Betriebsnummer des Arbeitgebers", "string"),
+    ],
     DocumentType.Kfz: [
         FieldDef("kennzeichen", "Kennzeichen", "string"),
         FieldDef("vin", "Fahrgestellnummer (VIN)", "string"),

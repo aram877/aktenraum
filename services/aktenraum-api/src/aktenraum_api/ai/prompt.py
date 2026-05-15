@@ -3,7 +3,7 @@
 The prompt is a system message + a user message. The system message inlines:
 
   1. Role + JSON-only output rule.
-  2. The 20-value DocumentType taxonomy with one-line German definitions.
+  2. The DocumentType taxonomy with one-line German definitions.
   3. The live correspondent list (capped at 200 names).
   4. Date-parsing rules with explicit examples.
   5. Amount-parsing rules.
@@ -32,7 +32,8 @@ _DOC_TYPE_HINTS: dict[str, str] = {
     "Versicherung": "Versicherungspolicen, -bescheinigungen",
     "Steuer": "Steuerbescheid, Steuererklärung, Steuerformular",
     "Bescheid": "Behördenbescheide nicht-steuerlicher Art",
-    "Behördenbrief": "Sonstige Behördenkorrespondenz",
+    "Behördenbrief": "Sonstige Behördenkorrespondenz (inkl. Einwohnermeldebescheinigung)",
+    "Sozialversicherungsmeldung": "Meldebescheinigung zur Sozialversicherung / SV-Jahresmeldung",
     "Kfz": "Fahrzeugschein, Zulassung, TÜV-Bericht",
     "Arztbrief": "Arztberichte, Befunde, Rezepte",
     "Garantie": "Garantieurkunden, Gewährleistungen",

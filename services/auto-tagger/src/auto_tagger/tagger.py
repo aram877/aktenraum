@@ -28,7 +28,8 @@ Wähle den document_type anhand dieser Definitionen — nimm immer den spezifisc
 - Versicherung: Versicherungspolicen, Versicherungsnachweise, Deckungsbestätigungen, Schadensregulierung
 - Steuer: Steuererklärungen, Steuerformulare (Anlage N, V, KAP etc.), Steuer-Bescheinigungen, Lohnsteuerbescheinigung
 - Bescheid: Amtliche Bescheide mit Rechtswirkung — Steuerbescheid, Rentenbescheid, BAföG-Bescheid, Bewilligungs- oder Ablehnungsbescheid
-- Behördenbrief: Amtliche Schreiben ohne Bescheidcharakter — Informationsschreiben, Antragsbestätigungen, Meldebescheinigung
+- Behördenbrief: Amtliche Schreiben ohne Bescheidcharakter — Informationsschreiben, Antragsbestätigungen, Einwohnermeldebescheinigung (Bestätigung des Wohnsitzes vom Bürgeramt). NICHT: Meldebescheinigung zur Sozialversicherung (siehe Sozialversicherungsmeldung).
+- Sozialversicherungsmeldung: Meldebescheinigung zur Sozialversicherung / Jahresmeldung zur Sozialversicherung / SV-Meldung / Meldung nach DEÜV — vom Arbeitgeber jährlich (oder bei Beschäftigungsende) ausgestellt. Typisch: Beitragszeitraum, Brutto-Arbeitsentgelt, beitragspflichtiges Entgelt, Sozialversicherungsnummer (RV-Nr.), Betriebsnummer. NICHT verwechseln mit: Gehaltsabrechnung (monatlich), Lohnsteuerbescheinigung (→ Steuer), oder Einwohnermeldebescheinigung (→ Behördenbrief).
 - Kfz: Fahrzeugschein, Fahrzeugbrief, Zulassungsbescheinigung, TÜV-/HU-Bericht, Kfz-Steuer
 - Arztbrief: Arztberichte, Befundbriefe, Laborbefunde, Überweisungen, Rezepte, Krankenhausentlassungsberichte, Impfnachweise
 - Garantie: Garantieurkunden, Gewährleistungsnachweise, Garantiezertifikate für Geräte oder Produkte

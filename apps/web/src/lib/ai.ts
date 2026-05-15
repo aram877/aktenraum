@@ -15,6 +15,7 @@ export type DocumentType =
   | "Steuer"
   | "Bescheid"
   | "Behördenbrief"
+  | "Sozialversicherungsmeldung"
   | "Kfz"
   | "Arztbrief"
   | "Garantie"

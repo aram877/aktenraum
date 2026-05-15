@@ -56,12 +56,16 @@ export function useReprocess() {
   const qc = useQueryClient();
   return useMutation<ReprocessResponse, AxiosError<{ detail?: string }>, number>({
     mutationFn: reprocessDocument,
-    onSuccess: () => {
-      // Reprocess pulls the doc out of /library and into /inbox; invalidate
-      // both so the next visit shows the new state.
+    onSuccess: (_data, docId) => {
+      // Reprocess clears the doc's lifecycle tags so the auto-tagger picks
+      // it back up. Invalidate the lists + in-flight badge so the SPA sees
+      // the new state on next visit, and refetch this doc's detail so the
+      // ProcessingBadge on the page the user is sitting on updates from
+      // "Verarbeitet" → "Wartet auf KI" without a hard reload.
       qc.invalidateQueries({ queryKey: ["library"] });
       qc.invalidateQueries({ queryKey: ["inbox"] });
       qc.invalidateQueries({ queryKey: ["in-flight"] });
+      qc.invalidateQueries({ queryKey: ["document-detail", docId] });
     },
   });
 }

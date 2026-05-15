@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { TypeSpecificFieldsSection } from "../components/TypeSpecificFieldsSection";
 
 import { Nav } from "../components/Nav";
@@ -73,26 +73,60 @@ export function LibraryReview({ id }: { id: number }) {
   const deleteDoc = useDeleteDocument();
 
   const [form, setForm] = useState<FormState>(detailToForm(undefined));
-  const [initialised, setInitialised] = useState<number | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [reprocessedAt, setReprocessedAt] = useState<Date | null>(null);
+  // Tracks the last server snapshot we hydrated from. Compared per-field on
+  // every detail refetch: if a field still equals what we last hydrated, the
+  // user hasn't touched it and we replace it with the new server value. This
+  // makes Reprocess work — after the LLM re-runs and the detail refetches
+  // with a fresh ai_title, the form actually shows it.
+  const lastHydratedRef = useRef<FormState | null>(null);
+  const lastHydratedIdRef = useRef<number | null>(null);
 
-  // Hydrate the form once the detail resolves; reset when the doc id changes.
   useEffect(() => {
-    if (detail.data && initialised !== detail.data.id) {
-      setForm(detailToForm(detail.data));
-      setInitialised(detail.data.id);
+    if (!detail.data) return;
+    const next = detailToForm(detail.data);
+
+    if (lastHydratedIdRef.current !== detail.data.id) {
+      // Different doc — full replace.
+      setForm(next);
+      lastHydratedRef.current = next;
+      lastHydratedIdRef.current = detail.data.id;
       // The reprocessed-at banner is per-document — don't leak it when the
       // user navigates between detail pages.
       setReprocessedAt(null);
+      return;
     }
-  }, [detail.data, initialised]);
+
+    // Same doc, possibly refetched. Replace only the fields the user hasn't
+    // touched (form[k] === lastHydrated[k]).
+    const prev = lastHydratedRef.current;
+    if (!prev) {
+      setForm(next);
+      lastHydratedRef.current = next;
+      return;
+    }
+    setForm((current) => {
+      const merged: FormState = { ...current };
+      let changed = false;
+      (Object.keys(next) as (keyof FormState)[]).forEach((k) => {
+        if (current[k] === prev[k] && current[k] !== next[k]) {
+          merged[k] = next[k];
+          changed = true;
+        }
+      });
+      return changed ? merged : current;
+    });
+    lastHydratedRef.current = next;
+  }, [detail.data]);
 
   // Re-hydrate after a successful save so the user sees the normalised values
   // (e.g. "01.12.2024" → "2024-12-01", any string-trunc on non-longtext fields).
   useEffect(() => {
     if (patch.isSuccess && patch.data) {
-      setForm(detailToForm(patch.data));
+      const next = detailToForm(patch.data);
+      setForm(next);
+      lastHydratedRef.current = next;
     }
   }, [patch.isSuccess, patch.data]);
 

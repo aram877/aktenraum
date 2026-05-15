@@ -70,6 +70,18 @@ class InFlightCount(BaseModel):
     count: int
 
 
+class ProcessingState(BaseModel):
+    """Live snapshot of doc ids the auto-tagger is currently handling.
+
+    `processing` is the deduped union the SPA actually polls. `slots`
+    breaks it down per pipeline stage (extraction / propagation /
+    indexer) for ops and the upload page's verbose status line.
+    """
+
+    processing: list[int]
+    slots: dict[str, int | None]
+
+
 class UploadResult(BaseModel):
     filename: str
     status: str  # "accepted" | "error"
@@ -244,6 +256,54 @@ async def patch_document_fields(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Paperless rejected the API token",
         ) from e
+
+
+@router.get("/processing", response_model=ProcessingState)
+async def get_processing_state(
+    _user: User = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
+) -> ProcessingState:
+    """Which doc(s) is the auto-tagger working on right now?
+
+    The Nav-badge `/in-flight` count is a lagging signal — it includes
+    every ai-pending / ai-approved doc, not just the one being processed
+    this second. This endpoint hits the auto-tagger's internal HTTP
+    listener (port 8001 inside the network) for its in-memory
+    ProcessingState. The SPA polls it so the per-row "Wartet auf KI"
+    badge can flip to a spinner on the specific doc the worker is on.
+
+    Best-effort: when the auto-tagger isn't reachable (down, restarted,
+    not configured), return empty slots rather than raising — the
+    badges fall back to their pre-feature behavior.
+    """
+    empty = ProcessingState(
+        processing=[],
+        slots={"extraction": None, "propagation": None, "indexer": None},
+    )
+    if not settings.auto_tagger_url:
+        return empty
+    url = f"{settings.auto_tagger_url.rstrip('/')}/processing"
+    headers: dict[str, str] = {}
+    if settings.webhook_secret:
+        headers["X-Aktenraum-Secret"] = settings.webhook_secret
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            resp = await client.get(url, headers=headers)
+        if resp.status_code != 200:
+            log.warning(
+                "auto_tagger_processing_unexpected_status",
+                status=resp.status_code,
+            )
+            return empty
+        body = resp.json()
+    except Exception as exc:
+        log.info("auto_tagger_processing_unreachable", error=str(exc))
+        return empty
+    return ProcessingState(
+        processing=[int(i) for i in body.get("processing") or []],
+        slots=body.get("slots")
+        or {"extraction": None, "propagation": None, "indexer": None},
+    )
 
 
 @router.get("/in-flight", response_model=InFlightCount)

@@ -1,4 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { TypeSpecificFieldsSection } from "../components/TypeSpecificFieldsSection";
 
@@ -65,6 +66,7 @@ function detailToForm(d: DocumentDetail | undefined): FormState {
 
 export function LibraryReview({ id }: { id: number }) {
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const detail = useDocumentDetail(id);
   const patch = useDocumentFieldsPatch(id);
   const reprocess = useReprocess();
@@ -73,12 +75,16 @@ export function LibraryReview({ id }: { id: number }) {
   const [form, setForm] = useState<FormState>(detailToForm(undefined));
   const [initialised, setInitialised] = useState<number | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [reprocessedAt, setReprocessedAt] = useState<Date | null>(null);
 
   // Hydrate the form once the detail resolves; reset when the doc id changes.
   useEffect(() => {
     if (detail.data && initialised !== detail.data.id) {
       setForm(detailToForm(detail.data));
       setInitialised(detail.data.id);
+      // The reprocessed-at banner is per-document — don't leak it when the
+      // user navigates between detail pages.
+      setReprocessedAt(null);
     }
   }, [detail.data, initialised]);
 
@@ -89,6 +95,26 @@ export function LibraryReview({ id }: { id: number }) {
       setForm(detailToForm(patch.data));
     }
   }, [patch.isSuccess, patch.data]);
+
+  // Live status updates after a Reprocess. The auto-tagger usually finishes
+  // re-classifying within 10–30 seconds (gemma4 8B) but the LLM call has no
+  // upper bound. Poll the detail cache every 5 s for two minutes after the
+  // user clicks Reprocess so the ProcessingBadge cycles
+  // "Wartet auf KI" → "Bereit zum Prüfen" / "Auto-genehmigt" without a
+  // manual refresh. The interval clears itself out after the window expires
+  // or when the user navigates away.
+  useEffect(() => {
+    if (!reprocessedAt) return;
+    const stopAt = reprocessedAt.getTime() + 120_000;
+    const tick = setInterval(() => {
+      if (Date.now() > stopAt) {
+        clearInterval(tick);
+        return;
+      }
+      void qc.invalidateQueries({ queryKey: ["document-detail", id] });
+    }, 5_000);
+    return () => clearInterval(tick);
+  }, [reprocessedAt, qc, id]);
 
   const dirtyPatch = useMemo<DocumentFieldUpdate>(() => {
     if (!detail.data) return {};
@@ -126,8 +152,11 @@ export function LibraryReview({ id }: { id: number }) {
   const onReprocess = async () => {
     try {
       await reprocess.mutateAsync(id);
-      // Reprocess pulls the doc out of /library and into /inbox; navigate back.
-      void navigate({ to: "/library" });
+      // Stay on the detail page so the user can watch the badge cycle from
+      // "Wartet auf KI" → "Bereit zum Prüfen" / "Auto-genehmigt". The
+      // mutation already invalidates the document-detail cache so the
+      // ProcessingBadge in this view refreshes by itself.
+      setReprocessedAt(new Date());
     } catch {
       // surfaced via reprocess.error below
     }
@@ -284,6 +313,19 @@ export function LibraryReview({ id }: { id: number }) {
               {patch.isSuccess && !isDirty && (
                 <p className="border-t border-emerald-200 bg-emerald-50 px-4 py-2 text-xs text-emerald-800">
                   ✓ Gespeichert
+                </p>
+              )}
+              {reprocessedAt && (
+                <p className="border-t border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900">
+                  ✓ KI-Analyse neu gestartet am{" "}
+                  {reprocessedAt.toLocaleString("de-DE", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    year: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}{" "}
+                  Uhr · Status oben aktualisiert sich automatisch.
                 </p>
               )}
 

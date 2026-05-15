@@ -70,6 +70,46 @@ export function useReprocess() {
   });
 }
 
+export type BulkReprocessResult = {
+  succeeded: number[];
+  failed: { id: number; message: string }[];
+};
+
+export function useBulkReprocess() {
+  const qc = useQueryClient();
+  return useMutation<BulkReprocessResult, AxiosError, number[]>({
+    // Same shape as useBulkApprove (inbox.ts): fire the per-id endpoint
+    // in parallel, collect per-doc verdicts, leave query invalidation to
+    // onSettled so the lists snap to the new state once all the responses
+    // are in. /reprocess is fire-and-forget (clear lifecycle tags + ping
+    // the auto-tagger webhook), so parallel calls have no contention.
+    mutationFn: async (ids) => {
+      const tasks = ids.map(async (id) => {
+        try {
+          await reprocessDocument(id);
+          return { id, ok: true as const };
+        } catch (err) {
+          const message = (err as AxiosError | Error)?.message ?? "Fehler";
+          return { id, ok: false as const, message };
+        }
+      });
+      const results = await Promise.all(tasks);
+      const succeeded: number[] = [];
+      const failed: { id: number; message: string }[] = [];
+      for (const r of results) {
+        if (r.ok) succeeded.push(r.id);
+        else failed.push({ id: r.id, message: r.message });
+      }
+      return { succeeded, failed };
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["library"] });
+      qc.invalidateQueries({ queryKey: ["inbox"] });
+      qc.invalidateQueries({ queryKey: ["in-flight"] });
+    },
+  });
+}
+
 async function deleteDocumentRequest(docId: number): Promise<void> {
   await api.delete(`/documents/${docId}`);
 }

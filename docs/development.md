@@ -15,7 +15,7 @@ change. For why the stack looks the way it does see
 - For host-side Python work: nothing — `uv` is invoked through the workspace.
 - For host-side SPA work: Node 20+ and `pnpm` (`corepack enable && corepack prepare pnpm@latest --activate`).
 - For backups: `restic` only if you run the host-side `scripts/backup.sh`. The Dockerised `backup` service ships its own restic.
-- For Ollama (default LLM backend): install Ollama on the host and `ollama pull gemma4:latest`. The auto-tagger reaches it via `http://host.docker.internal:11434`.
+- For Ollama (default LLM backend): install Ollama on the host and `ollama pull qwen2.5:32b-instruct-q8_0` (recommended; ~32 GB) or `qwen2.5:14b-instruct-q8_0` (~16 GB) if you're tight on memory. The auto-tagger reaches it via `http://host.docker.internal:11434`.
 
 You do NOT need a Python or Node toolchain installed to run the stack —
 both services build inside Docker. The host installs are only for editing
@@ -266,8 +266,8 @@ done
 Edit `docker/auto-tagger.env` AND `docker/aktenraum-api.env`:
 
 ```bash
-LLM_BACKEND=ollama        # or anthropic
-OLLAMA_MODEL=gemma4:latest
+LLM_BACKEND=ollama                            # or anthropic
+OLLAMA_MODEL=qwen2.5:32b-instruct-q8_0        # recommended local model (see configuration.md)
 # or
 ANTHROPIC_API_KEY=sk-ant-...
 ANTHROPIC_MODEL=claude-sonnet-4-6

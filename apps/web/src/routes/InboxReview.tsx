@@ -1,4 +1,4 @@
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { TypeSpecificFieldsSection } from "../components/TypeSpecificFieldsSection";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -213,9 +213,13 @@ export function InboxReview({ id }: { id: number }) {
       <Nav active="inbox" />
       <main className="flex-1 px-6 py-4">
         <div className="mb-3 flex items-center justify-between">
-          <Link to="/inbox" className="text-sm text-neutral-600 hover:text-neutral-900">
+          <button
+            type="button"
+            onClick={() => window.history.back()}
+            className="text-sm text-neutral-600 hover:text-neutral-900"
+          >
             ← Zur Prüfung
-          </Link>
+          </button>
           <span className="text-xs text-neutral-500">
             Tasten: <kbd className="rounded bg-neutral-200 px-1">A</kbd> Genehmigen ·{" "}
             <kbd className="rounded bg-neutral-200 px-1">R</kbd> Ablehnen ·{" "}

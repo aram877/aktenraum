@@ -1,4 +1,4 @@
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { TypeSpecificFieldsSection } from "../components/TypeSpecificFieldsSection";
@@ -219,12 +219,13 @@ export function LibraryReview({ id }: { id: number }) {
       <Nav active="library" />
       <main className="flex-1 px-6 py-4">
         <div className="mb-3 flex items-center justify-between">
-          <Link
-            to="/library"
+          <button
+            type="button"
+            onClick={() => window.history.back()}
             className="text-sm text-neutral-600 hover:text-neutral-900"
           >
             ← Zurück zur Bibliothek
-          </Link>
+          </button>
           {isDirty && (
             <span className="text-xs text-amber-700">
               Ungespeicherte Änderungen

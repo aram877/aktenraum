@@ -79,15 +79,18 @@ services:
   qdrant:
     # Vector store for the RAG indexing + retrieval pipeline (RAG Phase 1).
     # REST API on 6333 (used by the Python client we wired in 1.3); gRPC on
-    # 6334 left exposed inside the network in case a future feature wants the
-    # streaming API. Neither port is published to the host: the desktop shell
-    # never needs to talk to qdrant directly, only via aktenraum-api.
+    # 6334 stays internal in case a future feature wants the streaming API.
+    # 6333 is bound to 127.0.0.1 ONLY so the built-in dashboard at
+    # /dashboard is reachable from the dev machine without exposing the
+    # vector store to the LAN. Override AKTENRAUM_QDRANT_PORT in docker/.env
+    # if 6333 is already in use locally.
     image: qdrant/qdrant:v1.17.1
     restart: unless-stopped
     volumes:
       - ~/aktenraum/qdrant:/qdrant/storage
+    ports:
+      - "127.0.0.1:${AKTENRAUM_QDRANT_PORT:-6333}:6333"
     expose:
-      - "6333"
       - "6334"
     healthcheck:
       # The qdrant image is debian-slim with bash but no wget/curl. We invoke

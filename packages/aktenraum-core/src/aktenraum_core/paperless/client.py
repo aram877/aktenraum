@@ -84,9 +84,19 @@ class PaperlessClient:
     ) -> None:
         field_map = await self._get_custom_field_ids()
 
+        # Track field names the LLM produced a value for but Paperless
+        # doesn't know about. The previous behaviour was a silent skip
+        # (fv returned None) — a single "you forgot to bootstrap a new
+        # custom field" mistake then looked like an LLM bug. Loud log
+        # makes the cause obvious next time.
+        missing_with_value: list[str] = []
+
         def fv(name: str, value: Any) -> dict | None:
             fid = field_map.get(name)
-            if fid is None or value is None:
+            if value is None:
+                return None
+            if fid is None:
+                missing_with_value.append(name)
                 return None
             return {"field": fid, "value": value}
 
@@ -132,6 +142,17 @@ class PaperlessClient:
             fv("ai_backend", truncate_for_field("ai_backend", backend_name)),
             fv("ai_model", truncate_for_field("ai_model", model_name)),
         ]
+
+        if missing_with_value:
+            # Loud, single-line warning. The cure is one command:
+            # `task paperless:bootstrap` (or `bash scripts/bootstrap-paperless.sh`)
+            # — the script is idempotent and adds any missing custom fields.
+            log.warning(
+                "paperless_unknown_custom_fields_skipped",
+                doc_id=doc_id,
+                missing=sorted(missing_with_value),
+                fix="run scripts/bootstrap-paperless.sh to create the missing fields",
+            )
 
         resp = await self._client.patch(
             f"/api/documents/{doc_id}/",

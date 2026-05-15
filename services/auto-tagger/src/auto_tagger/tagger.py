@@ -368,8 +368,11 @@ async def _run_type_specific_pass(
             logger.info("type_specific_pass_empty", doc_type=doc_type.value)
             return
         url = f"{settings.aktenraum_api_url}/api/documents/{doc_id}/type-fields"
+        headers = {}
+        if settings.webhook_secret:
+            headers["X-Aktenraum-Secret"] = settings.webhook_secret
         async with aiohttp.ClientSession() as session:
-            async with session.patch(url, json={"fields": fields}, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+            async with session.patch(url, json={"fields": fields}, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as resp:
                 if resp.status >= 400:
                     body = await resp.text()
                     logger.warning(

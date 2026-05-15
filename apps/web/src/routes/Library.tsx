@@ -1,14 +1,17 @@
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Nav } from "../components/Nav";
 import { ProcessingBadge } from "../components/ProcessingBadge";
 import type { LibraryItem, LibraryQuery, TagFacet } from "../lib/library";
 import { DOC_TYPES, useLibrary, useTagFacet } from "../lib/library";
+import type { InboxItem } from "../lib/inbox";
+import { useInboxList } from "../lib/inbox";
 
 const DEFAULT_PAGE_SIZE = 25;
 
 type Search = {
+  tab?: "review" | "archive";
   document_type?: string;
   correspondent?: string;
   date_from?: string;
@@ -136,9 +139,40 @@ export function Library({ search }: { search: Search }) {
   const currentPage = search.page ?? 1;
   const errorDetail = list.error?.response?.data?.detail ?? list.error?.message;
 
+  const tab = search.tab ?? "archive";
+
+  const tabCls = (t: "review" | "archive") =>
+    `px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+      tab === t
+        ? "border-neutral-900 text-neutral-900"
+        : "border-transparent text-neutral-500 hover:text-neutral-700"
+    }`;
+
   return (
     <div className="flex min-h-full flex-col">
       <Nav active="library" />
+
+      {/* Tabs */}
+      <div className="border-b border-neutral-200 bg-white px-6">
+        <nav className="flex gap-2">
+          <button
+            onClick={() => navigate({ to: "/library", search: { tab: "review" } })}
+            className={tabCls("review")}
+          >
+            Zur Prüfung
+          </button>
+          <button
+            onClick={() => navigate({ to: "/library", search: (prev) => ({ ...prev, tab: "archive" }) })}
+            className={tabCls("archive")}
+          >
+            Archiv
+          </button>
+        </nav>
+      </div>
+
+      {tab === "review" ? (
+        <ZurPruefungTab />
+      ) : (
       <main className="mx-auto flex w-full max-w-7xl flex-1 gap-6 px-6 py-6">
         <aside className="w-64 shrink-0">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
@@ -340,6 +374,7 @@ export function Library({ search }: { search: Search }) {
           )}
         </section>
       </main>
+      )}
     </div>
   );
 }
@@ -476,5 +511,81 @@ function Field({
       {label}
       {children}
     </label>
+  );
+}
+
+function ZurPruefungTab() {
+  const navigate = useNavigate();
+  const list = useInboxList({ pageSize: 50, ordering: "-modified" });
+
+  return (
+    <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-6">
+      <div className="flex items-baseline justify-between">
+        <div>
+          <h1 className="text-lg font-semibold tracking-tight">Zur Prüfung</h1>
+          <p className="mt-0.5 text-sm text-neutral-500">
+            Dokumente warten auf Ihre Prüfung. Zuletzt geänderte zuerst.
+          </p>
+        </div>
+        <span className="text-sm text-neutral-500">
+          {list.data ? `${list.data.total} offen` : "…"}
+        </span>
+      </div>
+
+      {list.isError && (
+        <p className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          Konnte die Liste nicht laden.
+        </p>
+      )}
+
+      {list.data && list.data.results.length === 0 && (
+        <div className="mt-8 rounded-md border border-dashed border-neutral-300 bg-white p-8 text-center text-sm text-neutral-600">
+          Keine offenen Dokumente.{" "}
+          <Link to="/ask" className="font-medium text-neutral-900 underline">
+            Suche stattdessen.
+          </Link>
+        </div>
+      )}
+
+      {list.data && list.data.results.length > 0 && (
+        <table className="mt-4 w-full text-left text-sm">
+          <thead className="text-xs uppercase tracking-wide text-neutral-500">
+            <tr>
+              <th className="px-2 py-2">Titel</th>
+              <th className="px-2 py-2">Typ</th>
+              <th className="px-2 py-2">Korrespondent</th>
+              <th className="px-2 py-2">Datum</th>
+              <th className="px-2 py-2">Betrag</th>
+              <th className="px-2 py-2 text-right">Konfidenz</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-neutral-200">
+            {list.data.results.map((row) => (
+              <ReviewRow
+                key={row.id}
+                row={row}
+                onClick={() => navigate({ to: "/inbox/$id", params: { id: String(row.id) } })}
+              />
+            ))}
+          </tbody>
+        </table>
+      )}
+    </main>
+  );
+}
+
+function ReviewRow({ row, onClick }: { row: InboxItem; onClick: () => void }) {
+  const flagCls = row.low_confidence ? "border-l-4 border-amber-400" : "";
+  return (
+    <tr onClick={onClick} className={`cursor-pointer hover:bg-neutral-50 ${flagCls}`}>
+      <td className="px-2 py-2 font-medium text-neutral-900">{row.title}</td>
+      <td className="px-2 py-2 text-neutral-700">{row.ai_document_type ?? "—"}</td>
+      <td className="px-2 py-2 text-neutral-700">{row.ai_correspondent ?? "—"}</td>
+      <td className="px-2 py-2 text-neutral-700">{row.ai_issue_date ?? row.created ?? "—"}</td>
+      <td className="px-2 py-2 text-neutral-700">{row.ai_monetary_amount ?? "—"}</td>
+      <td className="px-2 py-2 text-right text-neutral-700">
+        {row.ai_confidence != null ? `${Math.round(row.ai_confidence * 100)}%` : "—"}
+      </td>
+    </tr>
   );
 }

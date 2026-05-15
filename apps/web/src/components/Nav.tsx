@@ -52,22 +52,23 @@ export function Nav({
           <Link to="/find" className={linkCls("find")}>
             Dokumente finden
           </Link>
-          <Link to="/library" className={linkCls("library")}>
-            Bibliothek
-          </Link>
-          <Link to="/upload" className={linkCls("upload")}>
-            + Hochladen
-          </Link>
-          <Link to="/inbox" className={`${linkCls("inbox")} flex items-center gap-1.5`}>
-            <span>Inbox</span>
+          <Link
+            to="/library"
+            search={{ tab: "archive" }}
+            className={`${linkCls("library")} flex items-center gap-1.5`}
+          >
+            <span>Bibliothek</span>
             {inboxCount !== null && inboxCount > 0 && (
               <span
-                title="Pending zur Prüfung"
+                title="Dokumente zur Prüfung"
                 className="inline-flex min-w-[1.25rem] justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-semibold text-white"
               >
                 {inboxCount}
               </span>
             )}
+          </Link>
+          <Link to="/upload" className={linkCls("upload")}>
+            + Hochladen
           </Link>
         </nav>
       </div>

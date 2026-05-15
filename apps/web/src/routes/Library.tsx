@@ -5,6 +5,7 @@ import { Nav } from "../components/Nav";
 import { ProcessingBadge } from "../components/ProcessingBadge";
 import type { LibraryItem, LibraryQuery, TagFacet } from "../lib/library";
 import { DOC_TYPES, useLibrary, useTagFacet } from "../lib/library";
+import { useBulkReprocess } from "../lib/documents";
 import type { InboxItem } from "../lib/inbox";
 import { useBulkApprove, useInboxList } from "../lib/inbox";
 
@@ -131,6 +132,63 @@ export function Library({ search }: { search: Search }) {
   const errorDetail = list.error?.response?.data?.detail ?? list.error?.message;
 
   const tab = search.tab ?? "archive";
+
+  // ----- Bulk reprocess (archive tab only) -----
+  const bulkReprocess = useBulkReprocess();
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [bulkResult, setBulkResult] = useState<{
+    succeeded: number;
+    failed: number;
+  } | null>(null);
+
+  const visibleIds = useMemo(
+    () => list.data?.results.map((r) => r.id) ?? [],
+    [list.data],
+  );
+
+  // Drop selections for rows no longer in the list (pagination, refetch).
+  const effectiveSelected = useMemo(() => {
+    if (!visibleIds.length) return selected;
+    const visible = new Set(visibleIds);
+    let pruned = false;
+    const next = new Set<number>();
+    selected.forEach((id) => {
+      if (visible.has(id)) next.add(id);
+      else pruned = true;
+    });
+    return pruned ? next : selected;
+  }, [selected, visibleIds]);
+
+  const selectedCount = effectiveSelected.size;
+  const allSelected =
+    visibleIds.length > 0 && visibleIds.every((id) => effectiveSelected.has(id));
+
+  const toggleOne = (id: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    if (allSelected) setSelected(new Set());
+    else setSelected(new Set(visibleIds));
+  };
+
+  const onBulkReprocess = async () => {
+    const ids = Array.from(effectiveSelected);
+    if (ids.length === 0) return;
+    setBulkResult(null);
+    const res = await bulkReprocess.mutateAsync(ids);
+    setBulkResult({ succeeded: res.succeeded.length, failed: res.failed.length });
+    setSelected((prev) => {
+      const next = new Set(prev);
+      res.succeeded.forEach((id) => next.delete(id));
+      return next;
+    });
+  };
 
   const tabCls = (t: "review" | "archive") =>
     `px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
@@ -284,33 +342,93 @@ export function Library({ search }: { search: Search }) {
           )}
 
           {list.data && list.data.results.length > 0 && (
-            <table className="mt-4 w-full text-left text-sm">
-              <thead className="border-b border-neutral-200 text-xs uppercase tracking-wide text-neutral-500">
-                <tr>
-                  <th className="px-2 py-2">Titel</th>
-                  <th className="px-2 py-2">Typ</th>
-                  <th className="px-2 py-2">Korrespondent</th>
-                  <th className="px-2 py-2">Datum</th>
-                  <th className="px-2 py-2">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-neutral-200">
-                {list.data.results.map((row) => (
-                  <Row
-                    key={row.id}
-                    row={row}
-                    selectedTags={search.tags ?? []}
-                    onTagClick={toggleTag}
-                    onClick={() =>
-                      navigate({
-                        to: "/library/$id",
-                        params: { id: String(row.id) },
-                      })
-                    }
-                  />
-                ))}
-              </tbody>
-            </table>
+            <>
+              {selectedCount > 0 && (
+                <div className="sticky top-0 z-10 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-neutral-300 bg-neutral-900 px-4 py-2 text-sm text-white">
+                  <span>
+                    {selectedCount}{" "}
+                    {selectedCount === 1
+                      ? "Dokument ausgewählt"
+                      : "Dokumente ausgewählt"}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelected(new Set())}
+                      disabled={bulkReprocess.isPending}
+                      className="rounded-md border border-neutral-600 px-3 py-1 text-xs text-neutral-100 hover:bg-neutral-800 disabled:opacity-60"
+                    >
+                      Auswahl aufheben
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onBulkReprocess}
+                      disabled={bulkReprocess.isPending}
+                      className="rounded-md bg-white px-3 py-1 text-xs font-medium text-neutral-900 hover:bg-neutral-100 disabled:opacity-60"
+                    >
+                      {bulkReprocess.isPending
+                        ? "Stoße neu an…"
+                        : `${selectedCount} erneut verarbeiten`}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {bulkResult && (
+                <p
+                  className={`mt-3 rounded-md border px-3 py-2 text-sm ${
+                    bulkResult.failed
+                      ? "border-amber-300 bg-amber-50 text-amber-900"
+                      : "border-emerald-300 bg-emerald-50 text-emerald-900"
+                  }`}
+                >
+                  {bulkResult.succeeded} neu angestoßen
+                  {bulkResult.failed
+                    ? ` · ${bulkResult.failed} fehlgeschlagen`
+                    : ""}
+                  .
+                </p>
+              )}
+
+              <table className="mt-4 w-full text-left text-sm">
+                <thead className="border-b border-neutral-200 text-xs uppercase tracking-wide text-neutral-500">
+                  <tr>
+                    <th className="w-8 px-2 py-2">
+                      <input
+                        type="checkbox"
+                        aria-label="Alle auswählen"
+                        checked={allSelected}
+                        onChange={toggleAll}
+                        className="h-4 w-4 cursor-pointer accent-neutral-900"
+                      />
+                    </th>
+                    <th className="px-2 py-2">Titel</th>
+                    <th className="px-2 py-2">Typ</th>
+                    <th className="px-2 py-2">Korrespondent</th>
+                    <th className="px-2 py-2">Datum</th>
+                    <th className="px-2 py-2">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-neutral-200">
+                  {list.data.results.map((row) => (
+                    <Row
+                      key={row.id}
+                      row={row}
+                      selectedTags={search.tags ?? []}
+                      onTagClick={toggleTag}
+                      checked={effectiveSelected.has(row.id)}
+                      onToggle={() => toggleOne(row.id)}
+                      onClick={() =>
+                        navigate({
+                          to: "/library/$id",
+                          params: { id: String(row.id) },
+                        })
+                      }
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </>
           )}
 
           {lastPage > 1 && (
@@ -408,16 +526,29 @@ function Row({
   row,
   selectedTags,
   onTagClick,
+  checked,
+  onToggle,
   onClick,
 }: {
   row: LibraryItem;
   selectedTags: string[];
   onTagClick: (tag: string) => void;
+  checked: boolean;
+  onToggle: () => void;
   onClick: () => void;
 }) {
   return (
-    <tr onClick={onClick} className="cursor-pointer hover:bg-neutral-50">
-      <td className="px-2 py-2">
+    <tr className="hover:bg-neutral-50">
+      <td className="w-8 px-2 py-2" onClick={(e) => e.stopPropagation()}>
+        <input
+          type="checkbox"
+          aria-label={`${row.title} auswählen`}
+          checked={checked}
+          onChange={onToggle}
+          className="h-4 w-4 cursor-pointer accent-neutral-900"
+        />
+      </td>
+      <td onClick={onClick} className="cursor-pointer px-2 py-2">
         <div className="font-medium text-neutral-900">{row.title}</div>
         {row.original_file_name && row.original_file_name !== row.title && (
           <div className="text-[10px] text-neutral-400">
@@ -450,13 +581,20 @@ function Row({
           </div>
         )}
       </td>
-      <td className="px-2 py-2 text-neutral-700">{row.document_type ?? "—"}</td>
-      <td className="px-2 py-2 text-neutral-700">
+      <td onClick={onClick} className="cursor-pointer px-2 py-2 text-neutral-700">
+        {row.document_type ?? "—"}
+      </td>
+      <td onClick={onClick} className="cursor-pointer px-2 py-2 text-neutral-700">
         {row.correspondent ?? "—"}
       </td>
-      <td className="px-2 py-2 text-neutral-700">{row.created ?? "—"}</td>
-      <td className="px-2 py-2">
-        <ProcessingBadge tags={row.lifecycle_tags} errorMessage={row.ai_error_message} />
+      <td onClick={onClick} className="cursor-pointer px-2 py-2 text-neutral-700">
+        {row.created ?? "—"}
+      </td>
+      <td onClick={onClick} className="cursor-pointer px-2 py-2">
+        <ProcessingBadge
+          tags={row.lifecycle_tags}
+          errorMessage={row.ai_error_message}
+        />
       </td>
     </tr>
   );

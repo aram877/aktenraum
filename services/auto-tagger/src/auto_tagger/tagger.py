@@ -75,7 +75,8 @@ Wähle den document_type anhand dieser Definitionen — nimm immer den spezifisc
 - Vertrag: Arbeitsvertrag, Mietvertrag, Kaufvertrag, Dienstleistungsvertrag, Darlehensvertrag, Vereinbarungen
 - Kündigung: Kündigungsschreiben und Widerruf von Verträgen, Abonnements oder Mitgliedschaften
 - Versicherung: Versicherungspolicen, Versicherungsnachweise, Deckungsbestätigungen, Schadensregulierung
-- Steuer: Steuererklärungen, Steuerformulare (Anlage N, V, KAP etc.), Steuer-Bescheinigungen, Lohnsteuerbescheinigung
+- Steuer: Steuererklärungen, Steuerformulare (Anlage N, V, KAP etc.), Steuer-Bescheinigungen (NICHT die Lohnsteuerbescheinigung — die hat einen eigenen Typ).
+- Lohnsteuerbescheinigung: vom Arbeitgeber jährlich ausgestellte "Ausdruck der Elektronischen Lohnsteuerbescheinigung" / "Besondere Lohnsteuerbescheinigung" (§41b EStG). Aliasnamen: Lohnsteuerabrechnung, Jahreslohnzettel. Typische Inhalte: Bescheinigungszeitraum (Jahr), Steueridentifikationsnummer, Steuerklasse, Brutto-Arbeitslohn (Zeile 3), einbehaltene Lohnsteuer (Zeile 4), Solidaritätszuschlag, Kirchensteuer, zuständiges Finanzamt. NICHT verwechseln mit: Gehaltsabrechnung (monatlich), Steuerbescheid (vom Finanzamt → Bescheid), Sozialversicherungsmeldung (DEÜV-Meldung des Arbeitgebers).
 - Bescheid: Amtliche Bescheide mit Rechtswirkung — Steuerbescheid, Rentenbescheid, BAföG-Bescheid, Bewilligungs- oder Ablehnungsbescheid
 - Behördenbrief: Amtliche Schreiben ohne Bescheidcharakter — Informationsschreiben, Antragsbestätigungen, Einwohnermeldebescheinigung (Bestätigung des Wohnsitzes vom Bürgeramt). NICHT: Meldebescheinigung zur Sozialversicherung (siehe Sozialversicherungsmeldung).
 - Sozialversicherungsmeldung: Meldebescheinigung zur Sozialversicherung / Jahresmeldung zur Sozialversicherung / SV-Meldung / Meldung nach DEÜV — vom Arbeitgeber jährlich (oder bei Beschäftigungsende) ausgestellt. Typisch: Beitragszeitraum, Brutto-Arbeitsentgelt, beitragspflichtiges Entgelt, Sozialversicherungsnummer (RV-Nr.), Betriebsnummer. NICHT verwechseln mit: Gehaltsabrechnung (monatlich), Lohnsteuerbescheinigung (→ Steuer), oder Einwohnermeldebescheinigung (→ Behördenbrief).
@@ -102,7 +103,8 @@ Weitere Regeln:
   • Vertrag: "{Vertragsart} {Gegenpartei}" — z.B. "Arbeitsvertrag Acme GmbH" oder "Mietvertrag Schiller-Str. 12"
   • Kündigung: "Kündigung {Vertragsart} {Gegenpartei}" — z.B. "Kündigung Fitnessstudio McFit"
   • Versicherung: "{Versicherungsart} {Versicherer} {Jahr}" — z.B. "Hausratversicherung Allianz 2024"
-  • Steuer: "{Dokumenttitel} {Jahr} {Finanzamt}" — z.B. "Steuerbescheid 2023 Finanzamt Köln" oder "Lohnsteuerbescheinigung 2024 Acme GmbH"
+  • Steuer: "{Dokumenttitel} {Jahr} {Finanzamt}" — z.B. "Steuererklärung 2023 Finanzamt Köln"
+  • Lohnsteuerbescheinigung: "Lohnsteuerbescheinigung {Arbeitgeber} {Jahr}" — z.B. "Lohnsteuerbescheinigung Acme GmbH 2024"
   • Bescheid: "{Bescheidtitel} {Behörde} {Datum/Jahr}" — z.B. "Rentenbescheid Deutsche Rentenversicherung 2024"
   • Behördenbrief: "{Behörde} – {Stichwort} {Datum}" — z.B. "Bürgeramt München – Meldebescheinigung 2024"
   • Sozialversicherungsmeldung: "SV-Meldung {Arbeitgeber} {Jahr}" — z.B. "SV-Meldung Acme GmbH 2024"

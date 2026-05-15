@@ -39,6 +39,7 @@ class DocumentType(StrEnum):
     Kuendigung = "Kündigung"
     Versicherung = "Versicherung"
     Steuer = "Steuer"
+    Lohnsteuerbescheinigung = "Lohnsteuerbescheinigung"
     Bescheid = "Bescheid"
     Behoerdenbrief = "Behördenbrief"
     Sozialversicherungsmeldung = "Sozialversicherungsmeldung"

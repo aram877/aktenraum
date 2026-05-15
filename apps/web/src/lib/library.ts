@@ -99,6 +99,7 @@ export const DOC_TYPES = [
   "Kündigung",
   "Versicherung",
   "Steuer",
+  "Lohnsteuerbescheinigung",
   "Bescheid",
   "Behördenbrief",
   "Sozialversicherungsmeldung",

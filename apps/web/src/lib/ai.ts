@@ -13,6 +13,7 @@ export type DocumentType =
   | "Kündigung"
   | "Versicherung"
   | "Steuer"
+  | "Lohnsteuerbescheinigung"
   | "Bescheid"
   | "Behördenbrief"
   | "Sozialversicherungsmeldung"

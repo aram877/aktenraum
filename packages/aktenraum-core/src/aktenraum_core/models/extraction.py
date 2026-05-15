@@ -71,5 +71,5 @@ class DocumentExtraction(BaseModel):
     suggested_tags: CoercedList = Field(
         default_factory=list, description="Empfohlene Schlagwörter"
     )
-    summary_de: str = Field(description="Kurzzusammenfassung auf Deutsch in genau 3 Sätzen")
-    confidence: float = Field(ge=0.0, le=1.0, description="Konfidenz der Extraktion (0–1)")
+    summary_de: str = Field(default="", description="Kurzzusammenfassung auf Deutsch in genau 3 Sätzen")
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0, description="Konfidenz der Extraktion (0–1)")

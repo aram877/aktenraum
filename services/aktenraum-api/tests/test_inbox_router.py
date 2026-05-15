@@ -175,7 +175,7 @@ async def test_list_passes_pagination_params(client_factory):
     params = call_args.args[0]
     assert params["tags__id"] == TAG_IDS["ai-pending"]
     assert params["page"] == 3
-    assert params["ordering"] == "created"
+    assert params["ordering"] == "-modified"
     assert call_args.kwargs["page_size"] == 5
 
 

@@ -41,7 +41,6 @@ type FormState = {
   ai_correspondent: string;
   ai_title: string;
   ai_issue_date: string;
-  ai_monetary_amount: string;
   ai_reference_numbers: string;
   ai_suggested_tags: string;
   ai_summary_de: string;
@@ -52,7 +51,6 @@ const EMPTY_FORM: FormState = {
   ai_correspondent: "",
   ai_title: "",
   ai_issue_date: "",
-  ai_monetary_amount: "",
   ai_reference_numbers: "",
   ai_suggested_tags: "",
   ai_summary_de: "",
@@ -76,7 +74,6 @@ export function InboxReview({ id }: { id: number }) {
         ai_correspondent: detail.data.ai_correspondent ?? "",
         ai_title: detail.data.ai_title ?? "",
         ai_issue_date: detail.data.ai_issue_date ?? "",
-        ai_monetary_amount: detail.data.ai_monetary_amount ?? "",
         ai_reference_numbers: detail.data.ai_reference_numbers ?? "",
         ai_suggested_tags: detail.data.ai_suggested_tags ?? "",
         ai_summary_de: detail.data.ai_summary_de ?? "",
@@ -100,7 +97,6 @@ export function InboxReview({ id }: { id: number }) {
     cmp("ai_correspondent", detail.data.ai_correspondent);
     cmp("ai_title", detail.data.ai_title);
     cmp("ai_issue_date", detail.data.ai_issue_date);
-    cmp("ai_monetary_amount", detail.data.ai_monetary_amount);
     cmp("ai_reference_numbers", detail.data.ai_reference_numbers);
     cmp("ai_suggested_tags", detail.data.ai_suggested_tags);
     cmp("ai_summary_de", detail.data.ai_summary_de);
@@ -244,12 +240,6 @@ export function InboxReview({ id }: { id: number }) {
                   type="date"
                   value={form.ai_issue_date}
                   onChange={(v) => setForm({ ...form, ai_issue_date: v })}
-                />
-                <Field
-                  label="Betrag"
-                  value={form.ai_monetary_amount}
-                  onChange={(v) => setForm({ ...form, ai_monetary_amount: v })}
-                  placeholder="EUR149.99"
                 />
                 <Field
                   label="Referenznummern"

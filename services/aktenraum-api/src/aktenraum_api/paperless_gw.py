@@ -8,7 +8,6 @@ import httpx
 import structlog
 from aktenraum_core.paperless.normalisers import (
     _normalize_date,
-    _normalize_monetary,
     truncate_for_field,
 )
 
@@ -18,7 +17,6 @@ log = structlog.get_logger()
 # Custom-field names whose Paperless data_type drives normalisation. Names
 # match what the auto-tagger writes; the inbox PATCH path takes the same shape.
 _DATE_FIELDS = frozenset({"ai_issue_date"})
-_MONETARY_FIELDS = frozenset({"ai_monetary_amount"})
 _FLOAT_FIELDS = frozenset({"ai_confidence"})
 
 
@@ -360,9 +358,6 @@ def _normalise_field_values(name_to_value: dict[str, Any]) -> dict[str, Any]:
             continue
         if name in _DATE_FIELDS:
             out[name] = _normalize_date(str(value))
-            continue
-        if name in _MONETARY_FIELDS:
-            out[name] = _normalize_monetary(str(value))
             continue
         if name in _FLOAT_FIELDS:
             out[name] = value

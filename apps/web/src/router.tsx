@@ -70,8 +70,6 @@ type LibrarySearch = {
   correspondent?: string;
   date_from?: string;
   date_to?: string;
-  min_amount?: number;
-  max_amount?: number;
   text?: string;
   tags?: string[];
   page?: number;
@@ -118,8 +116,6 @@ const libraryRoute = createRoute({
     out.date_from = str("date_from");
     out.date_to = str("date_to");
     out.text = str("text");
-    out.min_amount = num("min_amount");
-    out.max_amount = num("max_amount");
     out.page = num("page");
     return out;
   },

@@ -12,7 +12,6 @@ FIELD_IDS = {
     "ai_correspondent": 2,
     "ai_title": 3,
     "ai_issue_date": 4,
-    "ai_monetary_amount": 6,
     "ai_reference_numbers": 7,
     "ai_suggested_tags": 8,
     "ai_summary_de": 9,
@@ -161,9 +160,7 @@ async def test_library_projects_lifecycle_badges(client_factory):
             tags=[TAG_IDS["ai-propagated"], TAG_IDS["sonstiges"]],
             correspondent=12,
             document_type=5,
-            custom_fields=[
-                {"field": FIELD_IDS["ai_monetary_amount"], "value": "EUR99.99"}
-            ],
+            custom_fields=[],
         ),
         _doc(
             2,
@@ -193,49 +190,10 @@ async def test_library_projects_lifecycle_badges(client_factory):
     assert by_id[1]["lifecycle_tags"] == ["ai-propagated"]
     assert by_id[1]["correspondent"] == "Telekom"
     assert by_id[1]["document_type"] == "Rechnung"
-    assert by_id[1]["monetary_amount"] == "EUR99.99"
     assert by_id[2]["lifecycle_tags"] == ["ai-rejected"]
     # When the native FK is unset, fall back to the AI custom field.
     assert by_id[2]["correspondent"] == "Acme"
     assert by_id[2]["document_type"] == "Sonstiges"
-
-
-async def test_library_amount_post_filter(client_factory):
-    app, _settings, transport = await _logged_in(client_factory)
-    docs = [
-        _doc(
-            1,
-            tags=[TAG_IDS["ai-propagated"]],
-            custom_fields=[
-                {"field": FIELD_IDS["ai_monetary_amount"], "value": "EUR50.00"}
-            ],
-        ),
-        _doc(
-            2,
-            tags=[TAG_IDS["ai-propagated"]],
-            custom_fields=[
-                {"field": FIELD_IDS["ai_monetary_amount"], "value": "EUR250.00"}
-            ],
-        ),
-        _doc(
-            3,
-            tags=[TAG_IDS["ai-propagated"]],
-            custom_fields=[],  # no amount → dropped when bound is set
-        ),
-    ]
-    gateway = _make_gateway(documents=docs)
-    app.dependency_overrides[get_paperless_gateway] = lambda: gateway
-
-    async with app.router.lifespan_context(app):
-        async with AsyncClient(transport=transport, base_url="http://test") as c:
-            await _login(c)
-            resp = await c.get("/api/library/?min_amount=100")
-
-    assert resp.status_code == 200
-    body = resp.json()
-    assert [r["id"] for r in body["results"]] == [2]
-    # total reflects the post-filter survivor count, not the raw page count.
-    assert body["total"] == 1
 
 
 async def test_library_rejects_unsafe_ordering(client_factory):

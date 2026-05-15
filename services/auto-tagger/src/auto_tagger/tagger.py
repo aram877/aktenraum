@@ -45,10 +45,10 @@ Weitere Regeln:
 - key_dates.issue: das Datum, an dem dieses Dokument selbst ausgestellt/datiert wurde (z.B. Rechnungsdatum, Bescheiddatum, Vertragsabschluss, Ausstellungsdatum eines Ausweises — typischerweise neben "Datum:", "Ausgestellt am:", "vom"). NICHT verwenden für: Geburtsdaten, Beschäftigungs- oder Studienzeiträume, im Inhalt erwähnte Termine, Mietbeginn, Reisedaten o.Ä. Wenn das Dokument kein eigenes Ausstellungsdatum trägt (z.B. Lebenslauf, Notiz, Foto): null
 - correspondent: bei amtlichen Dokumenten die ausstellende Behörde/Authority (z.B. "STADT BIELEFELD", "Finanzamt Köln"); bei Rechnungen das Unternehmen, das die Rechnung schickt; bei Verträgen die Gegenpartei. Auch dieser Wert kann durch OCR-Fragmentierung verunreinigt sein — normalisiere Leerzeichen.
 - ai_title: ein prägnanter, sprechender Titel auf Deutsch (max. ~8 Wörter). Format: Dokumenttyp + Korrespondent + optional Monat/Jahr oder Stichwort. Beispiele: "Rechnung Stadtwerke März 2024", "Arbeitsvertrag Acme GmbH", "Steuerbescheid 2023 Finanzamt Köln". Lass das Feld null, wenn weder Typ noch Korrespondent ermittelbar sind.
-- Geldbeträge immer mit Währung, z.B. "149,99 EUR"
+- Geldbeträge gehören NICHT in das generische Schema. Werte zu Beträgen, Gebühren, Bruttosummen, Nettosummen, Rückerstattungen, Forderungen, Prämien, Beiträgen etc. werden im typspezifischen Schritt (Pass 2) erfasst, falls der Dokumenttyp passende Felder vorsieht (z.B. Rechnung → gesamtbetrag, Mahnung → forderungsbetrag, Steuer → erstattung). Im hier vorliegenden Schritt KEINEN Geldbetrag ausgeben.
 - summary_de muss genau 3 Sätze auf Deutsch enthalten
 - confidence gibt an, wie sicher du dir bei der Extraktion bist (0.0 = unsicher, 1.0 = sehr sicher)
-- Bei nicht-ermittelbaren Skalar-Feldern (correspondent, ai_title, monetary_amount, key_dates.*): null
+- Bei nicht-ermittelbaren Skalar-Feldern (correspondent, ai_title, key_dates.*): null
 - Bei nicht-ermittelbaren Listen-Feldern (reference_numbers, suggested_tags): leere Liste []
 """
 
@@ -83,12 +83,9 @@ def _example_payload(
     Native Paperless fields (correspondent, document_type, created_date, tags)
     take priority over the ai_* custom fields where they exist — those are
     the user's ground truth post-propagation. The ai_* fields fill in the
-    columns Paperless has no native equivalent for (summary, monetary,
-    reference numbers, ai_title).
-
-    Skips ai_monetary_amount on purpose: Paperless stores it in ISO+amount
-    form (e.g. EUR149.99) which conflicts with the German format the system
-    prompt asks the model to produce.
+    columns Paperless has no native equivalent for (summary, reference
+    numbers, ai_title). Monetary values intentionally absent — they are
+    captured by Pass 2 (type-specific schemas) only.
     """
     payload = {
         "document_type": document_type_name or ai_fields.get("ai_document_type"),

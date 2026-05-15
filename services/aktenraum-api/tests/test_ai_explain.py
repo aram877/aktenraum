@@ -23,27 +23,20 @@ def test_doctype_and_year_range():
     assert "2023-12-31" in out
 
 
-def test_min_max_amount_uses_german_decimal():
-    out = explain_filter(SearchFilter(min_amount=3000, max_amount=5000))
-    assert "3000" in out
-    assert "5000" in out
-    assert "zwischen" in out
-
-
 def test_correspondent_and_text():
     out = explain_filter(SearchFilter(correspondent="Telekom", text="bonus"))
     assert "Telekom" in out
     assert "bonus" in out
 
 
-def test_only_min_amount():
-    out = explain_filter(SearchFilter(min_amount=100))
-    assert "mindestens" in out
+def test_only_date_from():
+    out = explain_filter(SearchFilter(date_from=date(2024, 1, 1)))
+    assert "ab 2024-01-01" in out
 
 
-def test_only_max_amount():
-    out = explain_filter(SearchFilter(max_amount=50))
-    assert "höchstens" in out
+def test_only_date_to():
+    out = explain_filter(SearchFilter(date_to=date(2024, 12, 31)))
+    assert "bis 2024-12-31" in out
 
 
 def test_tags_render_as_quoted_list():

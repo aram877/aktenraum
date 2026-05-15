@@ -6,7 +6,6 @@ from typing import Any
 
 from aktenraum_core.paperless import LIFECYCLE_TAGS
 
-from ..ai.translate import _parse_amount
 from ..paperless_gw import PaperlessGateway
 from .schemas import LibraryItem, LibraryList, TagFacet, TagFacetList
 
@@ -44,8 +43,6 @@ async def list_library(
     correspondent: str | None,
     date_from: date | None,
     date_to: date | None,
-    min_amount: float | None,
-    max_amount: float | None,
     text: str | None,
     tags: list[str] | None,
     page: int,
@@ -111,15 +108,9 @@ async def list_library(
         )
         for doc in raw_results
     ]
-    items = _apply_amount_filter(items, raw_results, field_id_to_name, min_amount, max_amount)
-
-    if min_amount is not None or max_amount is not None:
-        total = len(items)
-    else:
-        total = total_native
 
     return LibraryList(
-        results=items, total=total, page=page, page_size=page_size
+        results=items, total=total_native, page=page, page_size=page_size
     )
 
 
@@ -205,7 +196,6 @@ def _project(
         or custom_fields.get("ai_correspondent"),
         document_type=document_type_by_id.get(doc.get("document_type"))
         or custom_fields.get("ai_document_type"),
-        monetary_amount=custom_fields.get("ai_monetary_amount"),
         lifecycle_tags=lifecycle,
         tags=user_tags,
     )
@@ -220,48 +210,6 @@ def _custom_field_values(
         if name:
             out[name] = cf.get("value")
     return out
-
-
-def _apply_amount_filter(
-    items: list[LibraryItem],
-    raw_results: list[dict],
-    field_id_to_name: dict[int, str],
-    min_amount: float | None,
-    max_amount: float | None,
-) -> list[LibraryItem]:
-    if min_amount is None and max_amount is None:
-        return items
-    raw_by_id = {r["id"]: r for r in raw_results}
-    name_by_id = {fid: name for fid, name in field_id_to_name.items()}
-    monetary_field_id: int | None = next(
-        (fid for fid, name in name_by_id.items() if name == "ai_monetary_amount"),
-        None,
-    )
-    if monetary_field_id is None:
-        # No way to evaluate the bound — drop everything so the bound has
-        # meaning rather than silently being a no-op.
-        return []
-
-    kept: list[LibraryItem] = []
-    for item in items:
-        raw = raw_by_id.get(item.id) or {}
-        amount_str = next(
-            (
-                cf.get("value")
-                for cf in raw.get("custom_fields") or []
-                if cf.get("field") == monetary_field_id
-            ),
-            None,
-        )
-        amount = _parse_amount(amount_str) if amount_str else None
-        if amount is None:
-            continue
-        if min_amount is not None and amount < min_amount:
-            continue
-        if max_amount is not None and amount > max_amount:
-            continue
-        kept.append(item)
-    return kept
 
 
 def _parse_date(value: Any) -> date | None:

@@ -121,7 +121,6 @@ def _project_inbox_item(
         ai_document_type=fields.get("ai_document_type"),
         ai_title=fields.get("ai_title"),
         ai_issue_date=fields.get("ai_issue_date"),
-        ai_monetary_amount=fields.get("ai_monetary_amount"),
         ai_confidence=fields.get("ai_confidence"),
         low_confidence=low_conf_id is not None and low_conf_id in (doc.get("tags") or []),
     )
@@ -146,7 +145,6 @@ def _project_inbox_detail(
         ai_document_type=fields.get("ai_document_type"),
         ai_title=fields.get("ai_title"),
         ai_issue_date=fields.get("ai_issue_date"),
-        ai_monetary_amount=fields.get("ai_monetary_amount"),
         ai_reference_numbers=fields.get("ai_reference_numbers"),
         ai_suggested_tags=fields.get("ai_suggested_tags"),
         ai_summary_de=fields.get("ai_summary_de"),

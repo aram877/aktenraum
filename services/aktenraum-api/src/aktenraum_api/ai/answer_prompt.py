@@ -22,7 +22,7 @@ def build_answer_messages(question: str, *, candidates: list[dict]) -> list[dict
           "id": int, "title": str, "correspondent": str|None,
           "document_type": str|None, "created": "YYYY-MM-DD"|None,
           "ai_summary_de": str|None, "ai_issue_date": str|None,
-          "ai_monetary_amount": str|None, "ai_reference_numbers": str|None,
+          "ai_reference_numbers": str|None,
         }
     """
     system = _system_prompt()
@@ -64,7 +64,9 @@ def _system_prompt() -> str:
         "- Fragen nach Ausstellungsdatum / 'wann ausgestellt' → Feld 'Ausstellung'."
     )
     parts.append(
-        "- Fragen nach Beträgen ('wieviel', 'kosten') → Feld 'Betrag'."
+        "- Geldbeträge stehen in den typspezifischen Feldern (z. B. "
+        "Rechnung-Gesamtbetrag, Mahnung-Forderungsbetrag, Steuer-Erstattung). "
+        "Wenn keines passt, verwende die Textauszüge weiter unten."
     )
     parts.append(
         "- Wenn ein passendes Feld bereits einen Wert hat, IST das die Antwort. "
@@ -83,7 +85,7 @@ def _user_prompt(question: str, candidates: list[dict]) -> str:
     )
     parts.append(
         "  Frage: 'Was hat die Stromrechnung gekostet?'"
-        "  Dokument hat Betrag: EUR149.99"
+        "  Auszug nennt einen Gesamtbetrag von 149,99 €"
         '  → {"answer_de": "Die Stromrechnung betrug 149,99 €.", "cited_ids": [<id>]}'
     )
     parts.append("")
@@ -122,7 +124,6 @@ def _render_candidate(c: dict, *, chunks: list[str] | None = None) -> str:
         ("Korrespondent", c.get("correspondent")),
         ("Eingangsdatum", c.get("created")),
         ("Ausstellung", c.get("ai_issue_date")),
-        ("Betrag", c.get("ai_monetary_amount")),
         ("Referenzen", c.get("ai_reference_numbers")),
     ]
     rendered = "\n".join(
@@ -213,7 +214,11 @@ def _streaming_system_prompt() -> str:
     parts.append("")
     parts.append("Feld-Hinweise (wichtig — nutze diese Felder direkt!):")
     parts.append("- 'wann ausgestellt' → Feld 'Ausstellung'.")
-    parts.append("- 'wieviel' / 'kosten' → Feld 'Betrag'.")
+    parts.append(
+        "- 'wieviel' / 'kosten' → Geldbeträge stehen in den typspezifischen "
+        "Feldern (Rechnung-Gesamtbetrag, Mahnung-Forderungsbetrag etc.) "
+        "und in den Textauszügen."
+    )
     parts.append(
         "- Wenn ein passendes Feld bereits einen Wert hat, IST das die Antwort. "
         "Sage NICHT 'keine Information', wenn das Feld gefüllt ist."
@@ -236,7 +241,7 @@ def _streaming_user_prompt(
     )
     parts.append(
         "  Frage: 'Was hat die Stromrechnung gekostet?'\n"
-        "  Dokument hat Betrag: EUR149.99\n"
+        "  Auszug nennt einen Gesamtbetrag von 149,99 €\n"
         "  → 'Die Stromrechnung betrug 149,99 €. [Quelle: 23]'"
     )
     parts.append("")

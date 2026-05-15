@@ -1,19 +1,16 @@
-"""Translate SearchFilter → Paperless query params, plus post-fetch amount filter.
+"""Translate SearchFilter → Paperless query params and project results.
 
-Native fields go into the `/api/documents/?…` query string. Custom fields
-(amount) are not filterable via the Paperless API at this version, so we
-fetch a generous page and drop results in-memory.
+The generic monetary_amount field was removed; per-type money fields live
+on the type-specific schemas instead. This module no longer handles
+amount filtering at all.
 """
 
 from __future__ import annotations
 
-import re
 from datetime import date
 from typing import Any
 
 from .schemas import DocumentSummary, SearchFilter
-
-_MONETARY_RE = re.compile(r"([+-]?\d+(?:[.,]\d+)?)")
 
 
 def filter_to_paperless_params(
@@ -56,40 +53,27 @@ def apply_post_filter(
     f: SearchFilter,
     *,
     name_by_id: dict[str, dict[int, str]],
-    monetary_field_id: int | None,
     tag_name_by_id: dict[int, str] | None = None,
     lifecycle_tag_names: frozenset[str] | None = None,
 ) -> list[DocumentSummary]:
-    """Drop results outside [min_amount, max_amount], project to DocumentSummary.
+    """Project Paperless docs into DocumentSummary, surfacing lifecycle tags.
 
     `name_by_id` maps entity-kind → {id: name} for "correspondents" and
     "document_types", used to resolve foreign keys on each result so the SPA
-    receives display strings. `monetary_field_id` is the Paperless custom-field
-    id for `ai_monetary_amount`; passing None disables amount filtering for
-    callers without that field configured. `tag_name_by_id` plus the
-    `lifecycle_tag_names` allowlist let the projection populate
-    `DocumentSummary.lifecycle_tags` so the SPA can render "Wartet auf KI" /
-    "Wird übertragen" / … badges. If either is omitted, lifecycle_tags stays
-    empty (older callers continue to work).
+    receives display strings. `tag_name_by_id` plus the `lifecycle_tag_names`
+    allowlist let the projection populate `DocumentSummary.lifecycle_tags`
+    so the SPA can render "Wartet auf KI" / "Wird übertragen" / … badges.
+    If either is omitted, lifecycle_tags stays empty (older callers continue
+    to work).
     """
+    # f is unused now (post-filter no longer narrows results) but kept in
+    # the signature to avoid churn at every caller.
+    del f
     correspondents = name_by_id.get("correspondents", {})
     document_types = name_by_id.get("document_types", {})
 
-    has_amount_bound = f.min_amount is not None or f.max_amount is not None
-
     out: list[DocumentSummary] = []
     for doc in results:
-        amount_str = _read_monetary(doc, monetary_field_id)
-        amount_value = _parse_amount(amount_str)
-
-        if has_amount_bound:
-            if amount_value is None:
-                continue
-            if f.min_amount is not None and amount_value < f.min_amount:
-                continue
-            if f.max_amount is not None and amount_value > f.max_amount:
-                continue
-
         lifecycle: list[str] = []
         if tag_name_by_id and lifecycle_tag_names:
             for tid in doc.get("tags") or []:
@@ -105,7 +89,6 @@ def apply_post_filter(
                 correspondent=correspondents.get(doc.get("correspondent")),
                 document_type=document_types.get(doc.get("document_type")),
                 created=_parse_date_field(doc.get("created_date") or doc.get("created")),
-                monetary_amount=amount_str,
                 lifecycle_tags=lifecycle,
             )
         )
@@ -114,41 +97,6 @@ def apply_post_filter(
 
 def _iso(d: date) -> str:
     return d.isoformat()
-
-
-def _read_monetary(doc: dict, field_id: int | None) -> str | None:
-    if field_id is None:
-        return None
-    for cf in doc.get("custom_fields") or []:
-        if cf.get("field") == field_id:
-            value = cf.get("value")
-            return str(value) if value is not None else None
-    return None
-
-
-def _parse_amount(value: str | None) -> float | None:
-    """Parse Paperless `<ISO><amount>` (e.g. "EUR149.99") and German variants.
-
-    Returns None if no number can be extracted.
-    """
-    if not value:
-        return None
-    # Anglo format: "EUR149.99". Strip currency prefix.
-    cleaned = re.sub(r"^[A-Za-z]{3}\s*", "", value).strip()
-    # German format: "149,99 EUR" → strip trailing currency, swap comma → dot.
-    cleaned = re.sub(r"\s*[A-Za-z€$£¥]+\s*$", "", cleaned).strip()
-    if "," in cleaned and "." in cleaned:
-        # "1.234,56" → "1234.56"
-        cleaned = cleaned.replace(".", "").replace(",", ".")
-    elif "," in cleaned:
-        cleaned = cleaned.replace(",", ".")
-    m = _MONETARY_RE.search(cleaned)
-    if not m:
-        return None
-    try:
-        return float(m.group(1))
-    except ValueError:
-        return None
 
 
 def _parse_date_field(value: Any) -> date | None:

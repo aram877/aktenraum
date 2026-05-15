@@ -45,7 +45,6 @@ export function Inbox() {
                 <th className="px-2 py-2">Typ</th>
                 <th className="px-2 py-2">Korrespondent</th>
                 <th className="px-2 py-2">Datum</th>
-                <th className="px-2 py-2">Betrag</th>
                 <th className="px-2 py-2 text-right">Konfidenz</th>
               </tr>
             </thead>
@@ -79,9 +78,6 @@ function Row({ row, onClick }: { row: InboxItem; onClick: () => void }) {
       </td>
       <td className="px-2 py-2 text-neutral-700">
         {row.ai_issue_date ?? row.created ?? "—"}
-      </td>
-      <td className="px-2 py-2 text-neutral-700">
-        {row.ai_monetary_amount ?? "—"}
       </td>
       <td className="px-2 py-2 text-right text-neutral-700">
         {row.ai_confidence != null

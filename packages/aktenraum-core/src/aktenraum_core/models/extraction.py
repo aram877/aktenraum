@@ -69,9 +69,6 @@ class DocumentExtraction(BaseModel):
         ),
     )
     key_dates: KeyDates = Field(default_factory=KeyDates, description="Relevante Datumsangaben")
-    monetary_amount: str | None = Field(
-        None, description="Geldbetrag mit Währung, z.B. '149,99 EUR'"
-    )
     reference_numbers: CoercedList = Field(
         default_factory=list, description="Referenz- oder Vorgangsnummern"
     )

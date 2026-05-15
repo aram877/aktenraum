@@ -19,8 +19,6 @@ class SearchFilter(BaseModel):
     correspondent: str | None = None
     date_from: date | None = None
     date_to: date | None = None
-    min_amount: float | None = None
-    max_amount: float | None = None
     text: str | None = None
     tags: list[str] = Field(default_factory=list)
 
@@ -55,7 +53,6 @@ class DocumentSummary(BaseModel):
     correspondent: str | None = None
     document_type: str | None = None
     created: date | None = None
-    monetary_amount: str | None = None
     # Subset of the document's tag names that match the AI lifecycle vocabulary
     # (ai-propagated / ai-approved / ai-rejected / ai-error / etc.). The SPA
     # renders this as a "Wartet auf KI" / "Wird übertragen" / … badge so the

@@ -6,7 +6,6 @@ import structlog
 from ..models import DocumentExtraction
 from .normalisers import (
     _normalize_date,
-    _normalize_monetary,
     truncate_for_field,
 )
 
@@ -105,7 +104,6 @@ class PaperlessClient:
                 truncate_for_field("ai_title", extraction.ai_title),
             ),
             fv("ai_issue_date", _normalize_date(extraction.key_dates.issue)),
-            fv("ai_monetary_amount", _normalize_monetary(extraction.monetary_amount)),
             fv(
                 "ai_reference_numbers",
                 truncate_for_field(

@@ -29,12 +29,6 @@ def test_translate_all_native_fields():
     }
 
 
-def test_translate_amount_fields_are_post_filter_only():
-    f = SearchFilter(min_amount=3000, max_amount=5000)
-    params = filter_to_paperless_params(f, correspondent_id=None, document_type_id=None)
-    assert params == {}
-
-
 def test_translate_empty_filter():
     params = filter_to_paperless_params(
         SearchFilter(), correspondent_id=None, document_type_id=None
@@ -82,53 +76,7 @@ def _doc(doc_id: int, **overrides):
     return base
 
 
-def test_post_filter_min_amount_drops_cheaper():
-    docs = [
-        _doc(1, custom_fields=[{"field": 99, "value": "EUR1500.00"}]),
-        _doc(2, custom_fields=[{"field": 99, "value": "EUR3000.00"}]),
-        _doc(3, custom_fields=[{"field": 99, "value": "EUR4500.00"}]),
-    ]
-    out = apply_post_filter(
-        docs,
-        SearchFilter(min_amount=3000),
-        name_by_id={"correspondents": {12: "Telekom"}, "document_types": {5: "Rechnung"}},
-        monetary_field_id=99,
-    )
-    assert [d.id for d in out] == [2, 3]
-
-
-def test_post_filter_max_amount_drops_expensive_and_unknown():
-    docs = [
-        _doc(1, custom_fields=[{"field": 99, "value": "EUR50.00"}]),
-        _doc(2, custom_fields=[{"field": 99, "value": "EUR99.00"}]),
-        _doc(3, custom_fields=[{"field": 99, "value": "EUR200.00"}]),
-        _doc(4, custom_fields=[]),  # missing amount
-    ]
-    out = apply_post_filter(
-        docs,
-        SearchFilter(max_amount=100),
-        name_by_id={"correspondents": {}, "document_types": {}},
-        monetary_field_id=99,
-    )
-    assert [d.id for d in out] == [1, 2]
-
-
-def test_post_filter_no_bounds_keeps_all_including_unknowns():
-    docs = [
-        _doc(1, custom_fields=[{"field": 99, "value": "EUR50.00"}]),
-        _doc(2, custom_fields=[]),
-        _doc(3, custom_fields=[{"field": 99, "value": None}]),
-    ]
-    out = apply_post_filter(
-        docs,
-        SearchFilter(),
-        name_by_id={"correspondents": {}, "document_types": {}},
-        monetary_field_id=99,
-    )
-    assert [d.id for d in out] == [1, 2, 3]
-
-
-def test_post_filter_resolves_correspondent_and_doctype_names():
+def test_post_filter_projects_native_fields():
     docs = [_doc(1)]
     out = apply_post_filter(
         docs,
@@ -137,19 +85,29 @@ def test_post_filter_resolves_correspondent_and_doctype_names():
             "correspondents": {12: "Telekom"},
             "document_types": {5: "Rechnung"},
         },
-        monetary_field_id=None,
     )
     assert out[0].correspondent == "Telekom"
     assert out[0].document_type == "Rechnung"
     assert out[0].created == date(2024, 1, 15)
 
 
-def test_post_filter_handles_german_amount_format():
-    docs = [_doc(1, custom_fields=[{"field": 99, "value": "1.234,56 EUR"}])]
+def test_post_filter_surfaces_lifecycle_tags():
+    docs = [_doc(1, tags=[7, 99])]
     out = apply_post_filter(
         docs,
-        SearchFilter(min_amount=1000, max_amount=2000),
+        SearchFilter(),
         name_by_id={"correspondents": {}, "document_types": {}},
-        monetary_field_id=99,
+        tag_name_by_id={7: "ai-propagated", 99: "Lebenslauf"},
+        lifecycle_tag_names=frozenset({"ai-propagated"}),
     )
-    assert len(out) == 1
+    assert out[0].lifecycle_tags == ["ai-propagated"]
+
+
+def test_post_filter_returns_all_results_unfiltered():
+    docs = [_doc(1), _doc(2), _doc(3)]
+    out = apply_post_filter(
+        docs,
+        SearchFilter(),
+        name_by_id={"correspondents": {}, "document_types": {}},
+    )
+    assert [d.id for d in out] == [1, 2, 3]

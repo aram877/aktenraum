@@ -16,7 +16,6 @@ export type InboxItem = {
   ai_document_type: string | null;
   ai_title: string | null;
   ai_issue_date: string | null;
-  ai_monetary_amount: string | null;
   ai_confidence: number | null;
   low_confidence: boolean;
 };
@@ -43,7 +42,6 @@ export type InboxFieldUpdate = Partial<{
   ai_correspondent: string | null;
   ai_title: string | null;
   ai_issue_date: string | null;
-  ai_monetary_amount: string | null;
   ai_reference_numbers: string | null;
   ai_suggested_tags: string | null;
   ai_summary_de: string | null;

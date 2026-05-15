@@ -6,11 +6,14 @@ The prompt is a system message + a user message. The system message inlines:
   2. The DocumentType taxonomy with one-line German definitions.
   3. The live correspondent list (capped at 200 names).
   4. Date-parsing rules with explicit examples.
-  5. Amount-parsing rules.
-  6. Four few-shot exemplars covering the main query shapes.
+  5. Few-shot exemplars covering the main query shapes.
 
 Pure function — no I/O, no settings dependency. The caller is responsible
 for fetching the live correspondent list (typically via the gateway cache).
+
+Amount-based filtering was removed when the generic `monetary_amount`
+field was retired. Queries like "über 3000 €" now land in `text` (or
+get routed via tags / per-type fields outside this prompt).
 """
 
 from __future__ import annotations
@@ -52,12 +55,11 @@ _MAX_TAGS = 200
 # When tweaking, keep the count ≥4 — the test suite asserts this.
 _FEW_SHOT_EXAMPLES: list[tuple[str, dict]] = [
     (
-        "Lohnabrechnungen aus 2023 über 3000€",
+        "Lohnabrechnungen aus 2023",
         {
             "document_type": "Gehaltsabrechnung",
             "date_from": "2023-01-01",
             "date_to": "2023-12-31",
-            "min_amount": 3000,
         },
     ),
     (
@@ -73,8 +75,12 @@ _FEW_SHOT_EXAMPLES: list[tuple[str, dict]] = [
         },
     ),
     (
-        "Steuerbescheide unter 100 Euro",
-        {"document_type": "Steuer", "max_amount": 100},
+        "Steuerbescheide aus 2023",
+        {
+            "document_type": "Steuer",
+            "date_from": "2023-01-01",
+            "date_to": "2023-12-31",
+        },
     ),
     # Tag-driven query: doc_type alone is unreliable for things like
     # "Lebenslauf" (often misclassified as Arbeitszeugnis), so prefer the tag.
@@ -135,10 +141,12 @@ def _build_system_prompt(*, correspondents: list[str], tags: list[str]) -> str:
     parts.append("- 'letzten Monat' / 'aktueller Monat' → relativ zu heute interpretieren")
     parts.append(f"- Heute ist {date.today().isoformat()}")
 
-    parts.append("Betragsregeln:")
-    parts.append("- 'über 3000€' / 'mehr als 3000 Euro' → min_amount=3000")
-    parts.append("- 'unter 100€' / 'weniger als 100 EUR' → max_amount=100")
-    parts.append("- 'zwischen 50 und 200€' → min_amount=50, max_amount=200")
+    parts.append(
+        "Hinweis zu Beträgen: Dieser Filter hat KEINE betragsbezogenen Felder. "
+        "Beträge in der Anfrage (z. B. 'über 3000 €') ggf. als Freitext in `text` "
+        "aufnehmen oder ignorieren. Bevorzuge typspezifische Felder zur "
+        "späteren Verfeinerung über das UI."
+    )
 
     parts.append(
         "Freitextregel: Begriffe ohne strukturelle Bedeutung (Stichworte, "

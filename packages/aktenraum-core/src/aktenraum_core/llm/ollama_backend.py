@@ -9,6 +9,20 @@ from pydantic import BaseModel, ValidationError
 log = structlog.get_logger()
 T = TypeVar("T", bound=BaseModel)
 
+# How many tokens of JSON output the model is allowed to emit. The Ollama
+# server default (around 128 for some models, 2 KB for others) routinely
+# truncates DocumentExtraction outputs mid-string when summary_de or the
+# new confidence_reason field push the body past the limit, surfacing as
+# JSONDecodeError("Unterminated string ..."). 4096 is plenty for a
+# DocumentExtraction (~1.5 KB of UTF-8) and well within gemma4's 8 K
+# default context.
+_NUM_PREDICT = 4096
+
+# How many times to retry the chat call on a parse / validation failure.
+# Small local models are stochastic — one retry recovers most transient
+# truncations. Three attempts in total keeps the worst case bounded.
+_MAX_ATTEMPTS = 3
+
 
 class OllamaBackend:
     def __init__(self, base_url: str, model: str = "llama3.1:8b", timeout: float = 120.0) -> None:
@@ -40,14 +54,63 @@ class OllamaBackend:
                 }
                 break
 
-        response = await self._client.chat(
-            model=self._model,
-            messages=augmented,
-            format="json",
-        )
+        last_error: Exception | None = None
+        for attempt in range(_MAX_ATTEMPTS):
+            response = await self._client.chat(
+                model=self._model,
+                messages=augmented,
+                format="json",
+                options={"num_predict": _NUM_PREDICT},
+            )
 
-        raw = response["message"]["content"]
-        raw = _clean_json(raw)
+            raw = response["message"]["content"]
+            raw = _clean_json(raw)
+            try:
+                return self._parse_with_recovery(raw, response_schema)
+            except (json.JSONDecodeError, ValidationError) as exc:
+                last_error = exc
+                # Try to repair before giving up on this attempt — closes
+                # unterminated strings and unbalanced braces. When repair
+                # produces a different string and that parses cleanly, return.
+                repaired = _repair_truncated_json(raw)
+                if repaired != raw:
+                    try:
+                        result = self._parse_with_recovery(repaired, response_schema)
+                        log.warning(
+                            "ollama_json_repaired",
+                            model=self._model,
+                            attempt=attempt,
+                            kind=type(exc).__name__,
+                        )
+                        return result
+                    except (json.JSONDecodeError, ValidationError) as inner:
+                        last_error = inner
+
+                if attempt < _MAX_ATTEMPTS - 1:
+                    log.warning(
+                        "ollama_json_decode_retrying",
+                        model=self._model,
+                        attempt=attempt,
+                        error=str(exc),
+                    )
+                    continue
+                log.error(
+                    "ollama_json_decode_failed",
+                    model=self._model,
+                    attempts=_MAX_ATTEMPTS,
+                    error=str(exc),
+                    raw_tail=raw[-200:] if isinstance(raw, str) else None,
+                )
+                raise
+
+        # Defensive: the loop above either returns or raises; this branch is
+        # only reachable if _MAX_ATTEMPTS is 0, which we don't allow.
+        assert last_error is not None
+        raise last_error
+
+    def _parse_with_recovery(self, raw: str, response_schema: type[T]) -> T:
+        """Parse `raw` into `response_schema`, attempting key-recovery for
+        models that leak control tokens into JSON keys."""
         try:
             return response_schema.model_validate_json(raw)
         except ValidationError:
@@ -57,10 +120,7 @@ class OllamaBackend:
             # `{"answer_de": "…"}`. Try to rescue once by renaming garbled
             # keys whose prefix matches a canonical schema field, then
             # re-validate. If that still fails, surface the original error.
-            try:
-                parsed: Any = json.loads(raw)
-            except json.JSONDecodeError:
-                raise
+            parsed: Any = json.loads(raw)  # let JSONDecodeError bubble
             recovered = _recover_keys_for_schema(parsed, response_schema)
             if recovered is parsed:
                 raise
@@ -101,6 +161,65 @@ def _clean_json(text: str) -> str:
         lines = text.splitlines()
         text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
     return text.strip()
+
+
+def _repair_truncated_json(text: str) -> str:
+    """Best-effort repair for JSON that small models truncated mid-string.
+
+    Walks the input once, tracking quote / escape / bracket state. If the
+    walk ends inside an unterminated string, we close the string. Then we
+    drop any trailing comma after that, and append closing `]` / `}` for
+    each unclosed bracket. Returns the input unchanged if no repair was
+    needed or if state-walking can't make a safe call.
+
+    This is a heuristic — it tolerates the common "model ran out of
+    tokens mid-summary" failure but won't fix structurally broken JSON
+    (mismatched braces from earlier, etc.). The caller still validates,
+    so a bad repair surfaces the original error.
+    """
+    if not text:
+        return text
+
+    in_string = False
+    escape = False
+    stack: list[str] = []  # holds "{" / "["
+    for ch in text:
+        if escape:
+            escape = False
+            continue
+        if ch == "\\" and in_string:
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch in "{[":
+            stack.append(ch)
+        elif ch in "}]":
+            if stack and ((stack[-1] == "{" and ch == "}") or (stack[-1] == "[" and ch == "]")):
+                stack.pop()
+            # else: structural mismatch — bail out of repair, let the
+            # caller fail with the original error so we don't paper over
+            # actually-broken output.
+            else:
+                return text
+
+    if not in_string and not stack:
+        return text  # already well-formed at the bracket level
+
+    repaired = text
+    if in_string:
+        repaired += '"'
+    # Drop a trailing comma now that the string is closed, so the parser
+    # doesn't choke on `…, "field": "value",` after we balance braces.
+    repaired = repaired.rstrip()
+    if repaired.endswith(","):
+        repaired = repaired[:-1]
+    for opener in reversed(stack):
+        repaired += "}" if opener == "{" else "]"
+    return repaired
 
 
 def _recover_keys_for_schema(parsed: Any, schema: type[BaseModel]) -> Any:

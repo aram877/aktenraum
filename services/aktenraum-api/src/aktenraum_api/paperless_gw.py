@@ -17,7 +17,7 @@ log = structlog.get_logger()
 
 # Custom-field names whose Paperless data_type drives normalisation. Names
 # match what the auto-tagger writes; the inbox PATCH path takes the same shape.
-_DATE_FIELDS = frozenset({"ai_issue_date", "ai_due_date", "ai_expiry_date"})
+_DATE_FIELDS = frozenset({"ai_issue_date"})
 _MONETARY_FIELDS = frozenset({"ai_monetary_amount"})
 _FLOAT_FIELDS = frozenset({"ai_confidence"})
 
@@ -237,6 +237,28 @@ class PaperlessGateway:
         resp.raise_for_status()
         # Response is a JSON-encoded UUID string ("\"abc-123-…\"") on success.
         return resp.text.strip().strip('"')
+
+    async def delete_document(self, doc_id: int) -> None:
+        """Permanently delete a document from Paperless.
+
+        Paperless does not soft-delete — once removed, the PDF, OCR, and all
+        custom-field values are gone. The propagator may still try to read
+        the doc on its next poll cycle; it will get a 404 and log it without
+        retrying, so this is safe to call mid-pipeline.
+        """
+        resp = await self._client.delete(f"/api/documents/{doc_id}/")
+        if resp.status_code == 404:
+            raise PaperlessNotFoundError(doc_id)
+        if resp.status_code in (401, 403):
+            raise PaperlessAuthError(resp.status_code)
+        if resp.status_code >= 400:
+            log.error(
+                "paperless_delete_rejected",
+                doc_id=doc_id,
+                status=resp.status_code,
+                body=resp.text,
+            )
+        resp.raise_for_status()
 
     async def open_document_stream(
         self, doc_id: int, kind: str

@@ -22,7 +22,6 @@ def build_answer_messages(question: str, *, candidates: list[dict]) -> list[dict
           "id": int, "title": str, "correspondent": str|None,
           "document_type": str|None, "created": "YYYY-MM-DD"|None,
           "ai_summary_de": str|None, "ai_issue_date": str|None,
-          "ai_due_date": str|None, "ai_expiry_date": str|None,
           "ai_monetary_amount": str|None, "ai_reference_numbers": str|None,
         }
     """
@@ -62,14 +61,7 @@ def _system_prompt() -> str:
     parts.append("")
     parts.append("Feld-Hinweise (wichtig — nutze diese Felder direkt!):")
     parts.append(
-        "- Fragen wie 'Wann läuft … ab?', 'Wann muss ich … verlängern?', "
-        "'Bis wann ist … gültig?' werden durch das Feld 'Ablauf' beantwortet."
-    )
-    parts.append(
         "- Fragen nach Ausstellungsdatum / 'wann ausgestellt' → Feld 'Ausstellung'."
-    )
-    parts.append(
-        "- Fragen nach Fälligkeit ('bis wann zahlen?') → Feld 'Fällig'."
     )
     parts.append(
         "- Fragen nach Beträgen ('wieviel', 'kosten') → Feld 'Betrag'."
@@ -85,19 +77,14 @@ def _user_prompt(question: str, candidates: list[dict]) -> str:
     parts: list[str] = []
     parts.append("Beispiele wie du Felder verwendest:")
     parts.append(
-        "  Frage: 'Wann läuft mein Pass ab?'"
-        "  Dokument hat Ablauf: 2030-05-12"
-        '  → {"answer_de": "Dein Pass läuft am 12.05.2030 ab.", "cited_ids": [<id>]}'
+        "  Frage: 'Wann wurde mein Pass ausgestellt?'"
+        "  Dokument hat Ausstellung: 2024-05-12"
+        '  → {"answer_de": "Dein Pass wurde am 12.05.2024 ausgestellt.", "cited_ids": [<id>]}'
     )
     parts.append(
         "  Frage: 'Was hat die Stromrechnung gekostet?'"
         "  Dokument hat Betrag: EUR149.99"
         '  → {"answer_de": "Die Stromrechnung betrug 149,99 €.", "cited_ids": [<id>]}'
-    )
-    parts.append(
-        "  Frage: 'Bis wann muss ich zahlen?'"
-        "  Dokument hat Fällig: 2024-12-31"
-        '  → {"answer_de": "Du musst bis zum 31.12.2024 zahlen.", "cited_ids": [<id>]}'
     )
     parts.append("")
     parts.append(f"Frage: {question}")
@@ -135,8 +122,6 @@ def _render_candidate(c: dict, *, chunks: list[str] | None = None) -> str:
         ("Korrespondent", c.get("correspondent")),
         ("Eingangsdatum", c.get("created")),
         ("Ausstellung", c.get("ai_issue_date")),
-        ("Fällig", c.get("ai_due_date")),
-        ("Ablauf", c.get("ai_expiry_date")),
         ("Betrag", c.get("ai_monetary_amount")),
         ("Referenzen", c.get("ai_reference_numbers")),
     ]
@@ -227,11 +212,7 @@ def _streaming_system_prompt() -> str:
     parts.append(f"- Heute ist {date.today().isoformat()}.")
     parts.append("")
     parts.append("Feld-Hinweise (wichtig — nutze diese Felder direkt!):")
-    parts.append(
-        "- 'Wann läuft … ab?' / 'verlängern' / 'gültig' → Feld 'Ablauf'."
-    )
     parts.append("- 'wann ausgestellt' → Feld 'Ausstellung'.")
-    parts.append("- 'bis wann zahlen' → Feld 'Fällig'.")
     parts.append("- 'wieviel' / 'kosten' → Feld 'Betrag'.")
     parts.append(
         "- Wenn ein passendes Feld bereits einen Wert hat, IST das die Antwort. "
@@ -249,9 +230,9 @@ def _streaming_user_prompt(
     parts: list[str] = []
     parts.append("Beispiele für korrektes Format:")
     parts.append(
-        "  Frage: 'Wann läuft mein Pass ab?'\n"
-        "  Dokument hat Ablauf: 2030-05-12\n"
-        "  → 'Dein Pass läuft am 12.05.2030 ab. [Quelle: 17]'"
+        "  Frage: 'Wann wurde mein Pass ausgestellt?'\n"
+        "  Dokument hat Ausstellung: 2024-05-12\n"
+        "  → 'Dein Pass wurde am 12.05.2024 ausgestellt. [Quelle: 17]'"
     )
     parts.append(
         "  Frage: 'Was hat die Stromrechnung gekostet?'\n"

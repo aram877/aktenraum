@@ -12,12 +12,18 @@ from .schemas import LibraryItem, LibraryList, TagFacet, TagFacetList
 
 # Lifecycle tags we surface as badges. Excludes ai-pending (filtered out
 # entirely) and ai-low-confidence (an auxiliary that only matters for the
-# review queue).
-_BADGE_TAGS = frozenset(LIFECYCLE_TAGS) - {"ai-pending"}
+# review queue). `ai-auto-approved` is auxiliary and persists through
+# propagation, so it joins the badge vocabulary so the SPA can render an
+# "Auto-genehmigt" pill.
+_BADGE_TAGS = (frozenset(LIFECYCLE_TAGS) - {"ai-pending"}) | {"ai-auto-approved"}
 
 # Tags that must NEVER appear in the user-facing tag chip / facet vocabulary —
-# the lifecycle vocabulary plus the auxiliary low-confidence flag.
-_INTERNAL_TAGS = frozenset(LIFECYCLE_TAGS) | {"ai-low-confidence"}
+# the lifecycle vocabulary plus the auxiliary low-confidence and
+# auto-approved flags.
+_INTERNAL_TAGS = frozenset(LIFECYCLE_TAGS) | {
+    "ai-low-confidence",
+    "ai-auto-approved",
+}
 
 # How many non-pending documents to sample for the tag-facet aggregation. One
 # upstream call instead of N. Personal-DMS scale: 500 covers years of intake;
@@ -193,6 +199,7 @@ def _project(
     return LibraryItem(
         id=doc["id"],
         title=doc.get("title") or f"Dokument #{doc['id']}",
+        original_file_name=doc.get("original_file_name"),
         created=_parse_date(doc.get("created_date") or doc.get("created")),
         correspondent=correspondent_by_id.get(doc.get("correspondent"))
         or custom_fields.get("ai_correspondent"),

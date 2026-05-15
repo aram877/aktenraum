@@ -66,6 +66,24 @@ export function useReprocess() {
   });
 }
 
+async function deleteDocumentRequest(docId: number): Promise<void> {
+  await api.delete(`/documents/${docId}`);
+}
+
+export function useDeleteDocument() {
+  const qc = useQueryClient();
+  return useMutation<void, AxiosError<{ detail?: string }>, number>({
+    mutationFn: deleteDocumentRequest,
+    onSuccess: (_void, docId) => {
+      // Delete pulls the row out of every list and the doc-detail cache.
+      qc.invalidateQueries({ queryKey: ["library"] });
+      qc.invalidateQueries({ queryKey: ["inbox"] });
+      qc.invalidateQueries({ queryKey: ["in-flight"] });
+      qc.removeQueries({ queryKey: ["document-detail", docId] });
+    },
+  });
+}
+
 // Status polling for the upload pipeline.
 
 export type TaskStatus = {
@@ -86,12 +104,12 @@ export type DocumentStatus = {
 export type DocumentDetail = {
   id: number;
   title: string;
+  original_file_name: string | null;
   created: string | null;
   ai_document_type: string | null;
   ai_correspondent: string | null;
+  ai_title: string | null;
   ai_issue_date: string | null;
-  ai_due_date: string | null;
-  ai_expiry_date: string | null;
   ai_monetary_amount: string | null;
   ai_reference_numbers: string | null;
   ai_suggested_tags: string | null;
@@ -107,9 +125,8 @@ export type DocumentDetail = {
 export type DocumentFieldUpdate = Partial<{
   ai_document_type: string | null;
   ai_correspondent: string | null;
+  ai_title: string | null;
   ai_issue_date: string | null;
-  ai_due_date: string | null;
-  ai_expiry_date: string | null;
   ai_monetary_amount: string | null;
   ai_reference_numbers: string | null;
   ai_suggested_tags: string | null;

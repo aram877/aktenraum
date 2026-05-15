@@ -74,6 +74,13 @@ async def process_approved_document(
 
         created_date: str | None = ai_fields.get("ai_issue_date") or None
 
+        # ai_title becomes the Paperless native `title` so the doc surfaces as
+        # the AI-suggested name in every list view. The original filename
+        # (`original_file_name`) stays on the Paperless side and is rendered
+        # alongside the AI title in the SPA — title is the speaking label,
+        # original_file_name is the provenance.
+        ai_title: str | None = (ai_fields.get("ai_title") or "").strip() or None
+
         suggested_tag_ids: list[int] = []
         for name in _split_suggested_tags(ai_fields.get("ai_suggested_tags")):
             suggested_tag_ids.append(await paperless.get_or_create_tag(name))
@@ -92,6 +99,7 @@ async def process_approved_document(
             document_type=document_type_id,
             created_date=created_date,
             tags=sorted(new_tag_set),
+            title=ai_title,
         )
 
         logger.info(

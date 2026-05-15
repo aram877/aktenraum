@@ -6,6 +6,7 @@ import { Nav } from "../components/Nav";
 import { ProcessingBadge } from "../components/ProcessingBadge";
 import type { DocumentDetail, DocumentFieldUpdate } from "../lib/documents";
 import {
+  useDeleteDocument,
   useDocumentDetail,
   useDocumentFieldsPatch,
   useReprocess,
@@ -37,9 +38,8 @@ const DOC_TYPES = [
 type FormState = {
   ai_document_type: string;
   ai_correspondent: string;
+  ai_title: string;
   ai_issue_date: string;
-  ai_due_date: string;
-  ai_expiry_date: string;
   ai_monetary_amount: string;
   ai_reference_numbers: string;
   ai_suggested_tags: string;
@@ -50,9 +50,8 @@ function detailToForm(d: DocumentDetail | undefined): FormState {
   return {
     ai_document_type: d?.ai_document_type ?? "",
     ai_correspondent: d?.ai_correspondent ?? "",
+    ai_title: d?.ai_title ?? "",
     ai_issue_date: d?.ai_issue_date ?? "",
-    ai_due_date: d?.ai_due_date ?? "",
-    ai_expiry_date: d?.ai_expiry_date ?? "",
     ai_monetary_amount: d?.ai_monetary_amount ?? "",
     ai_reference_numbers: d?.ai_reference_numbers ?? "",
     ai_suggested_tags: d?.ai_suggested_tags ?? "",
@@ -65,9 +64,11 @@ export function LibraryReview({ id }: { id: number }) {
   const detail = useDocumentDetail(id);
   const patch = useDocumentFieldsPatch(id);
   const reprocess = useReprocess();
+  const deleteDoc = useDeleteDocument();
 
   const [form, setForm] = useState<FormState>(detailToForm(undefined));
   const [initialised, setInitialised] = useState<number | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   // Hydrate the form once the detail resolves; reset when the doc id changes.
   useEffect(() => {
@@ -95,9 +96,8 @@ export function LibraryReview({ id }: { id: number }) {
     };
     cmp("ai_document_type", detail.data.ai_document_type);
     cmp("ai_correspondent", detail.data.ai_correspondent);
+    cmp("ai_title", detail.data.ai_title);
     cmp("ai_issue_date", detail.data.ai_issue_date);
-    cmp("ai_due_date", detail.data.ai_due_date);
-    cmp("ai_expiry_date", detail.data.ai_expiry_date);
     cmp("ai_monetary_amount", detail.data.ai_monetary_amount);
     cmp("ai_reference_numbers", detail.data.ai_reference_numbers);
     cmp("ai_suggested_tags", detail.data.ai_suggested_tags);
@@ -130,11 +130,22 @@ export function LibraryReview({ id }: { id: number }) {
     }
   };
 
+  const onDelete = async () => {
+    try {
+      await deleteDoc.mutateAsync(id);
+      void navigate({ to: "/library" });
+    } catch {
+      // surfaced via deleteDoc.error below
+    }
+  };
+
   const errorDetail =
     patch.error?.response?.data?.detail ??
     patch.error?.message ??
     reprocess.error?.response?.data?.detail ??
     reprocess.error?.message ??
+    deleteDoc.error?.response?.data?.detail ??
+    deleteDoc.error?.message ??
     null;
 
   return (
@@ -174,8 +185,15 @@ export function LibraryReview({ id }: { id: number }) {
               <header className="flex items-start justify-between gap-3 border-b border-neutral-200 px-4 py-3">
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold">
-                    {detail.data.title}
+                    {detail.data.ai_title || detail.data.title}
                   </div>
+                  {detail.data.original_file_name &&
+                    detail.data.original_file_name !==
+                      (detail.data.ai_title || detail.data.title) && (
+                      <div className="truncate text-[11px] text-neutral-400">
+                        Original: {detail.data.original_file_name}
+                      </div>
+                    )}
                   <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
                     {detail.data.created && <span>{detail.data.created}</span>}
                     {detail.data.ai_confidence != null && (
@@ -190,6 +208,12 @@ export function LibraryReview({ id }: { id: number }) {
 
               <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3 text-sm">
                 <Field
+                  label="Titel (KI-Vorschlag)"
+                  value={form.ai_title}
+                  onChange={(v) => setForm({ ...form, ai_title: v })}
+                  placeholder="z.B. Rechnung Stadtwerke März 2024"
+                />
+                <Field
                   label="Dokumenttyp"
                   as="select"
                   value={form.ai_document_type}
@@ -200,26 +224,12 @@ export function LibraryReview({ id }: { id: number }) {
                   value={form.ai_correspondent}
                   onChange={(v) => setForm({ ...form, ai_correspondent: v })}
                 />
-                <div className="grid grid-cols-3 gap-2">
-                  <Field
-                    label="Ausstellung"
-                    type="date"
-                    value={form.ai_issue_date}
-                    onChange={(v) => setForm({ ...form, ai_issue_date: v })}
-                  />
-                  <Field
-                    label="Fällig"
-                    type="date"
-                    value={form.ai_due_date}
-                    onChange={(v) => setForm({ ...form, ai_due_date: v })}
-                  />
-                  <Field
-                    label="Ablauf"
-                    type="date"
-                    value={form.ai_expiry_date}
-                    onChange={(v) => setForm({ ...form, ai_expiry_date: v })}
-                  />
-                </div>
+                <Field
+                  label="Ausstellung"
+                  type="date"
+                  value={form.ai_issue_date}
+                  onChange={(v) => setForm({ ...form, ai_issue_date: v })}
+                />
                 <Field
                   label="Betrag"
                   value={form.ai_monetary_amount}
@@ -287,6 +297,38 @@ export function LibraryReview({ id }: { id: number }) {
                 >
                   Download
                 </a>
+                {!confirmingDelete && (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingDelete(true)}
+                    disabled={deleteDoc.isPending}
+                    className="rounded-md border border-red-300 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
+                    title="Dokument unwiderruflich löschen"
+                  >
+                    Löschen
+                  </button>
+                )}
+                {confirmingDelete && (
+                  <div className="flex items-center gap-1 rounded-md border border-red-300 bg-red-50 px-2 py-1.5 text-xs text-red-900">
+                    <span>Wirklich löschen?</span>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingDelete(false)}
+                      disabled={deleteDoc.isPending}
+                      className="rounded px-2 py-0.5 hover:bg-red-100"
+                    >
+                      Abbrechen
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onDelete}
+                      disabled={deleteDoc.isPending}
+                      className="rounded bg-red-600 px-2 py-0.5 font-medium text-white hover:bg-red-700 disabled:opacity-60"
+                    >
+                      {deleteDoc.isPending ? "…" : "Ja, löschen"}
+                    </button>
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={onReprocess}

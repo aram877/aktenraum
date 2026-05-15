@@ -20,6 +20,7 @@ class LibraryItem(BaseModel):
 
     id: int
     title: str
+    original_file_name: str | None = None
     created: date | None = None
     correspondent: str | None = None
     document_type: str | None = None

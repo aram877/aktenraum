@@ -15,9 +15,8 @@ from aktenraum_api.paperless_gw import PaperlessAuthError, PaperlessNotFoundErro
 FIELD_IDS = {
     "ai_document_type": 1,
     "ai_correspondent": 2,
-    "ai_issue_date": 3,
-    "ai_due_date": 4,
-    "ai_expiry_date": 5,
+    "ai_title": 3,
+    "ai_issue_date": 4,
     "ai_monetary_amount": 6,
     "ai_reference_numbers": 7,
     "ai_suggested_tags": 8,
@@ -33,6 +32,7 @@ TAG_IDS = {
     "ai-rejected": 3,
     "ai-propagated": 4,
     "ai-low-confidence": 7,
+    "ai-auto-approved": 8,
 }
 
 

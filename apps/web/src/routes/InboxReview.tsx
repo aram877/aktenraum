@@ -38,9 +38,8 @@ const DOC_TYPES = [
 type FormState = {
   ai_document_type: string;
   ai_correspondent: string;
+  ai_title: string;
   ai_issue_date: string;
-  ai_due_date: string;
-  ai_expiry_date: string;
   ai_monetary_amount: string;
   ai_reference_numbers: string;
   ai_suggested_tags: string;
@@ -50,9 +49,8 @@ type FormState = {
 const EMPTY_FORM: FormState = {
   ai_document_type: "",
   ai_correspondent: "",
+  ai_title: "",
   ai_issue_date: "",
-  ai_due_date: "",
-  ai_expiry_date: "",
   ai_monetary_amount: "",
   ai_reference_numbers: "",
   ai_suggested_tags: "",
@@ -75,9 +73,8 @@ export function InboxReview({ id }: { id: number }) {
       setForm({
         ai_document_type: detail.data.ai_document_type ?? "",
         ai_correspondent: detail.data.ai_correspondent ?? "",
+        ai_title: detail.data.ai_title ?? "",
         ai_issue_date: detail.data.ai_issue_date ?? "",
-        ai_due_date: detail.data.ai_due_date ?? "",
-        ai_expiry_date: detail.data.ai_expiry_date ?? "",
         ai_monetary_amount: detail.data.ai_monetary_amount ?? "",
         ai_reference_numbers: detail.data.ai_reference_numbers ?? "",
         ai_suggested_tags: detail.data.ai_suggested_tags ?? "",
@@ -100,9 +97,8 @@ export function InboxReview({ id }: { id: number }) {
     };
     cmp("ai_document_type", detail.data.ai_document_type);
     cmp("ai_correspondent", detail.data.ai_correspondent);
+    cmp("ai_title", detail.data.ai_title);
     cmp("ai_issue_date", detail.data.ai_issue_date);
-    cmp("ai_due_date", detail.data.ai_due_date);
-    cmp("ai_expiry_date", detail.data.ai_expiry_date);
     cmp("ai_monetary_amount", detail.data.ai_monetary_amount);
     cmp("ai_reference_numbers", detail.data.ai_reference_numbers);
     cmp("ai_suggested_tags", detail.data.ai_suggested_tags);
@@ -200,7 +196,16 @@ export function InboxReview({ id }: { id: number }) {
             <section className="flex h-[80vh] flex-col overflow-hidden rounded-md border border-neutral-200 bg-white">
               <header className="flex items-center justify-between border-b border-neutral-200 px-4 py-3">
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold">{detail.data.title}</div>
+                  <div className="truncate text-sm font-semibold">
+                    {detail.data.ai_title || detail.data.title}
+                  </div>
+                  {detail.data.original_file_name &&
+                    detail.data.original_file_name !==
+                      (detail.data.ai_title || detail.data.title) && (
+                      <div className="truncate text-[11px] text-neutral-400">
+                        Original: {detail.data.original_file_name}
+                      </div>
+                    )}
                   <div className="text-xs text-neutral-500">
                     {detail.data.created ?? "—"} ·{" "}
                     {detail.data.ai_confidence != null
@@ -217,6 +222,12 @@ export function InboxReview({ id }: { id: number }) {
 
               <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3 text-sm">
                 <Field
+                  label="Titel (KI-Vorschlag)"
+                  value={form.ai_title}
+                  onChange={(v) => setForm({ ...form, ai_title: v })}
+                  placeholder="z.B. Rechnung Stadtwerke März 2024"
+                />
+                <Field
                   label="Dokumenttyp"
                   as="select"
                   value={form.ai_document_type}
@@ -227,26 +238,12 @@ export function InboxReview({ id }: { id: number }) {
                   value={form.ai_correspondent}
                   onChange={(v) => setForm({ ...form, ai_correspondent: v })}
                 />
-                <div className="grid grid-cols-3 gap-2">
-                  <Field
-                    label="Ausstellung"
-                    type="date"
-                    value={form.ai_issue_date}
-                    onChange={(v) => setForm({ ...form, ai_issue_date: v })}
-                  />
-                  <Field
-                    label="Fällig"
-                    type="date"
-                    value={form.ai_due_date}
-                    onChange={(v) => setForm({ ...form, ai_due_date: v })}
-                  />
-                  <Field
-                    label="Ablauf"
-                    type="date"
-                    value={form.ai_expiry_date}
-                    onChange={(v) => setForm({ ...form, ai_expiry_date: v })}
-                  />
-                </div>
+                <Field
+                  label="Ausstellung"
+                  type="date"
+                  value={form.ai_issue_date}
+                  onChange={(v) => setForm({ ...form, ai_issue_date: v })}
+                />
                 <Field
                   label="Betrag"
                   value={form.ai_monetary_amount}

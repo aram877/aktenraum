@@ -15,8 +15,8 @@ def make_settings(monkeypatch):
             "PAPERLESS_BASE_URL": "http://x",
             "PAPERLESS_API_TOKEN": "x",
             "LLM_BACKEND": "ollama",
-            "AUTO_APPROVE_CONFIDENCE": "0.95",
-            "AUTO_APPROVE_TYPES": "Rechnung,Kontoauszug",
+            "AUTO_APPROVE_CONFIDENCE": "0.90",
+            "AUTO_APPROVE_TYPES": "",
             "LOW_CONFIDENCE_THRESHOLD": "0.6",
             "FEW_SHOT_EXAMPLES": "0",
         }

@@ -85,9 +85,8 @@ echo
 echo "Custom fields:"
 ensure_custom_field "ai_document_type"    "string"
 ensure_custom_field "ai_correspondent"    "string"
+ensure_custom_field "ai_title"            "string"
 ensure_custom_field "ai_issue_date"       "date"
-ensure_custom_field "ai_due_date"         "date"
-ensure_custom_field "ai_expiry_date"      "date"
 ensure_custom_field "ai_monetary_amount"  "monetary"
 ensure_custom_field "ai_reference_numbers" "string"
 ensure_custom_field "ai_suggested_tags"   "string"
@@ -103,6 +102,7 @@ echo
 echo "Tags:"
 ensure_tag "ai-pending"           "#f59e0b"  # amber  — extracted, awaiting review
 ensure_tag "ai-approved"          "#22c55e"  # green  — approved, triggers propagation
+ensure_tag "ai-auto-approved"     "#10b981"  # emerald — auxiliary: auto-approved via high confidence
 ensure_tag "ai-rejected"          "#6b7280"  # gray   — rejected, no propagation
 ensure_tag "ai-propagated"        "#3b82f6"  # blue   — native fields written
 ensure_tag "ai-propagation-error" "#ef4444"  # red    — propagation failed mid-run

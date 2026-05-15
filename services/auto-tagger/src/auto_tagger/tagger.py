@@ -42,13 +42,12 @@ Wähle den document_type anhand dieser Definitionen — nimm immer den spezifisc
 Weitere Regeln:
 - Datumsangaben immer im Format YYYY-MM-DD. OCR fragmentiert oft Ziffern mit Leerzeichen, z.B. "2 8. 0 2.24" oder "28. 0 2 . 2024" — interpretiere solche Muster trotzdem als Datum (28.02.2024). Bei zweistelligen Jahreszahlen ergänze sinnvoll: 24 → 2024, 87 → 1987 (laut Kontext).
 - key_dates.issue: das Datum, an dem dieses Dokument selbst ausgestellt/datiert wurde (z.B. Rechnungsdatum, Bescheiddatum, Vertragsabschluss, Ausstellungsdatum eines Ausweises — typischerweise neben "Datum:", "Ausgestellt am:", "vom"). NICHT verwenden für: Geburtsdaten, Beschäftigungs- oder Studienzeiträume, im Inhalt erwähnte Termine, Mietbeginn, Reisedaten o.Ä. Wenn das Dokument kein eigenes Ausstellungsdatum trägt (z.B. Lebenslauf, Notiz, Foto): null
-- key_dates.due: Fälligkeits-/Zahlungsdatum (z.B. "zahlbar bis"), nicht andere Termine
-- key_dates.expiry: Ablauf-/Gültigkeitsende (z.B. Ausweis "Gültig bis", Versicherung bis), nicht andere Endtermine
 - correspondent: bei amtlichen Dokumenten die ausstellende Behörde/Authority (z.B. "STADT BIELEFELD", "Finanzamt Köln"); bei Rechnungen das Unternehmen, das die Rechnung schickt; bei Verträgen die Gegenpartei. Auch dieser Wert kann durch OCR-Fragmentierung verunreinigt sein — normalisiere Leerzeichen.
+- ai_title: ein prägnanter, sprechender Titel auf Deutsch (max. ~8 Wörter). Format: Dokumenttyp + Korrespondent + optional Monat/Jahr oder Stichwort. Beispiele: "Rechnung Stadtwerke März 2024", "Arbeitsvertrag Acme GmbH", "Steuerbescheid 2023 Finanzamt Köln". Lass das Feld null, wenn weder Typ noch Korrespondent ermittelbar sind.
 - Geldbeträge immer mit Währung, z.B. "149,99 EUR"
 - summary_de muss genau 3 Sätze auf Deutsch enthalten
 - confidence gibt an, wie sicher du dir bei der Extraktion bist (0.0 = unsicher, 1.0 = sehr sicher)
-- Bei nicht-ermittelbaren Skalar-Feldern (correspondent, monetary_amount, key_dates.*): null
+- Bei nicht-ermittelbaren Skalar-Feldern (correspondent, ai_title, monetary_amount, key_dates.*): null
 - Bei nicht-ermittelbaren Listen-Feldern (reference_numbers, suggested_tags): leere Liste []
 """
 
@@ -83,8 +82,8 @@ def _example_payload(
     Native Paperless fields (correspondent, document_type, created_date, tags)
     take priority over the ai_* custom fields where they exist — those are
     the user's ground truth post-propagation. The ai_* fields fill in the
-    columns Paperless has no native equivalent for (summary, monetary, due
-    and expiry dates, reference numbers).
+    columns Paperless has no native equivalent for (summary, monetary,
+    reference numbers, ai_title).
 
     Skips ai_monetary_amount on purpose: Paperless stores it in ISO+amount
     form (e.g. EUR149.99) which conflicts with the German format the system
@@ -93,10 +92,9 @@ def _example_payload(
     payload = {
         "document_type": document_type_name or ai_fields.get("ai_document_type"),
         "correspondent": correspondent_name or ai_fields.get("ai_correspondent"),
+        "ai_title": ai_fields.get("ai_title"),
         "key_dates": {
             "issue": created_date or ai_fields.get("ai_issue_date"),
-            "due": ai_fields.get("ai_due_date"),
-            "expiry": ai_fields.get("ai_expiry_date"),
         },
         "reference_numbers": _split_csv(ai_fields.get("ai_reference_numbers")),
         "suggested_tags": tag_names or _split_csv(ai_fields.get("ai_suggested_tags")),
@@ -109,6 +107,7 @@ def _example_payload(
 _LIFECYCLE_TAG_NAMES = {
     "ai-pending",
     "ai-approved",
+    "ai-auto-approved",
     "ai-rejected",
     "ai-propagated",
     "ai-propagation-error",
@@ -238,17 +237,16 @@ async def _build_history_hint(paperless: PaperlessClient, text: str) -> str:
 def _route_lifecycle_tags(extraction: DocumentExtraction, settings: Settings) -> list[str]:
     """Decide which lifecycle/auxiliary tags to apply based on confidence routing.
 
-    Returns the tag names to add. Auto-approve sends the doc straight to
-    `ai-approved` (the propagation loop then writes native fields without
-    human review). Otherwise the doc lands in `ai-pending`; if confidence is
-    low we additionally tag `ai-low-confidence` so the user can prioritise it.
+    Returns the tag names to add. When confidence ≥ AUTO_APPROVE_CONFIDENCE
+    (any document type) the doc goes straight to `ai-approved` and we add
+    the auxiliary marker `ai-auto-approved` so the UI can render an
+    "auto-genehmigt" badge — the marker persists through propagation because
+    the propagator only strips `ai-approved`. Otherwise the doc lands in
+    `ai-pending`; if confidence is below LOW_CONFIDENCE_THRESHOLD we
+    additionally tag `ai-low-confidence` so the user can prioritise it.
     """
-    auto_approve = (
-        extraction.confidence >= settings.auto_approve_confidence
-        and extraction.document_type.value in settings.auto_approve_types
-    )
-    if auto_approve:
-        return ["ai-approved"]
+    if extraction.confidence >= settings.auto_approve_confidence:
+        return ["ai-approved", "ai-auto-approved"]
     tags = ["ai-pending"]
     if extraction.confidence < settings.low_confidence_threshold:
         tags.append("ai-low-confidence")

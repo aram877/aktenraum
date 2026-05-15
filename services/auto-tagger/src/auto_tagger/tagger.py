@@ -70,18 +70,22 @@ Wähle den document_type anhand dieser Definitionen — nimm immer den spezifisc
 - Rechnung: Rechnungen, Quittungen, Kaufbelege für Waren oder Dienstleistungen (nicht von Versicherungen oder Behörden)
 - Gehaltsabrechnung: Lohnabrechnung, Gehaltszettel, Brutto-Netto-Abrechnung, Bezügemitteilung, Rentenabrechnung
 - Kontoauszug: Bank-, Kreditkarten-, Depot- und Sparkontoauszüge
-- Nebenkostenabrechnung: Betriebskostenabrechnung, Jahresabrechnung für Strom, Gas, Wasser, Heizung, Hausgeld
+- Nebenkostenabrechnung: Betriebskostenabrechnung, Jahresabrechnung für Strom, Gas, Wasser, Heizung — Mieter-seitige Nebenkostenabrechnung. NICHT: Hausgeldabrechnung (siehe unten, Eigentümer-seitig).
+- Hausgeldabrechnung: Jahresabrechnung der Wohnungseigentümergemeinschaft (WEG) — Eigentümer-seitig, vom Hausverwalter ausgestellt. Typische Inhalte: Wirtschaftsjahr, Hausgeldanteil, Instandhaltungsrücklage, Nachzahlung/Guthaben, Hausverwaltung. Aliasnamen: WEG-Abrechnung. NICHT verwechseln mit: Nebenkostenabrechnung (Mieter-seitig), Wohngeldbescheid (Sozialleistung → Bescheid).
 - Mahnung: Zahlungserinnerungen, Mahnbescheide, Inkassoschreiben, Vollstreckungsbescheide
 - Vertrag: Arbeitsvertrag, Mietvertrag, Kaufvertrag, Dienstleistungsvertrag, Darlehensvertrag, Vereinbarungen
 - Kündigung: Kündigungsschreiben und Widerruf von Verträgen, Abonnements oder Mitgliedschaften
 - Versicherung: Versicherungspolicen, Versicherungsnachweise, Deckungsbestätigungen, Schadensregulierung
 - Steuer: Steuererklärungen, Steuerformulare (Anlage N, V, KAP etc.), Steuer-Bescheinigungen (NICHT die Lohnsteuerbescheinigung — die hat einen eigenen Typ).
 - Lohnsteuerbescheinigung: vom Arbeitgeber jährlich ausgestellte "Ausdruck der Elektronischen Lohnsteuerbescheinigung" / "Besondere Lohnsteuerbescheinigung" (§41b EStG). Aliasnamen: Lohnsteuerabrechnung, Jahreslohnzettel. Typische Inhalte: Bescheinigungszeitraum (Jahr), Steueridentifikationsnummer, Steuerklasse, Brutto-Arbeitslohn (Zeile 3), einbehaltene Lohnsteuer (Zeile 4), Solidaritätszuschlag, Kirchensteuer, zuständiges Finanzamt. NICHT verwechseln mit: Gehaltsabrechnung (monatlich), Steuerbescheid (vom Finanzamt → Bescheid), Sozialversicherungsmeldung (DEÜV-Meldung des Arbeitgebers).
-- Bescheid: Amtliche Bescheide mit Rechtswirkung — Steuerbescheid, Rentenbescheid, BAföG-Bescheid, Bewilligungs- oder Ablehnungsbescheid
+- Spendenbescheinigung: Zuwendungsbestätigung nach §50 EStDV — von einer als gemeinnützig anerkannten Organisation für eine erhaltene Spende ausgestellt, dient als Beleg für die Steuererklärung. Aliasnamen: Zuwendungsbestätigung. Typische Inhalte: Empfängerorganisation, Spendendatum, Spendenbetrag, Verwendungszweck, Anerkennung der Steuerbegünstigung. NICHT verwechseln mit: Rechnung (echter Kauf/Leistung), Mitgliedschaft (Vereinsmitgliedschaft), Steuer (eigene Steuererklärung).
+- Bescheid: Amtliche Bescheide mit Rechtswirkung — Steuerbescheid, Rentenbescheid, BAföG-Bescheid, Bewilligungs- oder Ablehnungsbescheid (NICHT: Bußgeldbescheid → eigener Typ)
 - Behördenbrief: Amtliche Schreiben ohne Bescheidcharakter — Informationsschreiben, Antragsbestätigungen, Einwohnermeldebescheinigung (Bestätigung des Wohnsitzes vom Bürgeramt). NICHT: Meldebescheinigung zur Sozialversicherung (siehe Sozialversicherungsmeldung).
 - Sozialversicherungsmeldung: Meldebescheinigung zur Sozialversicherung / Jahresmeldung zur Sozialversicherung / SV-Meldung / Meldung nach DEÜV — vom Arbeitgeber jährlich (oder bei Beschäftigungsende) ausgestellt. Typisch: Beitragszeitraum, Brutto-Arbeitsentgelt, beitragspflichtiges Entgelt, Sozialversicherungsnummer (RV-Nr.), Betriebsnummer. NICHT verwechseln mit: Gehaltsabrechnung (monatlich), Lohnsteuerbescheinigung (→ Steuer), oder Einwohnermeldebescheinigung (→ Behördenbrief).
-- Kfz: Fahrzeugschein, Fahrzeugbrief, Zulassungsbescheinigung, TÜV-/HU-Bericht, Kfz-Steuer
-- Arztbrief: Arztberichte, Befundbriefe, Laborbefunde, Überweisungen, Rezepte, Krankenhausentlassungsberichte, Impfnachweise
+- Kfz: Fahrzeugschein, Fahrzeugbrief, Zulassungsbescheinigung, TÜV-/HU-Bericht, Kfz-Steuer. NICHT: Bußgeldbescheid (eigener Typ).
+- Bussgeldbescheid: Bußgeld- oder Verwarngeldbescheid (auch Anhörungsbogen) wegen Verkehrsverstoß. Typische Inhalte: Tatzeit/Tatort, Kennzeichen, Tatbestand, Bußgeld/Verwarngeld, Punkte in Flensburg, Einspruchsfrist. Aliasnamen: Verwarnung, Verkehrsbescheid. NICHT verwechseln mit: Kfz-Dokumenten (Zulassung, TÜV), Steuerbescheid → Bescheid.
+- Arztbrief: längere ärztliche Berichte, Befundbriefe, Laborbefunde, Überweisungen, Rezepte, Krankenhausentlassungsberichte, Impfnachweise. NICHT: kurze Arbeitsunfähigkeitsbescheinigung → Krankschreibung.
+- Krankschreibung: Arbeitsunfähigkeitsbescheinigung (AU-Bescheinigung, "gelber Schein") — kurzes Formular mit Zeitraum, das dem Arbeitgeber vorgelegt wird. Typische Inhalte: AU-Zeitraum von/bis, Erst- oder Folgebescheinigung, Arzt/Praxis, ggf. ICD-10-Code. Aliasnamen: AU-Bescheinigung, Arbeitsunfähigkeitsbescheinigung, gelber Schein. NICHT verwechseln mit: Arztbrief (ausführlicher Bericht), Rezept.
 - Garantie: Garantieurkunden, Gewährleistungsnachweise, Garantiezertifikate für Geräte oder Produkte
 - Urkunde: Geburtsurkunde, Heiratsurkunde, Sterbeurkunde, Apostille, notarielle Urkunden
 - Ausweis: Scans von Personalausweis, Reisepass, Führerschein, Krankenversicherungskarte, Schwerbehindertenausweis
@@ -99,17 +103,21 @@ Weitere Regeln:
   • Gehaltsabrechnung: "Gehaltsabrechnung {Arbeitgeber} {Monat Jahr}" — z.B. "Gehaltsabrechnung Acme GmbH November 2024"
   • Kontoauszug: "Kontoauszug {Bank} {Monat Jahr}" — z.B. "Kontoauszug Sparkasse Köln Februar 2024"
   • Nebenkostenabrechnung: "Nebenkostenabrechnung {Vermieter/Hausverwaltung} {Jahr}" — z.B. "Nebenkostenabrechnung Mustermann Immobilien 2023"
+  • Hausgeldabrechnung: "Hausgeldabrechnung {Hausverwaltung} {Jahr}" — z.B. "Hausgeldabrechnung Müller WEG-Verwaltung 2023"
   • Mahnung: "Mahnung {Firma} {Rechnungsnr. oder Monat Jahr}" — z.B. "Mahnung Telekom Rechnung 12345"
   • Vertrag: "{Vertragsart} {Gegenpartei}" — z.B. "Arbeitsvertrag Acme GmbH" oder "Mietvertrag Schiller-Str. 12"
   • Kündigung: "Kündigung {Vertragsart} {Gegenpartei}" — z.B. "Kündigung Fitnessstudio McFit"
   • Versicherung: "{Versicherungsart} {Versicherer} {Jahr}" — z.B. "Hausratversicherung Allianz 2024"
   • Steuer: "{Dokumenttitel} {Jahr} {Finanzamt}" — z.B. "Steuererklärung 2023 Finanzamt Köln"
   • Lohnsteuerbescheinigung: "Lohnsteuerbescheinigung {Arbeitgeber} {Jahr}" — z.B. "Lohnsteuerbescheinigung Acme GmbH 2024"
+  • Spendenbescheinigung: "Spendenbescheinigung {Empfänger} {Jahr}" — z.B. "Spendenbescheinigung Ärzte ohne Grenzen 2024"
   • Bescheid: "{Bescheidtitel} {Behörde} {Datum/Jahr}" — z.B. "Rentenbescheid Deutsche Rentenversicherung 2024"
   • Behördenbrief: "{Behörde} – {Stichwort} {Datum}" — z.B. "Bürgeramt München – Meldebescheinigung 2024"
   • Sozialversicherungsmeldung: "SV-Meldung {Arbeitgeber} {Jahr}" — z.B. "SV-Meldung Acme GmbH 2024"
   • Kfz: "{Dokumenttitel} {Kennzeichen oder Marke}" — z.B. "Zulassungsbescheinigung K-AB-123" oder "TÜV-Bericht VW Golf"
+  • Bussgeldbescheid: "Bußgeldbescheid {Kennzeichen oder Behörde} {Datum}" — z.B. "Bußgeldbescheid K-AB-123 März 2024"
   • Arztbrief: "Arztbrief {Facharzt/Praxis} {Datum}" — z.B. "Arztbrief Dr. Müller März 2024"
+  • Krankschreibung: "Krankschreibung {Arzt} {Zeitraum}" — z.B. "Krankschreibung Dr. Müller 12.–19.03.2024"
   • Garantie: "Garantie {Produkt} {Marke}" — z.B. "Garantie Waschmaschine Bosch"
   • Urkunde: "{Urkundenart} {Name oder Datum}" — z.B. "Geburtsurkunde Max Mustermann"
   • Ausweis: "{Ausweisart} {Inhabername}" — z.B. "Personalausweis Max Mustermann"

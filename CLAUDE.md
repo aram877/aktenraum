@@ -248,15 +248,20 @@ Together these turn user corrections into future signal: edit the AI fields pre-
 
 Switch by editing `docker/auto-tagger.env` and running `docker compose up -d auto-tagger` (restart alone does NOT re-read env files — must use `up -d`). After Python source changes also use `--build`.
 
-### Document taxonomy (22 types)
+### Document taxonomy (26 types)
 
-Rechnung · Gehaltsabrechnung · Kontoauszug · Nebenkostenabrechnung · Mahnung · Vertrag · Kündigung · Versicherung · Steuer · Lohnsteuerbescheinigung · Bescheid · Behördenbrief · Sozialversicherungsmeldung · Kfz · Arztbrief · Garantie · Urkunde · Ausweis · Zeugnis · Arbeitszeugnis · Mitgliedschaft · Sonstiges
+Rechnung · Gehaltsabrechnung · Kontoauszug · Nebenkostenabrechnung · Hausgeldabrechnung · Mahnung · Vertrag · Kündigung · Versicherung · Steuer · Lohnsteuerbescheinigung · Spendenbescheinigung · Bescheid · Behördenbrief · Sozialversicherungsmeldung · Kfz · Bußgeldbescheid · Arztbrief · Krankschreibung · Garantie · Urkunde · Ausweis · Zeugnis · Arbeitszeugnis · Mitgliedschaft · Sonstiges
 
 Defined in `packages/aktenraum-core/src/aktenraum_core/models/extraction.py` `DocumentType` enum. Prompt definitions in `services/auto-tagger/src/auto_tagger/tagger.py` `SYSTEM_PROMPT` (with explicit disambiguation rules — read before editing). Per-type extraction fields in `packages/aktenraum-core/src/aktenraum_core/models/type_schema.py` `TYPE_FIELD_SCHEMA`.
 
-**Gotcha — Meldebescheinigung**: two German documents share this name. The annual employer-issued "Meldebescheinigung zur Sozialversicherung" (DEÜV §25) goes to `Sozialversicherungsmeldung`; the Bürgeramt-issued address-confirmation "Meldebescheinigung" stays under `Behördenbrief`. The system prompt encodes this split explicitly — keep it when editing.
+**Gotchas — disambiguation rules baked into SYSTEM_PROMPT**:
 
-**Gotcha — Lohnsteuerbescheinigung vs. Steuer**: the employer's annual §41b EStG "Lohnsteuerbescheinigung" (alias Lohnsteuerabrechnung / Jahreslohnzettel) is its own type — keep it out of `Steuer`. `Steuer` is for Steuererklärungen, Anlagen, and other tax forms. `Steuerbescheid` (the response from the Finanzamt) still goes to `Bescheid`.
+- **Meldebescheinigung** has two flavours: the employer's annual "Meldebescheinigung zur Sozialversicherung" (DEÜV §25) → `Sozialversicherungsmeldung`; the Bürgeramt-issued address confirmation → `Behördenbrief`.
+- **Lohnsteuerbescheinigung vs. Steuer**: the employer's annual §41b EStG certificate is its own type — keep it out of `Steuer`. `Steuer` is for Steuererklärungen / Anlagen; `Steuerbescheid` (Finanzamt-issued) goes to `Bescheid`.
+- **Hausgeldabrechnung vs. Nebenkostenabrechnung**: WEG-Eigentümer get a `Hausgeldabrechnung` from the Hausverwaltung; tenants get a `Nebenkostenabrechnung` from the landlord. Wohngeldbescheid (housing benefit) is a `Bescheid`.
+- **Bußgeldbescheid vs. Bescheid**: traffic fines split off into their own type — `Bescheid` is reserved for non-traffic admin acts.
+- **Krankschreibung vs. Arztbrief**: short AU-Bescheinigung ("gelber Schein") is `Krankschreibung`; longer medical reports / findings stay in `Arztbrief`.
+- **Spendenbescheinigung**: Zuwendungsbestätigung under §50 EStDV — distinct from `Rechnung`, `Mitgliedschaft`, or the user's own `Steuer` filing.
 
 ---
 

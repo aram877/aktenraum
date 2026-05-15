@@ -6,9 +6,8 @@ from aktenraum_core.paperless import LIFECYCLE_TAGS
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from starlette.background import BackgroundTask
-
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.background import BackgroundTask
 
 from ..ai.deps import get_paperless_gateway
 from ..auth.deps import get_current_user, get_settings

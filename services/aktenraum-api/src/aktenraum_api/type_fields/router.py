@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 
-from aktenraum_core.models import TYPE_FIELD_SCHEMA, DocumentType
+from aktenraum_core.models import TYPE_FIELD_SCHEMA
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -58,7 +58,10 @@ async def get_type_fields(
 ) -> TypeFieldsResponse:
     row = await service.get(session, doc_id)
     if row is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No type-specific fields found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No type-specific fields found",
+        )
     return TypeFieldsResponse(document_type=row.document_type, fields=row.fields or {})
 
 

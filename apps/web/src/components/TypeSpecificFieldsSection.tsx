@@ -76,7 +76,9 @@ export function TypeSpecificFieldsSection({
   }, [savedValues, docId]);
 
   const isDirty = useMemo(() => {
-    return fields.some((f) => (form[f.name] ?? "") !== (savedValues[f.name] ?? ""));
+    return fields.some(
+      (f) => (form[f.name] ?? "") !== (savedValues[f.name] ?? ""),
+    );
   }, [form, savedValues, fields]);
 
   if (!documentType || fields.length === 0) return null;
@@ -99,7 +101,7 @@ export function TypeSpecificFieldsSection({
       <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-neutral-400">
         Typ-spezifische Felder
       </div>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+      <div className="grid lg:grid-cols-2 gap-x-4 gap-y-3">
         {fields.map((def) => (
           <FieldInput
             key={def.name}

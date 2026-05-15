@@ -40,30 +40,32 @@ export function Find() {
     <div className="flex min-h-full flex-col">
       <Nav active="find" />
       <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-8">
-        <h1 className="text-lg font-semibold tracking-tight">Dokumente finden</h1>
-        <p className="mt-1 text-sm text-neutral-600">
-          Beschreibe, was du suchst — z.B. „Gehaltsabrechnungen letzte 12 Monate“.
+        <h1 className="text-lg font-semibold tracking-tight text-ink">
+          Dokumente finden
+        </h1>
+        <p className="mt-1 text-sm text-ink-muted">
+          Beschreibe, was du suchst — z.B. „Gehaltsabrechnungen letzte 12 Monate".
         </p>
 
-        <form onSubmit={onSubmit} className="mt-4 flex gap-2">
+        <form onSubmit={onSubmit} className="mt-5 flex gap-2">
           <input
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Was suchst du?"
-            className="flex-1 rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-neutral-900 focus:outline-none"
+            className="flex-1 rounded-lg border border-hairline bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none"
           />
           <button
             type="submit"
             disabled={findMutation.isPending || !query.trim()}
-            className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-60"
+            className="rounded-lg bg-ink px-4 py-2 text-sm font-medium text-on-inverse hover:opacity-80 disabled:opacity-50"
           >
             {findMutation.isPending ? "…" : "Suchen"}
           </button>
         </form>
 
         {errorDetail && (
-          <p className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
             {errorDetail}
           </p>
         )}
@@ -94,7 +96,7 @@ function ResultsPanel({
 }) {
   return (
     <section className="mt-6 space-y-4">
-      <div className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-700">
+      <div className="rounded-lg border border-hairline-soft bg-surface px-4 py-3 text-sm text-ink-muted">
         {data.explanation}
       </div>
 
@@ -105,7 +107,7 @@ function ResultsPanel({
         disabled={disabled}
       />
 
-      <div className="text-xs text-neutral-500">
+      <div className="text-xs text-ink-subtle">
         {data.total === 0
           ? "Keine Treffer."
           : `${data.total} Treffer${

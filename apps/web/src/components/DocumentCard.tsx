@@ -15,20 +15,20 @@ export function DocumentCard({ doc, citationLabel }: Props) {
   const processing = useProcessingState();
 
   return (
-    <article className="rounded-md border border-neutral-200 bg-white p-4">
+    <article className="rounded-lg border border-hairline bg-surface p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           {citationLabel && (
-            <span className="mb-1 inline-block rounded-full bg-neutral-900 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+            <span className="mb-1.5 inline-block rounded-full bg-accent px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-on-accent">
               {citationLabel}
             </span>
           )}
-          <h3 className="truncate text-sm font-semibold text-neutral-900">
+          <h3 className="truncate text-sm font-medium text-ink">
             {doc.title}
           </h3>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
+          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-ink-subtle">
             {doc.document_type && (
-              <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-neutral-700">
+              <span className="rounded-full border border-hairline bg-canvas px-2 py-0.5 text-ink-muted">
                 {doc.document_type}
               </span>
             )}
@@ -45,13 +45,13 @@ export function DocumentCard({ doc, citationLabel }: Props) {
           <button
             type="button"
             onClick={() => setPreviewOpen(true)}
-            className="rounded-md border border-neutral-300 bg-white px-3 py-1 text-xs font-medium text-neutral-900 hover:bg-neutral-100"
+            className="rounded-md border border-hairline bg-surface px-3 py-1 text-xs font-medium text-ink-muted hover:bg-canvas hover:text-ink"
           >
             Öffnen
           </button>
           <a
             href={`/api/documents/${doc.id}/download`}
-            className="rounded-md bg-neutral-900 px-3 py-1 text-xs font-medium text-white hover:bg-neutral-800"
+            className="rounded-md bg-ink px-3 py-1 text-xs font-medium text-on-inverse hover:opacity-80"
           >
             Download
           </a>

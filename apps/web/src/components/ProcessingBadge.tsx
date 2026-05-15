@@ -1,9 +1,6 @@
 /**
- * Status pill rendered next to a document anywhere it appears (Library rows,
- * Find / Ask result cards, soon the Upload page). The pill maps a list of
- * lifecycle tag names from the backend onto a single, human-readable state.
- *
- * Precedence (top wins so the most actionable state surfaces):
+ * Status pill rendered next to a document anywhere it appears.
+ * Precedence (top wins):
  *   ai-error / ai-propagation-error → "Fehler"
  *   ai-rejected                     → "Abgelehnt"
  *   ai-pending                      → "Bereit zum Prüfen"
@@ -20,11 +17,11 @@ type Variant = "neutral" | "info" | "success" | "warning" | "danger";
 type State = { label: string; title: string; variant: Variant };
 
 const VARIANT_STYLE: Record<Variant, string> = {
-  neutral: "bg-neutral-100 text-neutral-700",
-  info: "bg-blue-100 text-blue-800",
-  success: "bg-emerald-100 text-emerald-800",
-  warning: "bg-amber-100 text-amber-900",
-  danger: "bg-red-100 text-red-700",
+  neutral: "bg-surface-raised text-ink-muted border border-hairline",
+  info: "bg-accent/10 text-accent",
+  success: "bg-emerald-50 text-emerald-800",
+  warning: "bg-amber-50 text-amber-800",
+  danger: "bg-red-50 text-red-700",
 };
 
 function classify(tags: string[], errorMessage?: string | null): State {
@@ -53,9 +50,6 @@ function classify(tags: string[], errorMessage?: string | null): State {
       variant: "warning",
     };
   }
-  // `ai-auto-approved` is auxiliary and persists through propagation, so
-  // pair it with the lifecycle state to keep the "wird übertragen / verarbeitet"
-  // distinction visible while still surfacing that no human approved it.
   if (set.has("ai-auto-approved") && set.has("ai-approved")) {
     return {
       label: "Auto-genehmigt · überträgt",
@@ -115,15 +109,9 @@ export function ProcessingBadge({
 }: {
   tags: string[];
   errorMessage?: string | null;
-  /** True when the auto-tagger is currently working on this doc id. */
   inFlight?: boolean;
   className?: string;
 }) {
-  // The in-flight flag wins over the lifecycle-tag classification: even if
-  // the doc still has no tags ("Wartet auf KI"), if we know the worker is
-  // on it RIGHT NOW we render a spinner instead. Same when the doc is
-  // ai-approved and propagation is mid-write — better to see "Wird
-  // verarbeitet…" than "Wird übertragen" if we know it's actually moving.
   if (inFlight) {
     return (
       <span

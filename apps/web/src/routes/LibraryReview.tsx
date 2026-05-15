@@ -5,6 +5,13 @@ import { TypeSpecificFieldsSection } from "../components/TypeSpecificFieldsSecti
 
 import { Nav } from "../components/Nav";
 import { ProcessingBadge } from "../components/ProcessingBadge";
+import {
+  CheckIcon,
+  DownloadIcon,
+  RefreshIcon,
+  TrashIcon,
+  UndoIcon,
+} from "../components/Icons";
 import type { DocumentDetail, DocumentFieldUpdate } from "../lib/documents";
 import {
   isInFlight,
@@ -56,14 +63,8 @@ type FormState = {
 };
 
 function detailToForm(d: DocumentDetail | undefined): FormState {
-  // The AI suggested-tags string is regularly empty even when the doc
-  // has topical tags. Fall back to the doc's current tags minus
-  // lifecycle/internal tags so the form is actually useful. dirtyPatch
-  // compares against the raw API value, so an untouched fallback won't
-  // get PATCHed back.
   const suggestedRaw = (d?.ai_suggested_tags ?? "").trim();
-  const suggested =
-    suggestedRaw || userFacingTags(d?.tags ?? []).join(", ");
+  const suggested = suggestedRaw || userFacingTags(d?.tags ?? []).join(", ");
   return {
     ai_document_type: d?.ai_document_type ?? "",
     ai_correspondent: d?.ai_correspondent ?? "",
@@ -87,31 +88,19 @@ export function LibraryReview({ id }: { id: number }) {
   const [form, setForm] = useState<FormState>(detailToForm(undefined));
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [reprocessedAt, setReprocessedAt] = useState<Date | null>(null);
-  // Tracks the last server snapshot we hydrated from. Compared per-field on
-  // every detail refetch: if a field still equals what we last hydrated, the
-  // user hasn't touched it and we replace it with the new server value. This
-  // makes Reprocess work — after the LLM re-runs and the detail refetches
-  // with a fresh ai_title, the form actually shows it.
   const lastHydratedRef = useRef<FormState | null>(null);
   const lastHydratedIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!detail.data) return;
     const next = detailToForm(detail.data);
-
     if (lastHydratedIdRef.current !== detail.data.id) {
-      // Different doc — full replace.
       setForm(next);
       lastHydratedRef.current = next;
       lastHydratedIdRef.current = detail.data.id;
-      // The reprocessed-at banner is per-document — don't leak it when the
-      // user navigates between detail pages.
       setReprocessedAt(null);
       return;
     }
-
-    // Same doc, possibly refetched. Replace only the fields the user hasn't
-    // touched (form[k] === lastHydrated[k]).
     const prev = lastHydratedRef.current;
     if (!prev) {
       setForm(next);
@@ -132,8 +121,6 @@ export function LibraryReview({ id }: { id: number }) {
     lastHydratedRef.current = next;
   }, [detail.data]);
 
-  // Re-hydrate after a successful save so the user sees the normalised values
-  // (e.g. "01.12.2024" → "2024-12-01", any string-trunc on non-longtext fields).
   useEffect(() => {
     if (patch.isSuccess && patch.data) {
       const next = detailToForm(patch.data);
@@ -142,13 +129,6 @@ export function LibraryReview({ id }: { id: number }) {
     }
   }, [patch.isSuccess, patch.data]);
 
-  // Live status updates after a Reprocess. The auto-tagger usually finishes
-  // re-classifying within 10–30 seconds (gemma4 8B) but the LLM call has no
-  // upper bound. Poll the detail cache every 5 s for two minutes after the
-  // user clicks Reprocess so the ProcessingBadge cycles
-  // "Wartet auf KI" → "Bereit zum Prüfen" / "Auto-genehmigt" without a
-  // manual refresh. The interval clears itself out after the window expires
-  // or when the user navigates away.
   useEffect(() => {
     if (!reprocessedAt) return;
     const stopAt = reprocessedAt.getTime() + 120_000;
@@ -191,17 +171,11 @@ export function LibraryReview({ id }: { id: number }) {
     }
   };
 
-  const onReset = () => {
-    setForm(detailToForm(detail.data));
-  };
+  const onReset = () => setForm(detailToForm(detail.data));
 
   const onReprocess = async () => {
     try {
       await reprocess.mutateAsync(id);
-      // Stay on the detail page so the user can watch the badge cycle from
-      // "Wartet auf KI" → "Bereit zum Prüfen" / "Auto-genehmigt". The
-      // mutation already invalidates the document-detail cache so the
-      // ProcessingBadge in this view refreshes by itself.
       setReprocessedAt(new Date());
     } catch {
       // surfaced via reprocess.error below
@@ -234,7 +208,7 @@ export function LibraryReview({ id }: { id: number }) {
           <button
             type="button"
             onClick={() => window.history.back()}
-            className="text-sm text-neutral-600 hover:text-neutral-900"
+            className="text-sm text-ink-muted hover:text-ink"
           >
             ← Zurück zur Bibliothek
           </button>
@@ -246,34 +220,34 @@ export function LibraryReview({ id }: { id: number }) {
         </div>
 
         {detail.isError && (
-          <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
             Konnte das Dokument nicht laden.
           </p>
         )}
 
         {detail.data && (
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,2fr)]">
             <iframe
               key={id}
               title={`Vorschau ${id}`}
               src={`/api/documents/${id}/preview`}
-              className="h-[80vh] w-full rounded-md border border-neutral-200 bg-white"
+              className="h-[80vh] w-full rounded-lg border border-hairline bg-surface"
             />
 
-            <section className="flex h-[80vh] flex-col overflow-hidden rounded-md border border-neutral-200 bg-white">
-              <header className="flex items-start justify-between gap-3 border-b border-neutral-200 px-4 py-3">
+            <section className="flex h-[80vh] flex-col overflow-hidden rounded-lg border border-hairline bg-surface">
+              <header className="flex items-start justify-between gap-3 border-b border-hairline px-4 py-3">
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold">
+                  <div className="truncate text-sm font-semibold text-ink">
                     {detail.data.ai_title || detail.data.title}
                   </div>
                   {detail.data.original_file_name &&
                     detail.data.original_file_name !==
                       (detail.data.ai_title || detail.data.title) && (
-                      <div className="truncate text-[11px] text-neutral-400">
+                      <div className="truncate text-[11px] text-ink-faint">
                         Original: {detail.data.original_file_name}
                       </div>
                     )}
-                  <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
+                  <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-ink-subtle">
                     {detail.data.created && <span>{detail.data.created}</span>}
                     {detail.data.ai_confidence != null && (
                       <span>
@@ -288,7 +262,7 @@ export function LibraryReview({ id }: { id: number }) {
                   </div>
                   {detail.data.ai_confidence_reason && (
                     <div
-                      className="mt-0.5 text-[11px] italic leading-snug text-neutral-500"
+                      className="mt-0.5 text-[11px] italic leading-snug text-ink-subtle"
                       title="Begründung der KI für den Konfidenzwert"
                     >
                       {detail.data.ai_confidence_reason}
@@ -344,22 +318,22 @@ export function LibraryReview({ id }: { id: number }) {
                   onChange={(v) => setForm({ ...form, ai_summary_de: v })}
                 />
 
-                <div className="rounded-md bg-neutral-50 p-3 text-xs text-neutral-600">
+                <div className="rounded-lg border border-hairline bg-canvas p-3 text-xs text-ink-muted">
                   <div>
-                    <span className="text-neutral-500">Backend:</span>{" "}
+                    <span className="text-ink-subtle">Backend:</span>{" "}
                     {detail.data.ai_backend ?? "—"} ·{" "}
                     {detail.data.ai_model ?? "—"}
                   </div>
                   <div className="mt-1">
-                    <span className="text-neutral-500">Tags:</span>{" "}
+                    <span className="text-ink-subtle">Tags:</span>{" "}
                     {detail.data.tags.length > 0
                       ? detail.data.tags.join(", ")
                       : "—"}
                   </div>
-                  <p className="mt-2 text-[11px] leading-snug text-neutral-500">
+                  <p className="mt-2 text-[11px] leading-snug text-ink-subtle">
                     Bearbeitungen ändern nur die KI-Felder. Wenn auch die
-                    nativen Paperless-Felder (Korrespondent, Dokumenttyp, Datum)
-                    neu geschrieben werden sollen, klicke „Erneut verarbeiten".
+                    nativen Paperless-Felder neu geschrieben werden sollen,
+                    klicke „Erneut verarbeiten".
                   </p>
                   <TypeSpecificFieldsSection
                     docId={detail.data.id}
@@ -392,68 +366,80 @@ export function LibraryReview({ id }: { id: number }) {
                 </p>
               )}
 
-              <footer className="flex items-center justify-end gap-2 border-t border-neutral-200 px-4 py-3">
+              <footer className="flex items-center justify-end gap-1.5 border-t border-hairline px-4 py-2.5">
+                {/* Left-side utility icons */}
                 <a
                   href={`/api/documents/${id}/download`}
-                  className="rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-xs font-medium text-neutral-900 hover:bg-neutral-100"
+                  title="Download"
+                  className="rounded-md border border-hairline p-1.5 text-ink-subtle hover:bg-canvas hover:text-ink"
                 >
-                  Download
+                  <DownloadIcon className="h-3.5 w-3.5" />
                 </a>
+
                 {!confirmingDelete && (
                   <button
                     type="button"
                     onClick={() => setConfirmingDelete(true)}
                     disabled={deleteDoc.isPending}
-                    className="rounded-md border border-red-300 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
-                    title="Dokument unwiderruflich löschen"
+                    title="Dokument löschen"
+                    className="rounded-md border border-hairline p-1.5 text-ink-subtle hover:border-red-200 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
                   >
-                    Löschen
+                    <TrashIcon className="h-3.5 w-3.5" />
                   </button>
                 )}
                 {confirmingDelete && (
-                  <div className="flex items-center gap-1 rounded-md border border-red-300 bg-red-50 px-2 py-1.5 text-xs text-red-900">
-                    <span>Wirklich löschen?</span>
+                  <div className="flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-900">
+                    <span className="font-medium">Löschen?</span>
                     <button
                       type="button"
                       onClick={() => setConfirmingDelete(false)}
                       disabled={deleteDoc.isPending}
-                      className="rounded px-2 py-0.5 hover:bg-red-100"
+                      className="rounded px-1.5 py-0.5 hover:bg-red-100"
                     >
-                      Abbrechen
+                      Nein
                     </button>
                     <button
                       type="button"
                       onClick={onDelete}
                       disabled={deleteDoc.isPending}
-                      className="rounded bg-red-600 px-2 py-0.5 font-medium text-white hover:bg-red-700 disabled:opacity-60"
+                      className="rounded bg-red-600 px-1.5 py-0.5 font-medium text-white hover:bg-red-700 disabled:opacity-60"
                     >
-                      {deleteDoc.isPending ? "…" : "Ja, löschen"}
+                      {deleteDoc.isPending ? "…" : "Ja"}
                     </button>
                   </div>
                 )}
+
+                {/* Divider */}
+                <span className="mx-1 h-4 w-px bg-hairline" />
+
                 <button
                   type="button"
                   onClick={onReprocess}
                   disabled={reprocess.isPending || patch.isPending}
-                  className="rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
-                  title="Lifecycle-Tags löschen, KI neu klassifizieren"
+                  title="Erneut verarbeiten — KI neu klassifizieren"
+                  className="rounded-md border border-hairline p-1.5 text-ink-subtle hover:border-amber-200 hover:bg-amber-50 hover:text-amber-800 disabled:opacity-50"
                 >
-                  Erneut verarbeiten
+                  <RefreshIcon className="h-3.5 w-3.5" />
                 </button>
+
                 <button
                   type="button"
                   onClick={onReset}
                   disabled={!isDirty || patch.isPending}
-                  className="rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-100 disabled:opacity-50"
+                  title="Änderungen zurücksetzen"
+                  className="rounded-md border border-hairline p-1.5 text-ink-subtle hover:bg-canvas hover:text-ink disabled:opacity-40"
                 >
-                  Zurücksetzen
+                  <UndoIcon className="h-3.5 w-3.5" />
                 </button>
+
                 <button
                   type="button"
                   onClick={onSave}
                   disabled={!isDirty || patch.isPending}
-                  className="rounded-md bg-neutral-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-60"
+                  title="Speichern"
+                  className="inline-flex items-center gap-1.5 rounded-md bg-ink px-3 py-1.5 text-xs font-medium text-on-inverse hover:opacity-80 disabled:opacity-50"
                 >
+                  <CheckIcon className="h-3 w-3" />
                   {patch.isPending ? "…" : "Speichern"}
                 </button>
               </footer>
@@ -481,9 +467,9 @@ function Field({
   placeholder?: string;
 }) {
   const inputCls =
-    "mt-1 block w-full rounded-md border border-neutral-300 bg-white px-2 py-1 text-sm focus:border-neutral-900 focus:outline-none";
+    "mt-1 block w-full rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none";
   return (
-    <label className="block text-xs font-medium text-neutral-600">
+    <label className="block text-xs font-medium text-ink-muted">
       {label}
       {as === "select" ? (
         <select
@@ -526,8 +512,11 @@ function ErrorBanner({
   tags: string[];
   message: string | null;
 }) {
-  const errorTags = tags.filter((t) =>
-    t === "ai-error" || t === "ai-propagation-error" || t === "ai-index-error",
+  const errorTags = tags.filter(
+    (t) =>
+      t === "ai-error" ||
+      t === "ai-propagation-error" ||
+      t === "ai-index-error",
   );
   if (errorTags.length === 0) return null;
   const label =
@@ -537,13 +526,15 @@ function ErrorBanner({
         ? "RAG-Indizierung fehlgeschlagen"
         : "KI-Analyse fehlgeschlagen";
   return (
-    <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs">
+    <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs">
       <div className="font-semibold text-red-900">{label}</div>
       <pre className="mt-1 whitespace-pre-wrap font-mono text-[11px] leading-snug text-red-800">
-        {(message ?? "").trim() || "Kein Fehlertext gespeichert. Logs des auto-tagger oder propagator prüfen."}
+        {(message ?? "").trim() ||
+          "Kein Fehlertext gespeichert. Logs des auto-tagger oder propagator prüfen."}
       </pre>
       <div className="mt-1 text-[11px] text-red-700">
-        Tag: <code>{errorTags.join(", ")}</code> · „Erneut verarbeiten" löscht die Lifecycle-Tags und stößt die KI neu an.
+        Tag: <code>{errorTags.join(", ")}</code> · „Erneut verarbeiten" löscht
+        die Lifecycle-Tags und stößt die KI neu an.
       </div>
     </div>
   );

@@ -65,8 +65,6 @@ export function Library({ search }: { search: Search }) {
   const [form, setForm] = useState<LocalForm>(() => searchToForm(search));
   const facet = useTagFacet();
 
-  // Re-hydrate the form when the URL changes externally (e.g. back button).
-  // Tracked via a ref so user keystrokes don't get clobbered during typing.
   const lastSearchRef = useRef(search);
   useEffect(() => {
     if (JSON.stringify(lastSearchRef.current) !== JSON.stringify(search)) {
@@ -75,9 +73,6 @@ export function Library({ search }: { search: Search }) {
     }
   }, [search]);
 
-  // Debounce form → URL. Selects/dates feel snappy at 200ms; text/number
-  // inputs benefit from a longer wait so a refetch doesn't fire on every key.
-  // Tags are URL-only state, so this debounce never alters them.
   useEffect(() => {
     const timer = setTimeout(() => {
       const next = formToSearch(form, 1, search.tags);
@@ -151,7 +146,6 @@ export function Library({ search }: { search: Search }) {
     [list.data],
   );
 
-  // Drop selections for rows no longer in the list (pagination, refetch).
   const effectiveSelected = useMemo(() => {
     if (!visibleIds.length) return selected;
     const visible = new Set(visibleIds);
@@ -196,10 +190,10 @@ export function Library({ search }: { search: Search }) {
   };
 
   const tabCls = (t: "review" | "archive") =>
-    `px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+    `px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
       tab === t
-        ? "border-neutral-900 text-neutral-900"
-        : "border-transparent text-neutral-500 hover:text-neutral-700"
+        ? "border-ink text-ink"
+        : "border-transparent text-ink-muted hover:text-ink"
     }`;
 
   return (
@@ -207,8 +201,8 @@ export function Library({ search }: { search: Search }) {
       <Nav active="library" />
 
       {/* Tabs */}
-      <div className="border-b border-neutral-200 bg-white px-6">
-        <nav className="flex gap-2">
+      <div className="border-b border-hairline bg-canvas px-6">
+        <nav className="flex gap-1">
           <button
             onClick={() => navigate({ to: "/library", search: { tab: "review" } })}
             className={tabCls("review")}
@@ -216,7 +210,12 @@ export function Library({ search }: { search: Search }) {
             Zur Prüfung
           </button>
           <button
-            onClick={() => navigate({ to: "/library", search: (prev) => ({ ...prev, tab: "archive" }) })}
+            onClick={() =>
+              navigate({
+                to: "/library",
+                search: (prev) => ({ ...prev, tab: "archive" }),
+              })
+            }
             className={tabCls("archive")}
           >
             Archiv
@@ -227,241 +226,250 @@ export function Library({ search }: { search: Search }) {
       {tab === "review" ? (
         <ZurPruefungTab />
       ) : (
-      <main className="mx-auto flex w-full max-w-7xl flex-1 gap-6 px-6 py-6">
-        <aside className="w-64 shrink-0">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
-            Filter
-          </h2>
-          <div className="mt-3 space-y-3">
-            <Field label="Dokumenttyp">
-              <select
-                value={form.document_type}
-                onChange={(e) =>
-                  setForm({ ...form, document_type: e.target.value })
-                }
-                className={inputCls}
-              >
-                <option value="">Alle</option>
-                {DOC_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Korrespondent">
-              <input
-                type="text"
-                value={form.correspondent}
-                onChange={(e) =>
-                  setForm({ ...form, correspondent: e.target.value })
-                }
-                placeholder="Name eingeben"
-                className={inputCls}
-              />
-            </Field>
-            <div className="grid grid-cols-2 gap-2">
-              <Field label="Von">
-                <input
-                  type="date"
-                  value={form.date_from}
-                  onChange={(e) => setForm({ ...form, date_from: e.target.value })}
-                  className={inputCls}
-                />
-              </Field>
-              <Field label="Bis">
-                <input
-                  type="date"
-                  value={form.date_to}
-                  onChange={(e) => setForm({ ...form, date_to: e.target.value })}
-                  className={inputCls}
-                />
-              </Field>
-            </div>
-            <Field label="Stichwort">
-              <input
-                type="text"
-                value={form.text}
-                onChange={(e) => setForm({ ...form, text: e.target.value })}
-                placeholder="Volltextsuche"
-                className={inputCls}
-              />
-            </Field>
-            <button
-              type="button"
-              onClick={onResetFilters}
-              className="mt-2 w-full rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-100"
-            >
-              Filter zurücksetzen
-            </button>
-          </div>
-
-          <TagFacetPanel
-            facet={facet.data?.results}
-            isLoading={facet.isLoading}
-            selected={search.tags ?? []}
-            onToggle={toggleTag}
-          />
-        </aside>
-
-        <section className="min-w-0 flex-1">
-          <div className="flex items-baseline justify-between">
-            <h1 className="text-lg font-semibold tracking-tight">Bibliothek</h1>
-            <span className="text-sm text-neutral-500">
-              {list.isLoading ? "…" : `${total} Dokumente`}
-            </span>
-          </div>
-
-          {(search.tags ?? []).length > 0 && (
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">
-                Aktive Tags
-              </span>
-              {(search.tags ?? []).map((tag) => (
-                <button
-                  key={tag}
-                  type="button"
-                  onClick={() => toggleTag(tag)}
-                  className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs text-emerald-900 hover:bg-emerald-100"
-                  title="Tag entfernen"
-                >
-                  {tag}
-                  <span aria-hidden className="text-emerald-500">
-                    ×
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-
-          {errorDetail && (
-            <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {errorDetail}
-            </p>
-          )}
-
-          {list.data && list.data.results.length === 0 && !list.isLoading && (
-            <div className="mt-6 rounded-md border border-dashed border-neutral-300 bg-white p-8 text-center text-sm text-neutral-600">
-              Keine Treffer für diese Filter.
-            </div>
-          )}
-
-          {list.data && list.data.results.length > 0 && (
-            <>
-              {selectedCount > 0 && (
-                <div className="sticky top-0 z-10 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-neutral-300 bg-neutral-900 px-4 py-2 text-sm text-white">
-                  <span>
-                    {selectedCount}{" "}
-                    {selectedCount === 1
-                      ? "Dokument ausgewählt"
-                      : "Dokumente ausgewählt"}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setSelected(new Set())}
-                      disabled={bulkReprocess.isPending}
-                      className="rounded-md border border-neutral-600 px-3 py-1 text-xs text-neutral-100 hover:bg-neutral-800 disabled:opacity-60"
-                    >
-                      Auswahl aufheben
-                    </button>
-                    <button
-                      type="button"
-                      onClick={onBulkReprocess}
-                      disabled={bulkReprocess.isPending}
-                      className="rounded-md bg-white px-3 py-1 text-xs font-medium text-neutral-900 hover:bg-neutral-100 disabled:opacity-60"
-                    >
-                      {bulkReprocess.isPending
-                        ? "Stoße neu an…"
-                        : `${selectedCount} erneut verarbeiten`}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {bulkResult && (
-                <p
-                  className={`mt-3 rounded-md border px-3 py-2 text-sm ${
-                    bulkResult.failed
-                      ? "border-amber-300 bg-amber-50 text-amber-900"
-                      : "border-emerald-300 bg-emerald-50 text-emerald-900"
-                  }`}
-                >
-                  {bulkResult.succeeded} neu angestoßen
-                  {bulkResult.failed
-                    ? ` · ${bulkResult.failed} fehlgeschlagen`
-                    : ""}
-                  .
-                </p>
-              )}
-
-              <table className="mt-4 w-full text-left text-sm">
-                <thead className="border-b border-neutral-200 text-xs uppercase tracking-wide text-neutral-500">
-                  <tr>
-                    <th className="w-8 px-2 py-2">
-                      <input
-                        type="checkbox"
-                        aria-label="Alle auswählen"
-                        checked={allSelected}
-                        onChange={toggleAll}
-                        className="h-4 w-4 cursor-pointer accent-neutral-900"
-                      />
-                    </th>
-                    <th className="px-2 py-2">Titel</th>
-                    <th className="px-2 py-2">Typ</th>
-                    <th className="px-2 py-2">Korrespondent</th>
-                    <th className="px-2 py-2">Datum</th>
-                    <th className="px-2 py-2">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-neutral-200">
-                  {list.data.results.map((row) => (
-                    <Row
-                      key={row.id}
-                      row={row}
-                      selectedTags={search.tags ?? []}
-                      onTagClick={toggleTag}
-                      checked={effectiveSelected.has(row.id)}
-                      onToggle={() => toggleOne(row.id)}
-                      inFlight={isInFlight(row.id, processing.data)}
-                      onClick={() =>
-                        navigate({
-                          to: "/library/$id",
-                          params: { id: String(row.id) },
-                        })
+        <main className="mx-auto flex w-full max-w-7xl flex-1 gap-6 px-6 py-6">
+          {/* Filter sidebar */}
+          <aside className="w-60 shrink-0">
+            <div className="rounded-lg border border-hairline bg-surface p-4">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-subtle">
+                Filter
+              </h2>
+              <div className="mt-3 space-y-3">
+                <Field label="Dokumenttyp">
+                  <select
+                    value={form.document_type}
+                    onChange={(e) =>
+                      setForm({ ...form, document_type: e.target.value })
+                    }
+                    className={inputCls}
+                  >
+                    <option value="">Alle</option>
+                    {DOC_TYPES.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Korrespondent">
+                  <input
+                    type="text"
+                    value={form.correspondent}
+                    onChange={(e) =>
+                      setForm({ ...form, correspondent: e.target.value })
+                    }
+                    placeholder="Name eingeben"
+                    className={inputCls}
+                  />
+                </Field>
+                <div className="grid grid-cols-2 gap-2">
+                  <Field label="Von">
+                    <input
+                      type="date"
+                      value={form.date_from}
+                      onChange={(e) =>
+                        setForm({ ...form, date_from: e.target.value })
                       }
+                      className={inputCls}
                     />
-                  ))}
-                </tbody>
-              </table>
-            </>
-          )}
-
-          {lastPage > 1 && (
-            <div className="mt-4 flex items-center justify-end gap-2 text-sm">
-              <button
-                type="button"
-                onClick={() => goToPage(currentPage - 1)}
-                disabled={currentPage <= 1}
-                className="rounded-md border border-neutral-300 px-3 py-1 hover:bg-neutral-100 disabled:opacity-50"
-              >
-                ← Zurück
-              </button>
-              <span className="text-neutral-500">
-                Seite {currentPage} / {lastPage}
-              </span>
-              <button
-                type="button"
-                onClick={() => goToPage(currentPage + 1)}
-                disabled={currentPage >= lastPage}
-                className="rounded-md border border-neutral-300 px-3 py-1 hover:bg-neutral-100 disabled:opacity-50"
-              >
-                Weiter →
-              </button>
+                  </Field>
+                  <Field label="Bis">
+                    <input
+                      type="date"
+                      value={form.date_to}
+                      onChange={(e) =>
+                        setForm({ ...form, date_to: e.target.value })
+                      }
+                      className={inputCls}
+                    />
+                  </Field>
+                </div>
+                <Field label="Stichwort">
+                  <input
+                    type="text"
+                    value={form.text}
+                    onChange={(e) => setForm({ ...form, text: e.target.value })}
+                    placeholder="Volltextsuche"
+                    className={inputCls}
+                  />
+                </Field>
+                <button
+                  type="button"
+                  onClick={onResetFilters}
+                  className="mt-1 w-full rounded-md border border-hairline bg-canvas px-3 py-1.5 text-xs font-medium text-ink-muted hover:bg-surface-raised"
+                >
+                  Filter zurücksetzen
+                </button>
+              </div>
             </div>
-          )}
-        </section>
-      </main>
+
+            <TagFacetPanel
+              facet={facet.data?.results}
+              isLoading={facet.isLoading}
+              selected={search.tags ?? []}
+              onToggle={toggleTag}
+            />
+          </aside>
+
+          <section className="min-w-0 flex-1">
+            <div className="flex items-baseline justify-between">
+              <h1 className="text-lg font-semibold tracking-tight text-ink">
+                Bibliothek
+              </h1>
+              <span className="text-sm text-ink-subtle">
+                {list.isLoading ? "…" : `${total} Dokumente`}
+              </span>
+            </div>
+
+            {(search.tags ?? []).length > 0 && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className="text-xs font-medium uppercase tracking-wide text-ink-subtle">
+                  Aktive Tags
+                </span>
+                {(search.tags ?? []).map((tag) => (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => toggleTag(tag)}
+                    className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-0.5 text-xs text-emerald-800 hover:bg-emerald-100"
+                    title="Tag entfernen"
+                  >
+                    {tag}
+                    <span aria-hidden className="text-emerald-500">×</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {errorDetail && (
+              <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {errorDetail}
+              </p>
+            )}
+
+            {list.data && list.data.results.length === 0 && !list.isLoading && (
+              <div className="mt-6 rounded-lg border border-dashed border-hairline bg-surface p-8 text-center text-sm text-ink-subtle">
+                Keine Treffer für diese Filter.
+              </div>
+            )}
+
+            {list.data && list.data.results.length > 0 && (
+              <>
+                {selectedCount > 0 && (
+                  <div className="sticky top-0 z-10 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-inverse/20 bg-inverse px-4 py-2 text-sm text-on-inverse">
+                    <span>
+                      {selectedCount}{" "}
+                      {selectedCount === 1
+                        ? "Dokument ausgewählt"
+                        : "Dokumente ausgewählt"}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelected(new Set())}
+                        disabled={bulkReprocess.isPending}
+                        className="rounded-md border border-white/20 px-3 py-1 text-xs text-on-inverse/80 hover:bg-white/10 disabled:opacity-60"
+                      >
+                        Auswahl aufheben
+                      </button>
+                      <button
+                        type="button"
+                        onClick={onBulkReprocess}
+                        disabled={bulkReprocess.isPending}
+                        className="rounded-md bg-surface px-3 py-1 text-xs font-medium text-ink hover:bg-canvas disabled:opacity-60"
+                      >
+                        {bulkReprocess.isPending
+                          ? "Stoße neu an…"
+                          : `${selectedCount} erneut verarbeiten`}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {bulkResult && (
+                  <p
+                    className={`mt-3 rounded-lg border px-3 py-2 text-sm ${
+                      bulkResult.failed
+                        ? "border-amber-200 bg-amber-50 text-amber-800"
+                        : "border-emerald-200 bg-emerald-50 text-emerald-800"
+                    }`}
+                  >
+                    {bulkResult.succeeded} neu angestoßen
+                    {bulkResult.failed
+                      ? ` · ${bulkResult.failed} fehlgeschlagen`
+                      : ""}
+                    .
+                  </p>
+                )}
+
+                <div className="mt-4 rounded-lg border border-hairline bg-surface">
+                  <table className="w-full text-left text-sm">
+                    <thead className="border-b border-hairline text-xs uppercase tracking-wide text-ink-subtle">
+                      <tr>
+                        <th className="w-8 px-3 py-2.5">
+                          <input
+                            type="checkbox"
+                            aria-label="Alle auswählen"
+                            checked={allSelected}
+                            onChange={toggleAll}
+                            className="h-4 w-4 cursor-pointer accent-ink"
+                          />
+                        </th>
+                        <th className="px-3 py-2.5">Titel</th>
+                        <th className="px-3 py-2.5">Typ</th>
+                        <th className="px-3 py-2.5">Korrespondent</th>
+                        <th className="px-3 py-2.5">Datum</th>
+                        <th className="px-3 py-2.5">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-hairline-soft">
+                      {list.data.results.map((row) => (
+                        <Row
+                          key={row.id}
+                          row={row}
+                          selectedTags={search.tags ?? []}
+                          onTagClick={toggleTag}
+                          checked={effectiveSelected.has(row.id)}
+                          onToggle={() => toggleOne(row.id)}
+                          inFlight={isInFlight(row.id, processing.data)}
+                          onClick={() =>
+                            navigate({
+                              to: "/library/$id",
+                              params: { id: String(row.id) },
+                            })
+                          }
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+
+            {lastPage > 1 && (
+              <div className="mt-4 flex items-center justify-end gap-2 text-sm">
+                <button
+                  type="button"
+                  onClick={() => goToPage(currentPage - 1)}
+                  disabled={currentPage <= 1}
+                  className="rounded-md border border-hairline bg-surface px-3 py-1.5 text-xs text-ink-muted hover:bg-canvas disabled:opacity-50"
+                >
+                  ← Zurück
+                </button>
+                <span className="text-xs text-ink-subtle">
+                  Seite {currentPage} / {lastPage}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => goToPage(currentPage + 1)}
+                  disabled={currentPage >= lastPage}
+                  className="rounded-md border border-hairline bg-surface px-3 py-1.5 text-xs text-ink-muted hover:bg-canvas disabled:opacity-50"
+                >
+                  Weiter →
+                </button>
+              </div>
+            )}
+          </section>
+        </main>
       )}
     </div>
   );
@@ -479,15 +487,15 @@ function TagFacetPanel({
   onToggle: (tag: string) => void;
 }) {
   return (
-    <div className="mt-6">
-      <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+    <div className="mt-4 rounded-lg border border-hairline bg-surface p-4">
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-subtle">
         Tags
       </h2>
       {isLoading && (
-        <p className="mt-2 text-xs text-neutral-500">Lade Tags…</p>
+        <p className="mt-2 text-xs text-ink-subtle">Lade Tags…</p>
       )}
       {!isLoading && facet && facet.length === 0 && (
-        <p className="mt-2 text-xs text-neutral-500">
+        <p className="mt-2 text-xs text-ink-subtle">
           Noch keine Tags mit ≥2 Dokumenten.
         </p>
       )}
@@ -502,8 +510,8 @@ function TagFacetPanel({
                 onClick={() => onToggle(t.name)}
                 className={
                   active
-                    ? "inline-flex items-center gap-1 rounded-full border border-emerald-400 bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-900"
-                    : "inline-flex items-center gap-1 rounded-full border border-neutral-300 bg-white px-2.5 py-1 text-xs text-neutral-700 hover:bg-neutral-100"
+                    ? "inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800"
+                    : "inline-flex items-center gap-1 rounded-full border border-hairline bg-canvas px-2.5 py-1 text-xs text-ink-muted hover:border-hairline-soft hover:bg-surface-raised"
                 }
                 title={
                   active
@@ -512,11 +520,7 @@ function TagFacetPanel({
                 }
               >
                 <span>{t.name}</span>
-                <span
-                  className={
-                    active ? "text-emerald-700" : "text-neutral-400"
-                  }
-                >
+                <span className={active ? "text-emerald-600" : "text-ink-faint"}>
                   {t.count}
                 </span>
               </button>
@@ -546,20 +550,20 @@ function Row({
   onClick: () => void;
 }) {
   return (
-    <tr className="hover:bg-neutral-50">
-      <td className="w-8 px-2 py-2" onClick={(e) => e.stopPropagation()}>
+    <tr className="hover:bg-canvas">
+      <td className="w-8 px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
         <input
           type="checkbox"
           aria-label={`${row.title} auswählen`}
           checked={checked}
           onChange={onToggle}
-          className="h-4 w-4 cursor-pointer accent-neutral-900"
+          className="h-4 w-4 cursor-pointer accent-ink"
         />
       </td>
-      <td onClick={onClick} className="cursor-pointer px-2 py-2">
-        <div className="font-medium text-neutral-900">{row.title}</div>
+      <td onClick={onClick} className="cursor-pointer px-3 py-2.5">
+        <div className="font-medium text-ink">{row.title}</div>
         {row.original_file_name && row.original_file_name !== row.title && (
-          <div className="text-[10px] text-neutral-400">
+          <div className="text-[10px] text-ink-faint">
             Original: {row.original_file_name}
           </div>
         )}
@@ -577,8 +581,8 @@ function Row({
                   }}
                   className={
                     active
-                      ? "rounded-full border border-emerald-400 bg-emerald-100 px-2 py-0.5 text-[10px] text-emerald-900"
-                      : "rounded-full border border-neutral-200 bg-neutral-50 px-2 py-0.5 text-[10px] text-neutral-600 hover:bg-neutral-100"
+                      ? "rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] text-emerald-800"
+                      : "rounded-full border border-hairline bg-canvas px-2 py-0.5 text-[10px] text-ink-muted hover:bg-surface-raised"
                   }
                   title={`Auf Tag '${t}' filtern`}
                 >
@@ -589,16 +593,16 @@ function Row({
           </div>
         )}
       </td>
-      <td onClick={onClick} className="cursor-pointer px-2 py-2 text-neutral-700">
+      <td onClick={onClick} className="cursor-pointer px-3 py-2.5 text-ink-muted">
         {row.document_type ?? "—"}
       </td>
-      <td onClick={onClick} className="cursor-pointer px-2 py-2 text-neutral-700">
+      <td onClick={onClick} className="cursor-pointer px-3 py-2.5 text-ink-muted">
         {row.correspondent ?? "—"}
       </td>
-      <td onClick={onClick} className="cursor-pointer px-2 py-2 text-neutral-700">
+      <td onClick={onClick} className="cursor-pointer px-3 py-2.5 text-ink-muted">
         {row.created ?? "—"}
       </td>
-      <td onClick={onClick} className="cursor-pointer px-2 py-2">
+      <td onClick={onClick} className="cursor-pointer px-3 py-2.5">
         <ProcessingBadge
           tags={row.lifecycle_tags}
           errorMessage={row.ai_error_message}
@@ -610,7 +614,7 @@ function Row({
 }
 
 const inputCls =
-  "mt-1 block w-full rounded-md border border-neutral-300 bg-white px-2 py-1 text-sm focus:border-neutral-900 focus:outline-none";
+  "mt-1 block w-full rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none";
 
 function Field({
   label,
@@ -620,7 +624,7 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <label className="block text-xs font-medium text-neutral-600">
+    <label className="block text-xs font-medium text-ink-muted">
       {label}
       {children}
     </label>
@@ -643,7 +647,6 @@ function ZurPruefungTab() {
     [list.data],
   );
 
-  // Drop selections for rows no longer in the list (e.g. after refetch following approval).
   const effectiveSelected = useMemo(() => {
     if (!visibleIds.length) return selected;
     const visible = new Set(visibleIds);
@@ -670,11 +673,8 @@ function ZurPruefungTab() {
   };
 
   const toggleAll = () => {
-    if (allSelected) {
-      setSelected(new Set());
-    } else {
-      setSelected(new Set(visibleIds));
-    }
+    if (allSelected) setSelected(new Set());
+    else setSelected(new Set(visibleIds));
   };
 
   const onBulkApprove = async () => {
@@ -694,26 +694,28 @@ function ZurPruefungTab() {
     <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-6">
       <div className="flex items-baseline justify-between">
         <div>
-          <h1 className="text-lg font-semibold tracking-tight">Zur Prüfung</h1>
-          <p className="mt-0.5 text-sm text-neutral-500">
+          <h1 className="text-lg font-semibold tracking-tight text-ink">
+            Zur Prüfung
+          </h1>
+          <p className="mt-0.5 text-sm text-ink-muted">
             Dokumente warten auf Ihre Prüfung. Zuletzt geänderte zuerst.
           </p>
         </div>
-        <span className="text-sm text-neutral-500">
+        <span className="text-sm text-ink-subtle">
           {list.data ? `${list.data.total} offen` : "…"}
         </span>
       </div>
 
       {list.isError && (
-        <p className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           Konnte die Liste nicht laden.
         </p>
       )}
 
       {list.data && list.data.results.length === 0 && (
-        <div className="mt-8 rounded-md border border-dashed border-neutral-300 bg-white p-8 text-center text-sm text-neutral-600">
+        <div className="mt-8 rounded-lg border border-dashed border-hairline bg-surface p-8 text-center text-sm text-ink-subtle">
           Keine offenen Dokumente.{" "}
-          <Link to="/ask" className="font-medium text-neutral-900 underline">
+          <Link to="/ask" className="font-medium text-ink underline">
             Suche stattdessen.
           </Link>
         </div>
@@ -722,17 +724,19 @@ function ZurPruefungTab() {
       {list.data && list.data.results.length > 0 && (
         <>
           {selectedCount > 0 && (
-            <div className="sticky top-0 z-10 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-neutral-300 bg-neutral-900 px-4 py-2 text-sm text-white">
+            <div className="sticky top-0 z-10 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-inverse/20 bg-inverse px-4 py-2 text-sm text-on-inverse">
               <span>
                 {selectedCount}{" "}
-                {selectedCount === 1 ? "Dokument ausgewählt" : "Dokumente ausgewählt"}
+                {selectedCount === 1
+                  ? "Dokument ausgewählt"
+                  : "Dokumente ausgewählt"}
               </span>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setSelected(new Set())}
                   disabled={bulkApprove.isPending}
-                  className="rounded-md border border-neutral-600 px-3 py-1 text-xs text-neutral-100 hover:bg-neutral-800 disabled:opacity-60"
+                  className="rounded-md border border-white/20 px-3 py-1 text-xs text-on-inverse/80 hover:bg-white/10 disabled:opacity-60"
                 >
                   Auswahl aufheben
                 </button>
@@ -740,7 +744,7 @@ function ZurPruefungTab() {
                   type="button"
                   onClick={onBulkApprove}
                   disabled={bulkApprove.isPending}
-                  className="rounded-md bg-white px-3 py-1 text-xs font-medium text-neutral-900 hover:bg-neutral-100 disabled:opacity-60"
+                  className="rounded-md bg-surface px-3 py-1 text-xs font-medium text-ink hover:bg-canvas disabled:opacity-60"
                 >
                   {bulkApprove.isPending
                     ? "Genehmige…"
@@ -752,50 +756,58 @@ function ZurPruefungTab() {
 
           {lastResult && (
             <p
-              className={`mt-3 rounded-md border px-3 py-2 text-sm ${
+              className={`mt-3 rounded-lg border px-3 py-2 text-sm ${
                 lastResult.failed
-                  ? "border-amber-300 bg-amber-50 text-amber-900"
-                  : "border-emerald-300 bg-emerald-50 text-emerald-900"
+                  ? "border-amber-200 bg-amber-50 text-amber-800"
+                  : "border-emerald-200 bg-emerald-50 text-emerald-800"
               }`}
             >
               {lastResult.succeeded} genehmigt
-              {lastResult.failed ? ` · ${lastResult.failed} fehlgeschlagen` : ""}.
+              {lastResult.failed
+                ? ` · ${lastResult.failed} fehlgeschlagen`
+                : ""}
+              .
             </p>
           )}
 
-          <table className="mt-4 w-full text-left text-sm">
-            <thead className="text-xs uppercase tracking-wide text-neutral-500">
-              <tr>
-                <th className="w-8 px-2 py-2">
-                  <input
-                    type="checkbox"
-                    aria-label="Alle auswählen"
-                    checked={allSelected}
-                    onChange={toggleAll}
-                    className="h-4 w-4 cursor-pointer accent-neutral-900"
+          <div className="mt-4 rounded-lg border border-hairline bg-surface">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-hairline text-xs uppercase tracking-wide text-ink-subtle">
+                <tr>
+                  <th className="w-8 px-3 py-2.5">
+                    <input
+                      type="checkbox"
+                      aria-label="Alle auswählen"
+                      checked={allSelected}
+                      onChange={toggleAll}
+                      className="h-4 w-4 cursor-pointer accent-ink"
+                    />
+                  </th>
+                  <th className="px-3 py-2.5">Titel</th>
+                  <th className="px-3 py-2.5">Typ</th>
+                  <th className="px-3 py-2.5">Korrespondent</th>
+                  <th className="px-3 py-2.5">Datum</th>
+                  <th className="px-3 py-2.5 text-right">Konfidenz</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-hairline-soft">
+                {list.data.results.map((row) => (
+                  <ReviewRow
+                    key={row.id}
+                    row={row}
+                    checked={effectiveSelected.has(row.id)}
+                    onToggle={() => toggleOne(row.id)}
+                    onOpen={() =>
+                      navigate({
+                        to: "/inbox/$id",
+                        params: { id: String(row.id) },
+                      })
+                    }
                   />
-                </th>
-                <th className="px-2 py-2">Titel</th>
-                <th className="px-2 py-2">Typ</th>
-                <th className="px-2 py-2">Korrespondent</th>
-                <th className="px-2 py-2">Datum</th>
-                <th className="px-2 py-2 text-right">Konfidenz</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-neutral-200">
-              {list.data.results.map((row) => (
-                <ReviewRow
-                  key={row.id}
-                  row={row}
-                  checked={effectiveSelected.has(row.id)}
-                  onToggle={() => toggleOne(row.id)}
-                  onOpen={() =>
-                    navigate({ to: "/inbox/$id", params: { id: String(row.id) } })
-                  }
-                />
-              ))}
-            </tbody>
-          </table>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </>
       )}
     </main>
@@ -813,32 +825,34 @@ function ReviewRow({
   onToggle: () => void;
   onOpen: () => void;
 }) {
-  const flagCls = row.low_confidence ? "border-l-4 border-amber-400" : "";
+  const flagCls = row.low_confidence ? "border-l-2 border-amber-400" : "";
   return (
-    <tr className={`hover:bg-neutral-50 ${flagCls}`}>
-      <td className="w-8 px-2 py-2" onClick={(e) => e.stopPropagation()}>
+    <tr className={`hover:bg-canvas ${flagCls}`}>
+      <td className="w-8 px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
         <input
           type="checkbox"
           aria-label={`${row.title} auswählen`}
           checked={checked}
           onChange={onToggle}
-          className="h-4 w-4 cursor-pointer accent-neutral-900"
+          className="h-4 w-4 cursor-pointer accent-ink"
         />
       </td>
-      <td onClick={onOpen} className="cursor-pointer px-2 py-2 font-medium text-neutral-900">
+      <td onClick={onOpen} className="cursor-pointer px-3 py-2.5 font-medium text-ink">
         {row.title}
       </td>
-      <td onClick={onOpen} className="cursor-pointer px-2 py-2 text-neutral-700">
+      <td onClick={onOpen} className="cursor-pointer px-3 py-2.5 text-ink-muted">
         {row.ai_document_type ?? "—"}
       </td>
-      <td onClick={onOpen} className="cursor-pointer px-2 py-2 text-neutral-700">
+      <td onClick={onOpen} className="cursor-pointer px-3 py-2.5 text-ink-muted">
         {row.ai_correspondent ?? "—"}
       </td>
-      <td onClick={onOpen} className="cursor-pointer px-2 py-2 text-neutral-700">
+      <td onClick={onOpen} className="cursor-pointer px-3 py-2.5 text-ink-muted">
         {row.ai_issue_date ?? row.created ?? "—"}
       </td>
-      <td onClick={onOpen} className="cursor-pointer px-2 py-2 text-right text-neutral-700">
-        {row.ai_confidence != null ? `${Math.round(row.ai_confidence * 100)}%` : "—"}
+      <td onClick={onOpen} className="cursor-pointer px-3 py-2.5 text-right text-ink-muted">
+        {row.ai_confidence != null
+          ? `${Math.round(row.ai_confidence * 100)}%`
+          : "—"}
       </td>
     </tr>
   );

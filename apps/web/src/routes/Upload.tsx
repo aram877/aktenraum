@@ -9,19 +9,19 @@ import {
 } from "../lib/documents";
 
 type Phase =
-  | "queued" // sitting in the form, not yet uploaded
-  | "uploading" // bytes streaming up
-  | "consuming" // Paperless task PENDING/STARTED
-  | "ai" // task SUCCESS, no lifecycle tag yet
-  | "inbox" // ai-pending
-  | "library" // ai-propagated / ai-approved
+  | "queued"
+  | "uploading"
+  | "consuming"
+  | "ai"
+  | "inbox"
+  | "library"
   | "error";
 
 type FileState = {
   id: string;
   file: File;
   phase: Phase;
-  progress: number; // 0..100 during "uploading"
+  progress: number;
   taskId: string | null;
   docId: number | null;
   detail: string | null;
@@ -29,19 +29,15 @@ type FileState = {
 };
 
 const PHASE_COPY: Record<Phase, { label: string; tone: string }> = {
-  queued: { label: "Bereit", tone: "text-neutral-500" },
-  uploading: { label: "Wird hochgeladen", tone: "text-neutral-700" },
-  consuming: { label: "Paperless verarbeitet…", tone: "text-blue-700" },
+  queued: { label: "Bereit", tone: "text-ink-subtle" },
+  uploading: { label: "Wird hochgeladen", tone: "text-ink-muted" },
+  consuming: { label: "Paperless verarbeitet…", tone: "text-accent" },
   ai: { label: "KI klassifiziert…", tone: "text-amber-700" },
   inbox: { label: "✓ Zur Prüfung", tone: "text-emerald-700" },
   library: { label: "✓ in der Bibliothek", tone: "text-emerald-700" },
   error: { label: "✗ Fehler", tone: "text-red-700" },
 };
 
-// Phase polling cadence + ceiling. Personal scale; we want fast snap-to-state
-// without spamming the API. The 120s ceiling covers OCR + LLM + propagation
-// for typical PDFs; longer-running pipelines (heavy tika parses) just stay
-// "AI klassifiziert…" until the user refreshes.
 const TASK_POLL_MS = 1500;
 const DOC_POLL_MS = 3000;
 const MAX_POLL_MS = 120_000;
@@ -53,7 +49,6 @@ export function Upload() {
   const [dragOver, setDragOver] = useState(false);
   const pollTimers = useRef<Map<string, number>>(new Map());
 
-  // Cancel any in-flight pollers when the page unmounts.
   useEffect(() => {
     const timers = pollTimers.current;
     return () => {
@@ -115,17 +110,19 @@ export function Upload() {
           });
         }
       } catch (e) {
-        const err = e as { response?: { data?: { detail?: string } }; message?: string };
+        const err = e as {
+          response?: { data?: { detail?: string } };
+          message?: string;
+        };
         setFileState(item.id, {
           phase: "error",
-          detail: err.response?.data?.detail ?? err.message ?? "Upload fehlgeschlagen",
+          detail:
+            err.response?.data?.detail ?? err.message ?? "Upload fehlgeschlagen",
         });
       }
     }
   };
 
-  // Poll the Paperless task until it succeeds (→ doc id known) or fails.
-  // Then hand off to startDocPoll for the lifecycle-tag stage.
   const startTaskPoll = (id: string, taskId: string, startedAt: number) => {
     const tick = async () => {
       if (Date.now() - startedAt > MAX_POLL_MS) {
@@ -146,9 +143,8 @@ export function Upload() {
           });
           return;
         }
-        // PENDING / STARTED / UNKNOWN → keep polling.
       } catch {
-        // Transient — try again on the next tick rather than failing the file.
+        // transient — retry
       }
       const handle = window.setTimeout(tick, TASK_POLL_MS);
       pollTimers.current.set(id, handle);
@@ -157,12 +153,9 @@ export function Upload() {
     pollTimers.current.set(id, handle);
   };
 
-  // Poll the document's lifecycle tag until a state we can render appears.
   const startDocPoll = (id: string, docId: number, startedAt: number) => {
     const tick = async () => {
       if (Date.now() - startedAt > MAX_POLL_MS) {
-        // Pipeline is unusually slow; the user can find the doc in the
-        // library or refresh later — flag it but don't error.
         setFileState(id, {
           phase: "error",
           detail: "KI-Pipeline reagiert langsam — schau in die Bibliothek.",
@@ -199,12 +192,16 @@ export function Upload() {
 
   const allTerminal =
     files.length > 0 &&
-    files.every((f) =>
-      f.phase === "inbox" || f.phase === "library" || f.phase === "error",
+    files.every(
+      (f) =>
+        f.phase === "inbox" || f.phase === "library" || f.phase === "error",
     );
   const queuedCount = files.filter((f) => f.phase === "queued").length;
   const uploading = files.some(
-    (f) => f.phase === "uploading" || f.phase === "consuming" || f.phase === "ai",
+    (f) =>
+      f.phase === "uploading" ||
+      f.phase === "consuming" ||
+      f.phase === "ai",
   );
   const inboxCount = files.filter((f) => f.phase === "inbox").length;
 
@@ -212,13 +209,12 @@ export function Upload() {
     <div className="flex min-h-full flex-col">
       <Nav active="upload" />
       <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-8">
-        <h1 className="text-lg font-semibold tracking-tight">
+        <h1 className="text-lg font-semibold tracking-tight text-ink">
           Dokumente hochladen
         </h1>
-        <p className="mt-1 text-sm text-neutral-600">
-          Lege PDFs oder Bilder ab. Sie werden in Paperless eingespielt und
-          danach automatisch von der KI klassifiziert. Du verfolgst hier den
-          Fortschritt live.
+        <p className="mt-1 text-sm text-ink-muted">
+          Lege PDFs oder Bilder ab. Sie werden in Paperless eingespielt und danach
+          automatisch von der KI klassifiziert. Du verfolgst hier den Fortschritt live.
         </p>
 
         <label
@@ -229,16 +225,16 @@ export function Upload() {
           onDragLeave={() => setDragOver(false)}
           onDrop={onDrop}
           htmlFor="file-input"
-          className={`mt-6 flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-6 py-10 text-center text-sm transition ${
+          className={`mt-6 flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-12 text-center text-sm transition-colors ${
             dragOver
-              ? "border-neutral-900 bg-neutral-50"
-              : "border-neutral-300 bg-white hover:bg-neutral-50"
+              ? "border-accent bg-accent/5"
+              : "border-hairline bg-surface hover:border-hairline-soft hover:bg-canvas"
           }`}
         >
-          <span className="font-medium text-neutral-900">
+          <span className="font-medium text-ink">
             Hier ablegen oder klicken zum Auswählen
           </span>
-          <span className="mt-1 text-xs text-neutral-500">
+          <span className="mt-1 text-xs text-ink-subtle">
             Mehrere Dateien gleichzeitig sind erlaubt.
           </span>
           <input
@@ -252,7 +248,7 @@ export function Upload() {
         </label>
 
         {files.length > 0 && (
-          <ul className="mt-4 divide-y divide-neutral-200 rounded-md border border-neutral-200 bg-white">
+          <ul className="mt-4 divide-y divide-hairline-soft rounded-lg border border-hairline bg-surface">
             {files.map((f) => (
               <FileRow key={f.id} state={f} />
             ))}
@@ -264,7 +260,7 @@ export function Upload() {
             type="button"
             onClick={() => setFiles([])}
             disabled={files.length === 0 || uploading}
-            className="rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-neutral-700 hover:bg-neutral-100 disabled:opacity-50"
+            className="rounded-md border border-hairline bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-canvas disabled:opacity-50"
           >
             Liste leeren
           </button>
@@ -273,8 +269,10 @@ export function Upload() {
             {allTerminal && inboxCount > 0 && (
               <button
                 type="button"
-                onClick={() => navigate({ to: "/library", search: { tab: "review" } })}
-                className="rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-neutral-900 hover:bg-neutral-100"
+                onClick={() =>
+                  navigate({ to: "/library", search: { tab: "review" } })
+                }
+                className="rounded-md border border-hairline bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-canvas"
               >
                 Zur Prüfung →
               </button>
@@ -282,7 +280,7 @@ export function Upload() {
             {allTerminal && inboxCount === 0 && (
               <Link
                 to="/library"
-                className="rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-neutral-900 hover:bg-neutral-100"
+                className="rounded-md border border-hairline bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-canvas"
               >
                 Zur Bibliothek →
               </Link>
@@ -291,7 +289,7 @@ export function Upload() {
               type="button"
               onClick={startUpload}
               disabled={queuedCount === 0 || uploading}
-              className="rounded-md bg-neutral-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-60"
+              className="rounded-md bg-ink px-4 py-1.5 text-sm font-medium text-on-inverse hover:opacity-80 disabled:opacity-60"
             >
               {uploading
                 ? "Lädt hoch…"
@@ -310,27 +308,26 @@ function FileRow({ state }: { state: FileState }) {
   const { tone, label } = PHASE_COPY[state.phase];
   const showProgress = state.phase === "uploading";
   const showDocLink =
-    (state.phase === "inbox" || state.phase === "library") && state.docId !== null;
+    (state.phase === "inbox" || state.phase === "library") &&
+    state.docId !== null;
 
   return (
     <li className="flex items-center gap-3 px-4 py-3 text-sm">
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="truncate font-medium text-neutral-900">
-            {state.file.name}
-          </span>
+          <span className="truncate font-medium text-ink">{state.file.name}</span>
           {showDocLink && state.docId !== null && (
             <Link
               to="/library/$id"
               params={{ id: String(state.docId) }}
-              className="text-xs text-neutral-500 underline hover:text-neutral-900"
+              className="text-xs text-ink-subtle underline hover:text-ink"
             >
               #{state.docId}
             </Link>
           )}
         </div>
         <div className="text-xs">
-          <span className="text-neutral-500">{humanSize(state.file.size)} · </span>
+          <span className="text-ink-faint">{humanSize(state.file.size)} · </span>
           <span className={tone}>{label}</span>
           {state.detail && state.phase === "error" && (
             <span className="ml-1 text-red-700">
@@ -339,15 +336,15 @@ function FileRow({ state }: { state: FileState }) {
           )}
         </div>
         {showProgress && (
-          <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-neutral-200">
+          <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-surface-raised">
             <div
-              className="h-full bg-neutral-900 transition-all"
+              className="h-full bg-ink transition-all"
               style={{ width: `${state.progress}%` }}
             />
           </div>
         )}
         {(state.phase === "consuming" || state.phase === "ai") && (
-          <div className="mt-1 h-1 w-24 animate-pulse rounded-full bg-neutral-200" />
+          <div className="mt-1.5 h-1 w-24 animate-pulse rounded-full bg-surface-raised" />
         )}
       </div>
     </li>
@@ -360,8 +357,6 @@ function humanSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-// Renders error detail text, turning a Paperless duplicate notice like
-// "It is a duplicate of SomeName (#81)." into clickable link on the #81 part.
 function DuplicateDetail({ detail }: { detail: string }) {
   const match = detail.match(/#(\d+)/);
   if (!match || !match[1]) return <>{detail}</>;

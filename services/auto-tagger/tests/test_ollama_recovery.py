@@ -7,7 +7,12 @@ continue to live under services/auto-tagger/tests").
 
 from __future__ import annotations
 
-from aktenraum_core.llm.ollama_backend import _recover_keys_for_schema
+import json
+
+from aktenraum_core.llm.ollama_backend import (
+    _recover_keys_for_schema,
+    _repair_truncated_json,
+)
 from pydantic import BaseModel
 
 
@@ -63,3 +68,45 @@ def test_recover_preserves_other_canonical_field_names():
 def test_recover_no_op_for_non_dict():
     out = _recover_keys_for_schema(["not", "a", "dict"], _AnswerOutput)
     assert out == ["not", "a", "dict"]
+
+
+# ----- _repair_truncated_json -----
+
+class TestRepairTruncatedJson:
+    def test_returns_input_when_already_valid(self):
+        text = '{"answer_de": "hi", "cited_ids": [1]}'
+        assert _repair_truncated_json(text) == text
+
+    def test_closes_unterminated_string_and_braces(self):
+        # User's exact failure mode: model truncated mid-string in summary_de.
+        truncated = (
+            '{"document_type":"Rechnung","correspondent":"Acme",'
+            '"summary_de":"Satz eins. Satz zwei. Satz drei mit unerwartetem'
+        )
+        repaired = _repair_truncated_json(truncated)
+        # Should parse cleanly now.
+        parsed = json.loads(repaired)
+        assert parsed["document_type"] == "Rechnung"
+        assert parsed["summary_de"].endswith("unerwartetem")
+
+    def test_closes_nested_array_and_object(self):
+        truncated = '{"a": {"b": [1, 2, "three'
+        parsed = json.loads(_repair_truncated_json(truncated))
+        assert parsed == {"a": {"b": [1, 2, "three"]}}
+
+    def test_drops_dangling_comma_before_closing_brace(self):
+        truncated = '{"x": 1, "y": "v",'
+        repaired = _repair_truncated_json(truncated)
+        parsed = json.loads(repaired)
+        assert parsed == {"x": 1, "y": "v"}
+
+    def test_escaped_quotes_inside_string_dont_break_walk(self):
+        text = r'{"s": "he said \"hi\""}'  # already valid, escape-aware walk
+        assert _repair_truncated_json(text) == text
+
+    def test_bails_on_structural_mismatch(self):
+        # `}` without matching `{` — repairing this would silently mask a
+        # bigger problem, so the helper returns the input untouched and
+        # the caller surfaces the original error.
+        bad = '{"a": 1}}'
+        assert _repair_truncated_json(bad) == bad

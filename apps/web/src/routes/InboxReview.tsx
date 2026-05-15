@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { TypeSpecificFieldsSection } from "../components/TypeSpecificFieldsSection";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Nav } from "../components/Nav";
 import type { InboxFieldUpdate } from "../lib/inbox";
@@ -61,6 +61,26 @@ const EMPTY_FORM: FormState = {
   ai_summary_de: "",
 };
 
+function detailToForm(d: {
+  ai_document_type: string | null;
+  ai_correspondent: string | null;
+  ai_title: string | null;
+  ai_issue_date: string | null;
+  ai_reference_numbers: string | null;
+  ai_suggested_tags: string | null;
+  ai_summary_de: string | null;
+}): FormState {
+  return {
+    ai_document_type: d.ai_document_type ?? "",
+    ai_correspondent: d.ai_correspondent ?? "",
+    ai_title: d.ai_title ?? "",
+    ai_issue_date: d.ai_issue_date ?? "",
+    ai_reference_numbers: d.ai_reference_numbers ?? "",
+    ai_suggested_tags: d.ai_suggested_tags ?? "",
+    ai_summary_de: d.ai_summary_de ?? "",
+  };
+}
+
 export function InboxReview({ id }: { id: number }) {
   const navigate = useNavigate();
   const detail = useInboxDetail(id);
@@ -69,23 +89,47 @@ export function InboxReview({ id }: { id: number }) {
   const reject = useReject(id);
 
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
-  const [initialised, setInitialised] = useState<number | null>(null);
+  // Tracks the last server snapshot we hydrated from. Compared per-field on
+  // every detail refetch: if a field still equals what we last hydrated, the
+  // user hasn't touched it and we replace it with the new server value. This
+  // makes Reprocess work — after the LLM re-runs and the detail refetches
+  // with a fresh ai_title, the form actually shows it.
+  const lastHydratedRef = useRef<FormState | null>(null);
+  const lastHydratedIdRef = useRef<number | null>(null);
 
-  // Hydrate the form once the detail query resolves; reset when the doc id changes.
   useEffect(() => {
-    if (detail.data && initialised !== detail.data.id) {
-      setForm({
-        ai_document_type: detail.data.ai_document_type ?? "",
-        ai_correspondent: detail.data.ai_correspondent ?? "",
-        ai_title: detail.data.ai_title ?? "",
-        ai_issue_date: detail.data.ai_issue_date ?? "",
-        ai_reference_numbers: detail.data.ai_reference_numbers ?? "",
-        ai_suggested_tags: detail.data.ai_suggested_tags ?? "",
-        ai_summary_de: detail.data.ai_summary_de ?? "",
-      });
-      setInitialised(detail.data.id);
+    if (!detail.data) return;
+    const next = detailToForm(detail.data);
+
+    if (lastHydratedIdRef.current !== detail.data.id) {
+      // Different doc — full replace.
+      setForm(next);
+      lastHydratedRef.current = next;
+      lastHydratedIdRef.current = detail.data.id;
+      return;
     }
-  }, [detail.data, initialised]);
+
+    // Same doc, possibly refetched. Replace only the fields the user hasn't
+    // touched (form[k] === lastHydrated[k]).
+    const prev = lastHydratedRef.current;
+    if (!prev) {
+      setForm(next);
+      lastHydratedRef.current = next;
+      return;
+    }
+    setForm((current) => {
+      const merged: FormState = { ...current };
+      let changed = false;
+      (Object.keys(next) as (keyof FormState)[]).forEach((k) => {
+        if (current[k] === prev[k] && current[k] !== next[k]) {
+          merged[k] = next[k];
+          changed = true;
+        }
+      });
+      return changed ? merged : current;
+    });
+    lastHydratedRef.current = next;
+  }, [detail.data]);
 
   const dirtyPatch = useMemo<InboxFieldUpdate>(() => {
     if (!detail.data) return {};

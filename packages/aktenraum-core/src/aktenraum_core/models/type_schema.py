@@ -32,6 +32,21 @@ TYPE_FIELD_SCHEMA: dict[DocumentType, list[FieldDef]] = {
         FieldDef("heizkosten", "Heizkosten", "money"),
         FieldDef("betriebskosten", "Betriebskosten", "money"),
     ],
+    DocumentType.Hausgeldabrechnung: [
+        FieldDef("wirtschaftsjahr", "Wirtschaftsjahr", "year"),
+        FieldDef("verwalter", "Hausverwaltung", "string"),
+        FieldDef("hausgeldanteil", "Hausgeldanteil (umlagefähig + nicht-umlagefähig)", "money"),
+        FieldDef(
+            "instandhaltungsruecklage",
+            "Zuführung Instandhaltungsrücklage",
+            "money",
+        ),
+        FieldDef(
+            "nachzahlung_oder_guthaben",
+            "Nachzahlung / Guthaben (Saldo)",
+            "money",
+        ),
+    ],
     DocumentType.Mahnung: [
         FieldDef("mahnstufe", "Mahnstufe", "string"),
         FieldDef("ursprungsrechnung", "Ursprüngliche Rechnungsnr.", "string"),
@@ -75,6 +90,21 @@ TYPE_FIELD_SCHEMA: dict[DocumentType, list[FieldDef]] = {
         FieldDef("kirchensteuer", "Kirchensteuer", "money"),
         FieldDef("finanzamt", "Zuständiges Finanzamt", "string"),
     ],
+    DocumentType.Spendenbescheinigung: [
+        FieldDef("empfaenger", "Spendenempfänger (Organisation)", "string"),
+        FieldDef("spendendatum", "Datum der Zuwendung", "date"),
+        FieldDef("spendenbetrag", "Spendenbetrag", "money"),
+        FieldDef(
+            "verwendungszweck",
+            "Verwendungszweck / Förderzweck",
+            "string",
+        ),
+        FieldDef(
+            "steuerbeguenstigt",
+            "Steuerbegünstigung (anerkannt / Vereinszweck)",
+            "string",
+        ),
+    ],
     DocumentType.Bescheid: [
         FieldDef("aktenzeichen", "Aktenzeichen", "string"),
         FieldDef("behoerde", "Behörde", "string"),
@@ -102,10 +132,30 @@ TYPE_FIELD_SCHEMA: dict[DocumentType, list[FieldDef]] = {
         FieldDef("marke_modell", "Marke / Modell", "string"),
         FieldDef("naechste_hu", "Nächste HU/TÜV", "date"),
     ],
+    DocumentType.Bussgeldbescheid: [
+        FieldDef("tatzeit", "Tatzeit / Tatdatum", "date"),
+        FieldDef("tatort", "Tatort", "string"),
+        FieldDef("kennzeichen", "Kennzeichen", "string"),
+        FieldDef("tatbestand", "Tatbestand / Verstoß", "string"),
+        FieldDef("bussgeld", "Bußgeld / Verwarnungsgeld", "money"),
+        FieldDef("punkte", "Punkte in Flensburg", "string"),
+        FieldDef("einspruchsfrist", "Einspruchsfrist", "date"),
+    ],
     DocumentType.Arztbrief: [
         FieldDef("behandlungsdatum", "Behandlungsdatum", "date"),
         FieldDef("diagnose", "Diagnose", "string"),
         FieldDef("facharzt", "Facharzt / Arzt", "string"),
+    ],
+    DocumentType.Krankschreibung: [
+        FieldDef("au_von", "Arbeitsunfähig von", "date"),
+        FieldDef("au_bis", "Arbeitsunfähig bis (voraussichtlich)", "date"),
+        FieldDef(
+            "erstbescheinigung",
+            "Erstbescheinigung (ja) oder Folgebescheinigung (nein)",
+            "string",
+        ),
+        FieldDef("arzt_oder_praxis", "Arzt / Praxis", "string"),
+        FieldDef("icd10", "ICD-10-Diagnose", "string"),
     ],
     DocumentType.Garantie: [
         FieldDef("produktname", "Produktname", "string"),

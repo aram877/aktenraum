@@ -6,7 +6,7 @@ from pydantic import ValidationError
 class TestDocumentTypeEnum:
     def test_has_canonical_values(self):
         # The taxonomy is documented in CLAUDE.md; if this changes, update both.
-        assert len(DocumentType) == 22
+        assert len(DocumentType) == 26
 
     def test_known_values_round_trip(self):
         for v in ["Rechnung", "Vertrag", "Kontoauszug", "Sonstiges", "Bescheid"]:

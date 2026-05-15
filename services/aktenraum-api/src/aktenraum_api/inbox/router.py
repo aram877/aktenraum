@@ -23,15 +23,23 @@ log = structlog.get_logger()
 router = APIRouter(prefix="/inbox", tags=["inbox"])
 
 
+_ORDERING_ALLOWLIST = frozenset(
+    ["-modified", "modified", "-created", "created", "-added", "added", "title", "-title"]
+)
+
+
 @router.get("/", response_model=InboxList)
 async def list_inbox(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    ordering: str = Query("-modified"),
     _user: User = Depends(get_current_user),
     gateway: PaperlessGateway = Depends(get_paperless_gateway),
 ) -> InboxList:
+    if ordering not in _ORDERING_ALLOWLIST:
+        ordering = "-modified"
     try:
-        return await service.list_pending(gateway, page=page, page_size=page_size)
+        return await service.list_pending(gateway, page=page, page_size=page_size, ordering=ordering)
     except PaperlessAuthError as e:
         raise _bad_gateway() from e
 

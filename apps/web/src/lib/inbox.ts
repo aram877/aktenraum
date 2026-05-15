@@ -53,12 +53,13 @@ export type InboxFieldUpdate = Partial<{
 const INBOX_KEY = ["inbox"] as const;
 
 async function fetchInboxList(
-  params: { page?: number; pageSize?: number } = {},
+  params: { page?: number; pageSize?: number; ordering?: string } = {},
 ): Promise<InboxList> {
   const { data } = await api.get<InboxList>("/inbox/", {
     params: {
       page: params.page ?? 1,
       page_size: params.pageSize ?? 20,
+      ordering: params.ordering ?? "-modified",
     },
   });
   return data;
@@ -93,9 +94,9 @@ async function rejectInbox(id: number): Promise<InboxDetail> {
   return data;
 }
 
-export function useInboxList(params: { page?: number; pageSize?: number } = {}) {
+export function useInboxList(params: { page?: number; pageSize?: number; ordering?: string } = {}) {
   return useQuery<InboxList, AxiosError>({
-    queryKey: [...INBOX_KEY, "list", params.page ?? 1, params.pageSize ?? 20],
+    queryKey: [...INBOX_KEY, "list", params.page ?? 1, params.pageSize ?? 20, params.ordering ?? "-modified"],
     queryFn: () => fetchInboxList(params),
     staleTime: 30_000,
     refetchOnWindowFocus: true,

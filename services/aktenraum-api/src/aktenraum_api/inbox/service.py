@@ -20,7 +20,7 @@ _CONTENT_EXCERPT_LIMIT = 2000
 
 
 async def list_pending(
-    gateway: PaperlessGateway, *, page: int, page_size: int
+    gateway: PaperlessGateway, *, page: int, page_size: int, ordering: str = "-modified"
 ) -> InboxList:
     name_to_id = await gateway.list_tags()
     pending_id = name_to_id.get(PENDING_TAG)
@@ -31,7 +31,7 @@ async def list_pending(
     payload = await gateway.search_documents(
         {
             "tags__id": pending_id,
-            "ordering": "created",
+            "ordering": ordering,
             "page": page,
         },
         page_size=page_size,

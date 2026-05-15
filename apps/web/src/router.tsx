@@ -65,6 +65,7 @@ const findRoute = createRoute({
 });
 
 type LibrarySearch = {
+  tab?: "review" | "archive";
   document_type?: string;
   correspondent?: string;
   date_from?: string;
@@ -83,7 +84,9 @@ const libraryRoute = createRoute({
   // Coerce raw URL params (always strings) into the typed shape the page expects.
   validateSearch: (search: Record<string, unknown>): LibrarySearch => {
     const out: LibrarySearch = {};
-    type ScalarKey = Exclude<keyof LibrarySearch, "tags">;
+    const tab = search["tab"];
+    if (tab === "review" || tab === "archive") out.tab = tab;
+    type ScalarKey = Exclude<keyof LibrarySearch, "tags" | "tab">;
     const str = (k: ScalarKey) =>
       typeof search[k] === "string" && search[k] !== ""
         ? (search[k] as string)
@@ -146,7 +149,10 @@ const uploadRoute = createRoute({
 const inboxRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/inbox",
-  beforeLoad: ({ context }) => ensureLoggedIn(context),
+  beforeLoad: async ({ context }) => {
+    await ensureLoggedIn(context);
+    throw redirect({ to: "/library", search: { tab: "review" } });
+  },
   component: Inbox,
 });
 

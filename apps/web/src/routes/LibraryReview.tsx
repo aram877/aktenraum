@@ -88,10 +88,7 @@ export function LibraryReview({ id }: { id: number }) {
   const dirtyPatch = useMemo<DocumentFieldUpdate>(() => {
     if (!detail.data) return {};
     const out: DocumentFieldUpdate = {};
-    const cmp = (
-      key: keyof FormState,
-      original: string | null | undefined,
-    ) => {
+    const cmp = (key: keyof FormState, original: string | null | undefined) => {
       const v = form[key].trim();
       const orig = (original ?? "").trim();
       if (v !== orig) out[key] = v === "" ? null : v;
@@ -134,11 +131,11 @@ export function LibraryReview({ id }: { id: number }) {
   };
 
   const errorDetail =
-    patch.error?.response?.data?.detail
-    ?? patch.error?.message
-    ?? reprocess.error?.response?.data?.detail
-    ?? reprocess.error?.message
-    ?? null;
+    patch.error?.response?.data?.detail ??
+    patch.error?.message ??
+    reprocess.error?.response?.data?.detail ??
+    reprocess.error?.message ??
+    null;
 
   return (
     <div className="flex min-h-full flex-col">
@@ -152,7 +149,9 @@ export function LibraryReview({ id }: { id: number }) {
             ← Zurück zur Bibliothek
           </Link>
           {isDirty && (
-            <span className="text-xs text-amber-700">Ungespeicherte Änderungen</span>
+            <span className="text-xs text-amber-700">
+              Ungespeicherte Änderungen
+            </span>
           )}
         </div>
 
@@ -194,9 +193,7 @@ export function LibraryReview({ id }: { id: number }) {
                   label="Dokumenttyp"
                   as="select"
                   value={form.ai_document_type}
-                  onChange={(v) =>
-                    setForm({ ...form, ai_document_type: v })
-                  }
+                  onChange={(v) => setForm({ ...form, ai_document_type: v })}
                 />
                 <Field
                   label="Korrespondent"
@@ -226,9 +223,7 @@ export function LibraryReview({ id }: { id: number }) {
                 <Field
                   label="Betrag"
                   value={form.ai_monetary_amount}
-                  onChange={(v) =>
-                    setForm({ ...form, ai_monetary_amount: v })
-                  }
+                  onChange={(v) => setForm({ ...form, ai_monetary_amount: v })}
                   placeholder="EUR149.99"
                 />
                 <Field
@@ -241,9 +236,7 @@ export function LibraryReview({ id }: { id: number }) {
                 <Field
                   label="Vorgeschlagene Tags"
                   value={form.ai_suggested_tags}
-                  onChange={(v) =>
-                    setForm({ ...form, ai_suggested_tags: v })
-                  }
+                  onChange={(v) => setForm({ ...form, ai_suggested_tags: v })}
                 />
                 <Field
                   label="Zusammenfassung"
@@ -266,9 +259,8 @@ export function LibraryReview({ id }: { id: number }) {
                   </div>
                   <p className="mt-2 text-[11px] leading-snug text-neutral-500">
                     Bearbeitungen ändern nur die KI-Felder. Wenn auch die
-                    nativen Paperless-Felder (Korrespondent, Dokumenttyp,
-                    Datum) neu geschrieben werden sollen, klicke „Erneut
-                    verarbeiten".
+                    nativen Paperless-Felder (Korrespondent, Dokumenttyp, Datum)
+                    neu geschrieben werden sollen, klicke „Erneut verarbeiten".
                   </p>
                   <TypeSpecificFieldsSection
                     docId={detail.data.id}

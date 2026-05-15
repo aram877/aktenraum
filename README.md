@@ -47,7 +47,14 @@ nginx            Edge: serves SPA static + reverse-proxies /api/* (127.0.0.1:808
 backup           Daily restic backup via crond
 ```
 
-Full architecture details, env-var reference, and contributor workflow live in **[`CLAUDE.md`](CLAUDE.md)** — the canonical project guide.
+Detailed walkthroughs:
+
+- **[`docs/architecture.md`](docs/architecture.md)** — services, data flow, lifecycle, RAG pipeline
+- **[`docs/development.md`](docs/development.md)** — start/build/test/debug + common tasks
+- **[`docs/document-types.md`](docs/document-types.md)** — the 26 German doc types + disambiguation + per-type fields
+- **[`docs/configuration.md`](docs/configuration.md)** — every env var, organised by file
+- **[`docs/api-reference.md`](docs/api-reference.md)** — endpoint catalog with auth + shapes
+- **[`CLAUDE.md`](CLAUDE.md)** — canonical Claude working guide (dense reference)
 
 ---
 

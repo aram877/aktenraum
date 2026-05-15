@@ -11,6 +11,7 @@ change. For why the stack looks the way it does see
 
 - Docker Desktop or Docker Engine + Compose v2.
 - `bash` (macOS, Linux, or Windows Git Bash).
+- [`task`](https://taskfile.dev) — strongly recommended (`brew install go-task` / `winget install Task.Task`). Every common workflow is a one-liner; run `task --list` to enumerate them.
 - For host-side Python work: nothing — `uv` is invoked through the workspace.
 - For host-side SPA work: Node 20+ and `pnpm` (`corepack enable && corepack prepare pnpm@latest --activate`).
 - For backups: `restic` only if you run the host-side `scripts/backup.sh`. The Dockerised `backup` service ships its own restic.
@@ -19,6 +20,29 @@ change. For why the stack looks the way it does see
 You do NOT need a Python or Node toolchain installed to run the stack —
 both services build inside Docker. The host installs are only for editing
 code with hot-reload.
+
+## Task runner
+
+Most commands below have a `task` wrapper. The full list is at
+[`Taskfile.yml`](../Taskfile.yml) (run `task --list`); the headline
+shortcuts:
+
+| Task | Equivalent |
+|---|---|
+| `task bootstrap` | first-time setup orchestration |
+| `task up` / `task down` / `task ps` | compose lifecycle |
+| `task web:dev` | hot-reload SPA on `:5173`, LAN-accessible |
+| `task web:deploy` / `task nginx:rebuild` | bake SPA into the nginx image |
+| `task api:rebuild` / `task tagger:rebuild` | rebuild + recreate a backend |
+| `task recreate SVC=auto-tagger` | recreate a service after env change |
+| `task logs SVC=auto-tagger` | tail one service |
+| `task test` / `task lint` | full suite or lint both stacks |
+| `task reprocess ID=27` | clear lifecycle tags so a doc re-extracts |
+| `task rag:backfill` / `task rag:eval` | RAG ops |
+| `task backup:run` / `task backup:snapshots` | manual backup ops |
+
+If you don't have `task` installed, every recipe below also lists the
+raw command.
 
 ---
 

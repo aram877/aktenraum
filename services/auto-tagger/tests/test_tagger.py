@@ -5,6 +5,7 @@ from aktenraum_core.models import DocumentExtraction, DocumentType, KeyDates
 
 from auto_tagger.tagger import (
     _example_payload,
+    _fallback_confidence_reason,
     _format_error,
     _format_history_hint,
     _format_issue_date_de,
@@ -290,6 +291,69 @@ class TestTruncateText:
         result = _truncate_text(text, max_tokens=100)  # 100 * 4 = 400 chars
         assert len(result) == 400 + len("\n\n[Dokument wurde aufgrund der Länge gekürzt.]")
         assert "gekürzt" in result
+
+
+class TestFallbackConfidenceReason:
+    """The few-shot examples MUST emit a concrete confidence_reason — small
+    models imitate shape, so a null in the example trains the model to drop
+    the field. Cover all three tiers."""
+
+    def test_high_confidence_tier(self):
+        msg = _fallback_confidence_reason(0.95)
+        assert "Briefkopf" in msg
+        assert "eindeutig" in msg
+
+    def test_high_confidence_boundary(self):
+        # 0.85 is exactly on the high-tier threshold.
+        assert "Briefkopf" in _fallback_confidence_reason(0.85)
+
+    def test_mid_confidence_tier(self):
+        msg = _fallback_confidence_reason(0.7)
+        assert "Korrespondent" in msg
+
+    def test_mid_confidence_boundary(self):
+        assert "Korrespondent" in _fallback_confidence_reason(0.6)
+
+    def test_low_confidence_tier(self):
+        msg = _fallback_confidence_reason(0.3)
+        assert "OCR" in msg or "fragment" in msg.lower()
+
+    def test_low_confidence_zero(self):
+        msg = _fallback_confidence_reason(0.0)
+        assert msg  # non-empty
+        assert "OCR" in msg or "fragment" in msg.lower()
+
+
+class TestExamplePayloadCarriesConfidenceReason:
+    """The whole point of putting confidence_reason in the few-shot payload —
+    if a doc has the field stored, surface it; otherwise fall back to the
+    tier-appropriate sentence. Either way the rendered JSON contains the key."""
+
+    def test_uses_stored_reason_when_present(self):
+        out = _example_payload(
+            {
+                "ai_document_type": "Rechnung",
+                "ai_confidence": 0.92,
+                "ai_confidence_reason": "Klarer Briefkopf der Stadtwerke; Beträge eindeutig.",
+            },
+            correspondent_name=None,
+            document_type_name=None,
+            created_date=None,
+            tag_names=[],
+        )
+        assert "confidence_reason" in out
+        assert "Stadtwerke" in out
+
+    def test_falls_back_to_tier_sentence_when_reason_missing(self):
+        out = _example_payload(
+            {"ai_document_type": "Rechnung", "ai_confidence": 0.95},
+            correspondent_name=None,
+            document_type_name=None,
+            created_date=None,
+            tag_names=[],
+        )
+        assert "confidence_reason" in out
+        assert "Briefkopf" in out  # high-tier fallback
 
 
 class TestFormatError:

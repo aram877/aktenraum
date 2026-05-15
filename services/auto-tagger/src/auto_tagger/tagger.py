@@ -172,6 +172,31 @@ def _split_csv(raw: str | None) -> list[str]:
     return [s.strip() for s in raw.split(",") if s.strip()]
 
 
+def _fallback_confidence_reason(confidence: float) -> str:
+    """Tier-based default reason for few-shot examples whose source docs
+    pre-date the ai_confidence_reason field.
+
+    Few-shot examples drive small-model output shape much more strongly
+    than explicit "PFLICHTFELD" instructions. If an example omits the
+    field the model will too. Concrete tier-appropriate sentences are
+    better here than `null`, which the model would happily echo back.
+    """
+    if confidence >= 0.85:
+        return (
+            "Klarer Briefkopf, Dokumenttyp und Pflichtfelder eindeutig "
+            "lesbar."
+        )
+    if confidence >= 0.6:
+        return (
+            "Dokumenttyp eindeutig, Korrespondent aus Briefkopf erschlossen; "
+            "einzelne Felder leicht unscharf."
+        )
+    return (
+        "OCR-Text in Teilen fragmentiert; Klassifikation auf Schlüsselwörter "
+        "gestützt."
+    )
+
+
 def _example_payload(
     ai_fields: dict[str, Any],
     *,
@@ -189,6 +214,7 @@ def _example_payload(
     numbers, ai_title). Monetary values intentionally absent — they are
     captured by Pass 2 (type-specific schemas) only.
     """
+    confidence = ai_fields.get("ai_confidence", 1.0)
     payload = {
         "document_type": document_type_name or ai_fields.get("ai_document_type"),
         "correspondent": correspondent_name or ai_fields.get("ai_correspondent"),
@@ -199,7 +225,15 @@ def _example_payload(
         "reference_numbers": _split_csv(ai_fields.get("ai_reference_numbers")),
         "suggested_tags": tag_names or _split_csv(ai_fields.get("ai_suggested_tags")),
         "summary_de": ai_fields.get("ai_summary_de") or "",
-        "confidence": ai_fields.get("ai_confidence", 1.0),
+        "confidence": confidence,
+        # Few-shot examples MUST carry confidence_reason or small models
+        # imitate the shape and drop it from their own output. Prefer the
+        # doc's stored reason; fall back to a tier-appropriate sentence for
+        # docs that pre-date the field.
+        "confidence_reason": (
+            ai_fields.get("ai_confidence_reason")
+            or _fallback_confidence_reason(float(confidence))
+        ),
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
@@ -431,6 +465,22 @@ async def process_document(
         synthesized = _synthesize_ai_title(extraction)
         extraction = extraction.model_copy(update={"ai_title": synthesized})
         logger.info("ai_title_synthesized", title=synthesized)
+
+    # confidence_reason fallback: same problem — local models drop the
+    # field even though the prompt + few-shot exemplars include it. Falling
+    # back to a tier-appropriate sentence is better than null because the
+    # user gets *some* context for the score (the SPA shows the sentence
+    # under the percentage). The LLM's value wins when present.
+    if not (extraction.confidence_reason or "").strip():
+        synthesized_reason = _fallback_confidence_reason(extraction.confidence)
+        extraction = extraction.model_copy(
+            update={"confidence_reason": synthesized_reason}
+        )
+        logger.info(
+            "confidence_reason_synthesized",
+            reason=synthesized_reason,
+            confidence=extraction.confidence,
+        )
 
     try:
         await paperless.patch_document_ai_fields(doc_id, extraction, backend.name, backend.model)

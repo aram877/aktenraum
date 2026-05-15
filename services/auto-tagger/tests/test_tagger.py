@@ -6,8 +6,10 @@ from aktenraum_core.models import DocumentExtraction, DocumentType, KeyDates
 from auto_tagger.tagger import (
     _example_payload,
     _format_history_hint,
+    _format_issue_date_de,
     _route_lifecycle_tags,
     _split_csv,
+    _synthesize_ai_title,
     _truncate_text,
 )
 
@@ -221,6 +223,61 @@ class TestFormatHistoryHint:
         history = {"Bürgeramt München": {"Behördenbrief": 3}}
         text = head_padding + " sender Bürgeramt München"
         assert _format_history_hint(history, text) == ""
+
+
+class TestFormatIssueDateDe:
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("2024-11-24", "November 2024"),
+            ("2024-01-01", "Januar 2024"),
+            ("2023-12-31T15:30:00Z", "Dezember 2023"),  # ISO timestamp tail is sliced off
+            (None, None),
+            ("", None),
+            ("not-a-date", None),
+        ],
+    )
+    def test_renders_german_month(self, raw, expected):
+        assert _format_issue_date_de(raw) == expected
+
+
+class TestSynthesizeAiTitle:
+    def _ex(self, **overrides) -> DocumentExtraction:
+        defaults = dict(
+            document_type=DocumentType.Gehaltsabrechnung,
+            correspondent="Acme GmbH",
+            key_dates=KeyDates(issue="2024-11-24"),
+            summary_de="Satz eins. Satz zwei. Satz drei.",
+            confidence=0.9,
+        )
+        defaults.update(overrides)
+        return DocumentExtraction(**defaults)
+
+    def test_full_title(self):
+        assert (
+            _synthesize_ai_title(self._ex())
+            == "Gehaltsabrechnung · Acme GmbH · November 2024"
+        )
+
+    def test_drops_missing_correspondent(self):
+        assert (
+            _synthesize_ai_title(self._ex(correspondent=None))
+            == "Gehaltsabrechnung · November 2024"
+        )
+
+    def test_drops_missing_date(self):
+        assert (
+            _synthesize_ai_title(self._ex(key_dates=KeyDates()))
+            == "Gehaltsabrechnung · Acme GmbH"
+        )
+
+    def test_doc_type_only_when_everything_else_missing(self):
+        ex = self._ex(correspondent=None, key_dates=KeyDates())
+        assert _synthesize_ai_title(ex) == "Gehaltsabrechnung"
+
+    def test_strips_correspondent_whitespace(self):
+        ex = self._ex(correspondent="  Acme GmbH  ")
+        assert "Acme GmbH" in _synthesize_ai_title(ex)
 
 
 class TestTruncateText:

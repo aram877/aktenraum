@@ -21,28 +21,28 @@ export function Nav({
   };
 
   const linkCls = (key: typeof active) =>
-    `text-sm ${
+    `text-sm transition-colors ${
       active === key
-        ? "font-medium text-neutral-900"
-        : "text-neutral-600 hover:text-neutral-900"
+        ? "font-medium text-ink"
+        : "text-ink-muted hover:text-ink"
     }`;
 
   const inboxCount = inbox.data?.total ?? null;
-  // Subtract pending docs from in-flight so the global pill represents docs
-  // *being processed by the auto-tagger right now* (= ai-approved waiting on
-  // propagation, primarily). Pending docs already get their own Inbox badge.
   const processingCount = Math.max(
     0,
     (inFlight.data?.count ?? 0) - (inboxCount ?? 0),
   );
 
   return (
-    <header className="flex items-center justify-between border-b border-neutral-200 bg-white px-6 py-3">
-      <div className="flex items-center gap-6">
-        <Link to="/" className="text-sm font-semibold tracking-tight">
+    <header className="flex items-center justify-between border-b border-hairline bg-canvas px-6 py-3">
+      <div className="flex items-center gap-7">
+        <Link
+          to="/"
+          className="text-sm font-semibold tracking-tight text-ink"
+        >
           aktenraum
         </Link>
-        <nav className="flex items-center gap-4">
+        <nav className="flex items-center gap-5">
           <Link to="/" className={linkCls("home")}>
             Start
           </Link>
@@ -75,24 +75,24 @@ export function Nav({
           </Link>
         </nav>
       </div>
-      <div className="flex items-center gap-3 text-sm text-neutral-700">
+      <div className="flex items-center gap-3 text-sm text-ink-muted">
         {processingCount > 0 && (
           <span
             title="Dokumente werden gerade von der KI verarbeitet"
-            className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-800"
+            className="inline-flex items-center gap-1.5 rounded-full bg-accent/10 px-2.5 py-0.5 text-xs text-accent"
           >
             <span
-              className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-600"
+              className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent"
               aria-hidden
             />
             {processingCount} in Bearbeitung
           </span>
         )}
-        <span>{me.data?.username ?? "…"}</span>
+        <span className="text-ink-subtle">{me.data?.username ?? "…"}</span>
         <button
           onClick={onLogout}
           disabled={logout.isPending}
-          className="rounded-md border border-neutral-300 px-3 py-1 text-xs hover:bg-neutral-100 disabled:opacity-60"
+          className="rounded-md border border-hairline bg-surface px-3 py-1 text-xs text-ink-muted hover:bg-canvas hover:text-ink disabled:opacity-60"
         >
           Sign out
         </button>

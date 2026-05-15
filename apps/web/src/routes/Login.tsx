@@ -15,7 +15,7 @@ export function Login() {
       await login.mutateAsync({ username, password });
       await navigate({ to: "/" });
     } catch {
-      // Mutation state surfaces the error message below; nothing else to do.
+      // error surfaced below
     }
   };
 
@@ -23,42 +23,48 @@ export function Login() {
     <main className="flex min-h-full items-center justify-center px-4">
       <form
         onSubmit={onSubmit}
-        className="w-full max-w-sm rounded-lg border border-neutral-200 bg-white p-6 shadow-sm"
+        className="w-full max-w-sm rounded-xl border border-hairline bg-surface p-8"
       >
-        <h1 className="mb-6 text-xl font-semibold tracking-tight">aktenraum</h1>
-        <label className="block text-sm font-medium text-neutral-700">
-          Username
+        <h1 className="mb-1 text-xl font-semibold tracking-tight text-ink">
+          aktenraum
+        </h1>
+        <p className="mb-7 text-sm text-ink-subtle">Melde dich an, um fortzufahren.</p>
+
+        <label className="block text-xs font-medium text-ink-muted">
+          Benutzername
           <input
             type="text"
             autoComplete="username"
             required
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            className="mt-1 block w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-neutral-900 focus:outline-none focus:ring-0"
+            className="mt-1.5 block w-full rounded-lg border border-hairline bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none"
           />
         </label>
-        <label className="mt-4 block text-sm font-medium text-neutral-700">
-          Password
+        <label className="mt-4 block text-xs font-medium text-ink-muted">
+          Passwort
           <input
             type="password"
             autoComplete="current-password"
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="mt-1 block w-full rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-neutral-900 focus:outline-none focus:ring-0"
+            className="mt-1.5 block w-full rounded-lg border border-hairline bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none"
           />
         </label>
+
         {login.isError && (
           <p className="mt-3 text-sm text-red-600">
-            Invalid credentials. Try again.
+            Ungültige Anmeldedaten. Bitte erneut versuchen.
           </p>
         )}
+
         <button
           type="submit"
           disabled={login.isPending}
-          className="mt-6 block w-full rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-60"
+          className="mt-6 block w-full rounded-lg bg-ink px-4 py-2.5 text-sm font-medium text-on-inverse hover:opacity-80 disabled:opacity-60"
         >
-          {login.isPending ? "Signing in…" : "Sign in"}
+          {login.isPending ? "Anmelden…" : "Anmelden"}
         </button>
       </form>
     </main>

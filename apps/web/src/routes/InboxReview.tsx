@@ -3,6 +3,7 @@ import { TypeSpecificFieldsSection } from "../components/TypeSpecificFieldsSecti
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Nav } from "../components/Nav";
+import { CheckIcon, XIcon } from "../components/Icons";
 import type { InboxFieldUpdate } from "../lib/inbox";
 import {
   useApprove,
@@ -72,17 +73,8 @@ function detailToForm(d: {
   ai_summary_de: string | null;
   tags?: string[];
 }): FormState {
-  // The AI suggested-tags string is regularly empty even when the doc has
-  // topical tags (the LLM dropped the field, or propagation merged them
-  // into the native tag list and the custom field was never written).
-  // Fall back to the doc's current tag set minus lifecycle/internal tags
-  // so the form shows what's actually on the doc and the user can edit
-  // it. dirtyPatch still compares against the raw API value, so an
-  // untouched fallback won't get PATCHed back.
   const suggestedRaw = (d.ai_suggested_tags ?? "").trim();
-  const suggested =
-    suggestedRaw ||
-    userFacingTags(d.tags ?? []).join(", ");
+  const suggested = suggestedRaw || userFacingTags(d.tags ?? []).join(", ");
   return {
     ai_document_type: d.ai_document_type ?? "",
     ai_correspondent: d.ai_correspondent ?? "",
@@ -102,28 +94,18 @@ export function InboxReview({ id }: { id: number }) {
   const reject = useReject(id);
 
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
-  // Tracks the last server snapshot we hydrated from. Compared per-field on
-  // every detail refetch: if a field still equals what we last hydrated, the
-  // user hasn't touched it and we replace it with the new server value. This
-  // makes Reprocess work — after the LLM re-runs and the detail refetches
-  // with a fresh ai_title, the form actually shows it.
   const lastHydratedRef = useRef<FormState | null>(null);
   const lastHydratedIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!detail.data) return;
     const next = detailToForm(detail.data);
-
     if (lastHydratedIdRef.current !== detail.data.id) {
-      // Different doc — full replace.
       setForm(next);
       lastHydratedRef.current = next;
       lastHydratedIdRef.current = detail.data.id;
       return;
     }
-
-    // Same doc, possibly refetched. Replace only the fields the user hasn't
-    // touched (form[k] === lastHydrated[k]).
     const prev = lastHydratedRef.current;
     if (!prev) {
       setForm(next);
@@ -147,10 +129,7 @@ export function InboxReview({ id }: { id: number }) {
   const dirtyPatch = useMemo<InboxFieldUpdate>(() => {
     if (!detail.data) return {};
     const out: InboxFieldUpdate = {};
-    const cmp = (
-      key: keyof FormState,
-      original: string | null | undefined,
-    ) => {
+    const cmp = (key: keyof FormState, original: string | null | undefined) => {
       const v = form[key].trim();
       const orig = (original ?? "").trim();
       if (v !== orig) out[key] = v === "" ? null : v;
@@ -175,12 +154,17 @@ export function InboxReview({ id }: { id: number }) {
     const currentPos = ids.indexOf(id);
     let target: number | undefined;
     if (currentPos === -1) {
-      target = direction === "next" ? filtered[0] : filtered[filtered.length - 1];
+      target =
+        direction === "next" ? filtered[0] : filtered[filtered.length - 1];
     } else if (direction === "next") {
-      target = filtered.find((d) => ids.indexOf(d) > currentPos) ?? filtered[0];
+      target =
+        filtered.find((d) => ids.indexOf(d) > currentPos) ?? filtered[0];
     } else {
       const before = filtered.filter((d) => ids.indexOf(d) < currentPos);
-      target = before.length ? before[before.length - 1] : filtered[filtered.length - 1];
+      target =
+        before.length
+          ? before[before.length - 1]
+          : filtered[filtered.length - 1];
     }
     if (target !== undefined) {
       void navigate({ to: "/inbox/$id", params: { id: String(target) } });
@@ -195,7 +179,7 @@ export function InboxReview({ id }: { id: number }) {
       await approve.mutateAsync(body);
       advance("next");
     } catch {
-      // surface via approve.error below
+      // surfaced via approve.error below
     }
   };
 
@@ -204,7 +188,7 @@ export function InboxReview({ id }: { id: number }) {
       await reject.mutateAsync();
       advance("next");
     } catch {
-      // surface via reject.error below
+      // surfaced via reject.error below
     }
   };
 
@@ -229,21 +213,26 @@ export function InboxReview({ id }: { id: number }) {
           <button
             type="button"
             onClick={() => window.history.back()}
-            className="text-sm text-neutral-600 hover:text-neutral-900"
+            className="text-sm text-ink-muted hover:text-ink"
           >
             ← Zur Prüfung
           </button>
-          <span className="text-xs text-neutral-500">
-            Tasten: <kbd className="rounded bg-neutral-200 px-1">A</kbd> Genehmigen ·{" "}
-            <kbd className="rounded bg-neutral-200 px-1">R</kbd> Ablehnen ·{" "}
-            <kbd className="rounded bg-neutral-200 px-1">J</kbd>/
-            <kbd className="rounded bg-neutral-200 px-1">K</kbd> Weiter/Zurück ·{" "}
-            <kbd className="rounded bg-neutral-200 px-1">Esc</kbd> Liste
+          <span className="text-xs text-ink-subtle">
+            Tasten:{" "}
+            <kbd className="rounded border border-hairline bg-surface-raised px-1">A</kbd>{" "}
+            Genehmigen ·{" "}
+            <kbd className="rounded border border-hairline bg-surface-raised px-1">R</kbd>{" "}
+            Ablehnen ·{" "}
+            <kbd className="rounded border border-hairline bg-surface-raised px-1">J</kbd>/
+            <kbd className="rounded border border-hairline bg-surface-raised px-1">K</kbd>{" "}
+            Weiter/Zurück ·{" "}
+            <kbd className="rounded border border-hairline bg-surface-raised px-1">Esc</kbd>{" "}
+            Liste
           </span>
         </div>
 
         {detail.isError && (
-          <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
             Konnte das Dokument nicht laden.
           </p>
         )}
@@ -254,22 +243,22 @@ export function InboxReview({ id }: { id: number }) {
               key={id}
               title={`Vorschau ${id}`}
               src={`/api/inbox/${id}/preview`}
-              className="h-[80vh] w-full rounded-md border border-neutral-200 bg-white"
+              className="h-[80vh] w-full rounded-lg border border-hairline bg-surface"
             />
-            <section className="flex h-[80vh] flex-col overflow-hidden rounded-md border border-neutral-200 bg-white">
-              <header className="flex items-center justify-between border-b border-neutral-200 px-4 py-3">
+            <section className="flex h-[80vh] flex-col overflow-hidden rounded-lg border border-hairline bg-surface">
+              <header className="flex items-center justify-between border-b border-hairline px-4 py-3">
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold">
+                  <div className="truncate text-sm font-semibold text-ink">
                     {detail.data.ai_title || detail.data.title}
                   </div>
                   {detail.data.original_file_name &&
                     detail.data.original_file_name !==
                       (detail.data.ai_title || detail.data.title) && (
-                      <div className="truncate text-[11px] text-neutral-400">
+                      <div className="truncate text-[11px] text-ink-faint">
                         Original: {detail.data.original_file_name}
                       </div>
                     )}
-                  <div className="text-xs text-neutral-500">
+                  <div className="text-xs text-ink-subtle">
                     {detail.data.created ?? "—"} ·{" "}
                     {detail.data.ai_confidence != null
                       ? `${Math.round(detail.data.ai_confidence * 100)}% Konfidenz`
@@ -277,7 +266,7 @@ export function InboxReview({ id }: { id: number }) {
                   </div>
                   {detail.data.ai_confidence_reason && (
                     <div
-                      className="mt-0.5 text-[11px] italic leading-snug text-neutral-500"
+                      className="mt-0.5 text-[11px] italic leading-snug text-ink-subtle"
                       title="Begründung der KI für den Konfidenzwert"
                     >
                       {detail.data.ai_confidence_reason}
@@ -285,7 +274,7 @@ export function InboxReview({ id }: { id: number }) {
                   )}
                 </div>
                 {detail.data.low_confidence && (
-                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                  <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
                     Niedrige Konfidenz
                   </span>
                 )}
@@ -336,13 +325,14 @@ export function InboxReview({ id }: { id: number }) {
                   onChange={(v) => setForm({ ...form, ai_summary_de: v })}
                 />
 
-                <div className="rounded-md bg-neutral-50 p-3 text-xs text-neutral-600">
+                <div className="rounded-lg border border-hairline bg-canvas p-3 text-xs text-ink-muted">
                   <div>
-                    <span className="text-neutral-500">Backend:</span>{" "}
-                    {detail.data.ai_backend ?? "—"} · {detail.data.ai_model ?? "—"}
+                    <span className="text-ink-subtle">Backend:</span>{" "}
+                    {detail.data.ai_backend ?? "—"} ·{" "}
+                    {detail.data.ai_model ?? "—"}
                   </div>
                   <div className="mt-1">
-                    <span className="text-neutral-500">Tags:</span>{" "}
+                    <span className="text-ink-subtle">Tags:</span>{" "}
                     {detail.data.tags.length ? detail.data.tags.join(", ") : "—"}
                   </div>
                   <TypeSpecificFieldsSection
@@ -358,21 +348,25 @@ export function InboxReview({ id }: { id: number }) {
                 </p>
               )}
 
-              <footer className="flex items-center justify-end gap-2 border-t border-neutral-200 px-4 py-3">
+              <footer className="flex items-center justify-end gap-1.5 border-t border-hairline px-4 py-2.5">
                 <button
                   type="button"
                   onClick={onReject}
                   disabled={reject.isPending || approve.isPending}
-                  className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-900 hover:bg-neutral-100 disabled:opacity-60"
+                  title="Ablehnen (R)"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-hairline bg-canvas px-3 py-1.5 text-xs font-medium text-ink-muted hover:bg-surface-raised disabled:opacity-60"
                 >
+                  <XIcon className="h-3 w-3" />
                   Ablehnen
                 </button>
                 <button
                   type="button"
                   onClick={onApprove}
                   disabled={reject.isPending || approve.isPending}
-                  className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-60"
+                  title="Genehmigen (A)"
+                  className="inline-flex items-center gap-1.5 rounded-md bg-ink px-3 py-1.5 text-xs font-medium text-on-inverse hover:opacity-80 disabled:opacity-60"
                 >
+                  <CheckIcon className="h-3 w-3" />
                   {approve.isPending ? "…" : "Genehmigen"}
                 </button>
               </footer>
@@ -400,9 +394,9 @@ function Field({
   placeholder?: string;
 }) {
   const inputCls =
-    "mt-1 block w-full rounded-md border border-neutral-300 bg-white px-2 py-1 text-sm focus:border-neutral-900 focus:outline-none";
+    "mt-1 block w-full rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none";
   return (
-    <label className="block text-xs font-medium text-neutral-600">
+    <label className="block text-xs font-medium text-ink-muted">
       {label}
       {as === "select" ? (
         <select
@@ -459,13 +453,15 @@ function ErrorBanner({
         ? "RAG-Indizierung fehlgeschlagen"
         : "KI-Analyse fehlgeschlagen";
   return (
-    <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs">
+    <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs">
       <div className="font-semibold text-red-900">{label}</div>
       <pre className="mt-1 whitespace-pre-wrap font-mono text-[11px] leading-snug text-red-800">
-        {(message ?? "").trim() || "Kein Fehlertext gespeichert. Logs des auto-tagger oder propagator prüfen."}
+        {(message ?? "").trim() ||
+          "Kein Fehlertext gespeichert. Logs des auto-tagger oder propagator prüfen."}
       </pre>
       <div className="mt-1 text-[11px] text-red-700">
-        Tag: <code>{errorTags.join(", ")}</code> · „Erneut verarbeiten" löscht die Lifecycle-Tags und stößt die KI neu an.
+        Tag: <code>{errorTags.join(", ")}</code> · „Erneut verarbeiten" löscht
+        die Lifecycle-Tags und stößt die KI neu an.
       </div>
     </div>
   );

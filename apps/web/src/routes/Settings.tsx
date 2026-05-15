@@ -54,14 +54,14 @@ export function SettingsPage() {
     <div className="flex min-h-full flex-col">
       <Nav active="settings" />
       <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-8">
-        <h1 className="text-lg font-semibold tracking-tight">Einstellungen</h1>
-        <p className="mt-1 text-sm text-neutral-600">
+        <h1 className="text-lg font-semibold tracking-tight text-ink">Einstellungen</h1>
+        <p className="mt-1 text-sm text-ink-muted">
           Wähle das KI-Modell für Klassifikation und Antwort. Die Auswahl wirkt
           sofort auf die nächste Extraktion — kein Container-Restart nötig.
         </p>
 
         {errorDetail && (
-          <p className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
             {errorDetail}
           </p>
         )}
@@ -73,10 +73,10 @@ export function SettingsPage() {
             return (
               <label
                 key={opt.value}
-                className={`block cursor-pointer rounded-md border px-4 py-3 transition-colors ${
+                className={`block cursor-pointer rounded-lg border px-5 py-4 transition-colors ${
                   checked
-                    ? "border-neutral-900 bg-neutral-50"
-                    : "border-neutral-200 bg-white hover:bg-neutral-50"
+                    ? "border-ink bg-surface"
+                    : "border-hairline bg-surface hover:border-hairline-soft hover:bg-canvas"
                 }`}
               >
                 <div className="flex items-start gap-3">
@@ -87,18 +87,18 @@ export function SettingsPage() {
                     checked={checked}
                     onChange={() => onPick(opt.value)}
                     disabled={update.isPending}
-                    className="mt-1 h-4 w-4 accent-neutral-900"
+                    className="mt-1 h-4 w-4 accent-ink"
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline gap-2">
-                      <span className="text-sm font-semibold text-neutral-900">
+                      <span className="text-sm font-semibold text-ink">
                         {opt.label}
                       </span>
-                      <code className="text-[11px] text-neutral-500">
+                      <code className="text-[11px] text-ink-subtle">
                         {opt.model}
                       </code>
                       {isPending && (
-                        <span className="text-[11px] text-neutral-500">
+                        <span className="text-[11px] text-ink-subtle">
                           speichere…
                         </span>
                       )}
@@ -108,7 +108,7 @@ export function SettingsPage() {
                         </span>
                       )}
                     </div>
-                    <p className="mt-1 text-xs text-neutral-600">{opt.hint}</p>
+                    <p className="mt-1 text-xs text-ink-muted">{opt.hint}</p>
                   </div>
                 </div>
               </label>
@@ -116,15 +116,17 @@ export function SettingsPage() {
           })}
         </section>
 
-        <p className="mt-6 text-xs text-neutral-500">
+        <p className="mt-6 text-xs text-ink-subtle">
           Beide Modelle müssen auf dem Host mit{" "}
-          <code className="rounded bg-neutral-100 px-1 py-0.5">ollama pull</code>{" "}
-          installiert sein. Die Einstellung wirkt nur auf den
-          <code className="ml-1 rounded bg-neutral-100 px-1 py-0.5">
+          <code className="rounded border border-hairline bg-surface-raised px-1 py-0.5">
+            ollama pull
+          </code>{" "}
+          installiert sein. Die Einstellung wirkt nur auf den{" "}
+          <code className="rounded border border-hairline bg-surface-raised px-1 py-0.5">
             ollama
           </code>{" "}
           Backend — Anthropic nutzt weiterhin{" "}
-          <code className="rounded bg-neutral-100 px-1 py-0.5">
+          <code className="rounded border border-hairline bg-surface-raised px-1 py-0.5">
             ANTHROPIC_MODEL
           </code>{" "}
           aus der Env.

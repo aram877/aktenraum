@@ -45,7 +45,7 @@ function classify(tags: string[]): State {
   if (set.has("ai-pending")) {
     return {
       label: "Bereit zum Prüfen",
-      title: "Wartet auf deine Prüfung in der Inbox.",
+      title: "Wartet auf deine Prüfung.",
       variant: "warning",
     };
   }

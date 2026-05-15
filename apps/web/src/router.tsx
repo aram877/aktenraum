@@ -14,6 +14,7 @@ import { InboxReview } from "./routes/InboxReview";
 import { Library } from "./routes/Library";
 import { LibraryReview } from "./routes/LibraryReview";
 import { Login } from "./routes/Login";
+import { SettingsPage } from "./routes/Settings";
 import { Upload } from "./routes/Upload";
 import { fetchMe } from "./lib/api";
 import type { QueryClient } from "@tanstack/react-query";
@@ -142,6 +143,13 @@ const uploadRoute = createRoute({
   component: Upload,
 });
 
+const settingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings",
+  beforeLoad: ({ context }) => ensureLoggedIn(context),
+  component: SettingsPage,
+});
+
 const inboxRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/inbox",
@@ -170,6 +178,7 @@ const routeTree = rootRoute.addChildren([
   libraryRoute,
   libraryReviewRoute,
   uploadRoute,
+  settingsRoute,
   inboxRoute,
   inboxReviewRoute,
 ]);

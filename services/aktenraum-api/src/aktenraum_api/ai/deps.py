@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from aktenraum_core.llm import LLMBackend, create_backend
 from fastapi import Depends, HTTPException, Request, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.deps import get_settings
 from ..config import Settings
+from ..db.session import get_session
 from ..paperless_gw import PaperlessGateway
+from ..settings import service as settings_service
 from .retrieval import RetrievalDeps
 
 
@@ -33,29 +36,37 @@ def get_paperless_gateway(request: Request) -> PaperlessGateway:
     return gateway
 
 
-def get_llm_backend(settings: Settings = Depends(get_settings)) -> LLMBackend:
+async def get_llm_backend(
+    settings: Settings = Depends(get_settings),
+    session: AsyncSession = Depends(get_session),
+) -> LLMBackend:
     """Build a fresh backend per request for the default (filter) model.
 
-    Connection pooling is not needed at personal-DMS scale; if it ever is, the
-    backend can move to app.state and be created once during lifespan.
+    When LLM_BACKEND=ollama, the actual model name is read from the
+    app_settings row (set via the Settings page) so the operator can flip
+    quality without recreating containers. Anthropic still reads ANTHROPIC_MODEL
+    from the env — that backend isn't tied to the local quality picker.
     """
-    return _build_backend(settings, role="filter")
+    return await _build_backend(settings, session, role="filter")
 
 
-def get_answer_llm_backend(
+async def get_answer_llm_backend(
     settings: Settings = Depends(get_settings),
+    session: AsyncSession = Depends(get_session),
 ) -> LLMBackend:
     """Backend for the answer-generation step (/api/ai/answer).
 
-    Uses `*_answer_model` if set, otherwise falls back to the default model.
-    The split lets a deployer pair a fast small model for filter extraction
-    with a smarter big model for reading citations and producing the German
-    prose — the answer step is the one that actually needs reasoning.
+    Uses `*_answer_model` if set, otherwise falls back to the default
+    runtime-selected model. The split lets a deployer pair a fast filter
+    model with a smarter answer model — the answer step is the one that
+    actually needs reasoning.
     """
-    return _build_backend(settings, role="answer")
+    return await _build_backend(settings, session, role="answer")
 
 
-def _build_backend(settings: Settings, *, role: str) -> LLMBackend:
+async def _build_backend(
+    settings: Settings, session: AsyncSession, *, role: str
+) -> LLMBackend:
     backend = settings.llm_backend.lower()
     if backend == "anthropic":
         if not settings.anthropic_api_key:
@@ -74,11 +85,13 @@ def _build_backend(settings: Settings, *, role: str) -> LLMBackend:
             anthropic_model=model,
         )
     if backend == "ollama":
-        model = (
-            settings.ollama_answer_model
-            if role == "answer" and settings.ollama_answer_model
-            else settings.ollama_model
-        )
+        # Runtime model name wins over OLLAMA_MODEL env. The answer step
+        # still honours OLLAMA_ANSWER_MODEL if explicitly set — that env
+        # is the "deployer pin" path; the DB is the "user choice" path.
+        if role == "answer" and settings.ollama_answer_model:
+            model = settings.ollama_answer_model
+        else:
+            model = await settings_service.get_active_model(session)
         return create_backend(
             "ollama",
             ollama_base_url=settings.ollama_base_url,

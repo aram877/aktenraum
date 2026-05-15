@@ -2,10 +2,10 @@ import asyncio
 import logging
 
 import structlog
-from aktenraum_core.llm import LLMBackend, create_backend
 from aktenraum_core.paperless import LIFECYCLE_TAGS, PaperlessClient
 from aktenraum_core.rag import OllamaEmbedder, QdrantVectorStore
 
+from .backend_provider import build_active_backend
 from .config import Settings
 from .indexer import IndexingDeps, index_document
 from .processing_state import ProcessingState
@@ -33,7 +33,6 @@ def _configure_logging(level: str) -> None:
 async def _extraction_worker(
     queue: asyncio.Queue[int],
     paperless: PaperlessClient,
-    backend: LLMBackend,
     settings: Settings,
     state: ProcessingState,
 ) -> None:
@@ -44,6 +43,12 @@ async def _extraction_worker(
     twice if the LLM call is slower than the poll interval. We re-check the
     document's tags here and skip if any lifecycle tag is already set —
     cheaper than the LLM round-trip.
+
+    The LLM backend is rebuilt per extraction from the runtime quality
+    setting (DB-backed, written by the SPA Settings page). Cost is one
+    cheap HTTP round-trip to aktenraum-api — negligible against the
+    seconds the LLM takes. Means the operator's quality switch takes
+    effect on the very next extraction.
     """
     log = structlog.get_logger().bind(loop="extraction_worker")
     lifecycle_tags = set(LIFECYCLE_TAGS)
@@ -60,6 +65,7 @@ async def _extraction_worker(
                     lifecycle_tags=sorted(current_tag_names & lifecycle_tags),
                 )
                 continue
+            backend = await build_active_backend(settings)
             await process_document(doc, paperless, backend, settings)
         except Exception as exc:
             log.exception("worker_error", doc_id=doc_id, error=str(exc))
@@ -183,13 +189,9 @@ async def run() -> None:
         http_server_enabled=settings.enable_http_server,
     )
 
-    backend = create_backend(
-        settings.llm_backend,
-        anthropic_api_key=settings.anthropic_api_key or None,
-        anthropic_model=settings.anthropic_model,
-        ollama_base_url=settings.ollama_base_url,
-        ollama_model=settings.ollama_model,
-    )
+    # The extraction worker rebuilds the backend per doc via
+    # build_active_backend(settings), consulting aktenraum-api for the
+    # runtime quality. No startup-time backend is needed.
     queue: asyncio.Queue[int] = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
     state = ProcessingState()
 
@@ -231,7 +233,7 @@ async def run() -> None:
             )
 
         loops = [
-            _extraction_worker(queue, paperless, backend, settings, state),
+            _extraction_worker(queue, paperless, settings, state),
             _extraction_poller(queue, paperless, settings),
         ]
         if settings.enable_propagation:

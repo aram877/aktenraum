@@ -31,3 +31,29 @@ class DocumentTypeFields(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
+
+class AppSettings(Base):
+    """Single-row table holding runtime-mutable application settings.
+
+    Pinned to id=1 — the service inserts a default row at startup if
+    missing and only ever updates that one row. SPA settings page reads /
+    writes via the /api/settings endpoints; the auto-tagger and the
+    aktenraum-api LLM deps read from this row instead of taking
+    OLLAMA_MODEL at startup, so the operator can switch models without
+    recreating containers.
+    """
+
+    __tablename__ = "app_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # "high" → gemma4:26b, "medium" → qwen2.5vl:7b. Stored as the symbolic
+    # quality name (not the model tag) so we can swap the underlying
+    # models later without a migration.
+    llm_quality: Mapped[str] = mapped_column(String(16), nullable=False, default="high")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )

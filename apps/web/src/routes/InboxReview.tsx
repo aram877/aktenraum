@@ -11,6 +11,7 @@ import {
   useReject,
 } from "../lib/inbox";
 import { useKeyboardShortcuts } from "../lib/keyboard";
+import { userFacingTags } from "../lib/lifecycleTags";
 
 const DOC_TYPES = [
   "Rechnung",
@@ -69,14 +70,26 @@ function detailToForm(d: {
   ai_reference_numbers: string | null;
   ai_suggested_tags: string | null;
   ai_summary_de: string | null;
+  tags?: string[];
 }): FormState {
+  // The AI suggested-tags string is regularly empty even when the doc has
+  // topical tags (the LLM dropped the field, or propagation merged them
+  // into the native tag list and the custom field was never written).
+  // Fall back to the doc's current tag set minus lifecycle/internal tags
+  // so the form shows what's actually on the doc and the user can edit
+  // it. dirtyPatch still compares against the raw API value, so an
+  // untouched fallback won't get PATCHed back.
+  const suggestedRaw = (d.ai_suggested_tags ?? "").trim();
+  const suggested =
+    suggestedRaw ||
+    userFacingTags(d.tags ?? []).join(", ");
   return {
     ai_document_type: d.ai_document_type ?? "",
     ai_correspondent: d.ai_correspondent ?? "",
     ai_title: d.ai_title ?? "",
     ai_issue_date: d.ai_issue_date ?? "",
     ai_reference_numbers: d.ai_reference_numbers ?? "",
-    ai_suggested_tags: d.ai_suggested_tags ?? "",
+    ai_suggested_tags: suggested,
     ai_summary_de: d.ai_summary_de ?? "",
   };
 }

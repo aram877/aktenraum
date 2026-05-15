@@ -8,6 +8,7 @@ from aktenraum_core.rag import OllamaEmbedder, QdrantVectorStore
 
 from .config import Settings
 from .indexer import IndexingDeps, index_document
+from .processing_state import ProcessingState
 from .propagator import process_approved_document
 from .tagger import process_document
 from .webhook import run_http_server
@@ -34,6 +35,7 @@ async def _extraction_worker(
     paperless: PaperlessClient,
     backend: LLMBackend,
     settings: Settings,
+    state: ProcessingState,
 ) -> None:
     """Single consumer for the extraction queue.
 
@@ -47,6 +49,7 @@ async def _extraction_worker(
     lifecycle_tags = set(LIFECYCLE_TAGS)
     while True:
         doc_id = await queue.get()
+        state.extraction = doc_id
         try:
             doc = await paperless.get_document(doc_id)
             current_tag_names = await _doc_tag_names(paperless, doc)
@@ -61,6 +64,7 @@ async def _extraction_worker(
         except Exception as exc:
             log.exception("worker_error", doc_id=doc_id, error=str(exc))
         finally:
+            state.extraction = None
             queue.task_done()
 
 
@@ -107,6 +111,7 @@ async def _propagation_loop(
     settings: Settings,
     paperless: PaperlessClient,
     indexing_queue: asyncio.Queue[int] | None,
+    state: ProcessingState,
 ) -> None:
     log = structlog.get_logger().bind(loop="propagation")
     while True:
@@ -117,9 +122,13 @@ async def _propagation_loop(
             if docs:
                 log.info("poll_found_approved", count=len(docs))
                 for doc in docs:
-                    await process_approved_document(
-                        doc, paperless, indexing_queue=indexing_queue
-                    )
+                    state.propagation = doc["id"]
+                    try:
+                        await process_approved_document(
+                            doc, paperless, indexing_queue=indexing_queue
+                        )
+                    finally:
+                        state.propagation = None
             else:
                 log.debug("poll_no_approved")
         except Exception as exc:
@@ -129,7 +138,9 @@ async def _propagation_loop(
 
 
 async def _indexer_worker(
-    queue: asyncio.Queue[int], deps: IndexingDeps
+    queue: asyncio.Queue[int],
+    deps: IndexingDeps,
+    state: ProcessingState,
 ) -> None:
     """Drain the indexing queue, RAG-index one doc at a time.
 
@@ -148,9 +159,11 @@ async def _indexer_worker(
     log.info("indexer_worker_started")
     while True:
         doc_id = await queue.get()
+        state.indexer = doc_id
         try:
             await index_document(doc_id, deps)
         finally:
+            state.indexer = None
             queue.task_done()
 
 
@@ -178,6 +191,7 @@ async def run() -> None:
         ollama_model=settings.ollama_model,
     )
     queue: asyncio.Queue[int] = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
+    state = ProcessingState()
 
     # RAG indexing is opt-in: when QDRANT_URL is empty we don't construct a
     # vector store, don't run the indexer worker, and don't enqueue from the
@@ -217,17 +231,17 @@ async def run() -> None:
             )
 
         loops = [
-            _extraction_worker(queue, paperless, backend, settings),
+            _extraction_worker(queue, paperless, backend, settings, state),
             _extraction_poller(queue, paperless, settings),
         ]
         if settings.enable_propagation:
             loops.append(
-                _propagation_loop(settings, paperless, indexing_queue)
+                _propagation_loop(settings, paperless, indexing_queue, state)
             )
         if settings.enable_http_server:
-            loops.append(run_http_server(queue, settings))
+            loops.append(run_http_server(queue, settings, state))
         if indexing_queue is not None and indexer_deps is not None:
-            loops.append(_indexer_worker(indexing_queue, indexer_deps))
+            loops.append(_indexer_worker(indexing_queue, indexer_deps, state))
 
         try:
             await asyncio.gather(*loops)

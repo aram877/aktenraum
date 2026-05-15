@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING
 import structlog
 from aiohttp import web
 
+from .processing_state import ProcessingState
+
 if TYPE_CHECKING:
     from .config import Settings
 
@@ -24,6 +26,7 @@ log = structlog.get_logger()
 
 _QUEUE_KEY = web.AppKey("queue", asyncio.Queue)
 _SECRET_KEY = web.AppKey("secret", str)
+_STATE_KEY = web.AppKey("state", ProcessingState)
 
 
 async def trigger_extraction(request: web.Request) -> web.Response:
@@ -61,19 +64,47 @@ async def health(_: web.Request) -> web.Response:
     return web.json_response({"status": "ok"})
 
 
-def make_app(queue: asyncio.Queue[int], settings: Settings) -> web.Application:
+async def processing(request: web.Request) -> web.Response:
+    """GET /processing — return the doc ids the auto-tagger is currently
+    handling.
+
+    Shape: `{"processing": [ids], "slots": {extraction, propagation, indexer}}`.
+    `processing` is the deduped union — what the SPA actually polls so it can
+    swap "Wartet auf KI" for a spinner on those specific rows. `slots` is
+    diagnostic; keep it around for ops/debugging.
+
+    No auth: the listener is internal-network-only (port 8001 isn't
+    published to the host) so an in-cluster proxy is the only caller.
+    """
+    state: ProcessingState = request.app[_STATE_KEY]
+    return web.json_response(
+        {"processing": state.active_ids(), "slots": state.snapshot()}
+    )
+
+
+def make_app(
+    queue: asyncio.Queue[int],
+    settings: Settings,
+    state: ProcessingState,
+) -> web.Application:
     app = web.Application()
     app[_QUEUE_KEY] = queue
     app[_SECRET_KEY] = settings.webhook_secret
+    app[_STATE_KEY] = state
     app.router.add_post("/trigger/extract", trigger_extraction)
     app.router.add_get("/health", health)
+    app.router.add_get("/processing", processing)
     return app
 
 
-async def run_http_server(queue: asyncio.Queue[int], settings: Settings) -> None:
+async def run_http_server(
+    queue: asyncio.Queue[int],
+    settings: Settings,
+    state: ProcessingState,
+) -> None:
     """Long-running task: bind the listener on settings.http_port and serve
     until cancelled."""
-    app = make_app(queue, settings)
+    app = make_app(queue, settings, state)
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", settings.http_port)

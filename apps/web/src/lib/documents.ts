@@ -142,6 +142,44 @@ export type DocumentStatus = {
   lifecycle_tags: string[];
 };
 
+// Live snapshot of which doc ids the auto-tagger is on right now.
+// Powered by /api/documents/processing → auto-tagger's in-memory state.
+export type ProcessingState = {
+  processing: number[];
+  slots: {
+    extraction: number | null;
+    propagation: number | null;
+    indexer: number | null;
+  };
+};
+
+async function fetchProcessingState(): Promise<ProcessingState> {
+  const { data } = await api.get<ProcessingState>("/documents/processing");
+  return data;
+}
+
+export function useProcessingState() {
+  // Poll every 2s — fast enough that the spinner appears within one
+  // refresh tick of the auto-tagger starting on a new doc, slow enough
+  // that the request count is negligible. The query is keyed on a
+  // single tuple so the SPA shares one poll across every consumer.
+  return useQuery<ProcessingState, AxiosError>({
+    queryKey: ["documents", "processing"],
+    queryFn: fetchProcessingState,
+    refetchInterval: 2000,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
+  });
+}
+
+/** True if `docId` is one of the ids the auto-tagger is on right now. */
+export function isInFlight(
+  docId: number,
+  state: ProcessingState | undefined,
+): boolean {
+  return Boolean(state && state.processing.includes(docId));
+}
+
 // Full review payload for /library/$id (and any other "open this document"
 // surface that needs more than the summary). Same shape as InboxDetail since
 // both endpoints share aktenraum_api.inbox.service under the hood.

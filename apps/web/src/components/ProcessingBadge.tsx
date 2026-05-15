@@ -110,12 +110,32 @@ function classify(tags: string[], errorMessage?: string | null): State {
 export function ProcessingBadge({
   tags,
   errorMessage,
+  inFlight = false,
   className = "",
 }: {
   tags: string[];
   errorMessage?: string | null;
+  /** True when the auto-tagger is currently working on this doc id. */
+  inFlight?: boolean;
   className?: string;
 }) {
+  // The in-flight flag wins over the lifecycle-tag classification: even if
+  // the doc still has no tags ("Wartet auf KI"), if we know the worker is
+  // on it RIGHT NOW we render a spinner instead. Same when the doc is
+  // ai-approved and propagation is mid-write — better to see "Wird
+  // verarbeitet…" than "Wird übertragen" if we know it's actually moving.
+  if (inFlight) {
+    return (
+      <span
+        title="Wird gerade vom Auto-Tagger bearbeitet."
+        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${VARIANT_STYLE.info} ${className}`}
+      >
+        <Spinner />
+        <span>Wird verarbeitet…</span>
+      </span>
+    );
+  }
+
   const state = classify(tags, errorMessage);
   return (
     <span
@@ -124,5 +144,30 @@ export function ProcessingBadge({
     >
       {state.label}
     </span>
+  );
+}
+
+function Spinner() {
+  return (
+    <svg
+      className="h-3 w-3 animate-spin"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden
+    >
+      <circle
+        className="opacity-25"
+        cx="12"
+        cy="12"
+        r="10"
+        stroke="currentColor"
+        strokeWidth="4"
+      />
+      <path
+        className="opacity-75"
+        fill="currentColor"
+        d="M4 12a8 8 0 0 1 8-8v4a4 4 0 0 0-4 4H4z"
+      />
+    </svg>
   );
 }

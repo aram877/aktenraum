@@ -5,7 +5,11 @@ import { Nav } from "../components/Nav";
 import { ProcessingBadge } from "../components/ProcessingBadge";
 import type { LibraryItem, LibraryQuery, TagFacet } from "../lib/library";
 import { DOC_TYPES, useLibrary, useTagFacet } from "../lib/library";
-import { useBulkReprocess } from "../lib/documents";
+import {
+  isInFlight,
+  useBulkReprocess,
+  useProcessingState,
+} from "../lib/documents";
 import type { InboxItem } from "../lib/inbox";
 import { useBulkApprove, useInboxList } from "../lib/inbox";
 
@@ -98,6 +102,7 @@ export function Library({ search }: { search: Search }) {
     [search],
   );
   const list = useLibrary(query);
+  const processing = useProcessingState();
 
   const onResetFilters = () => {
     setForm(searchToForm({}));
@@ -418,6 +423,7 @@ export function Library({ search }: { search: Search }) {
                       onTagClick={toggleTag}
                       checked={effectiveSelected.has(row.id)}
                       onToggle={() => toggleOne(row.id)}
+                      inFlight={isInFlight(row.id, processing.data)}
                       onClick={() =>
                         navigate({
                           to: "/library/$id",
@@ -528,6 +534,7 @@ function Row({
   onTagClick,
   checked,
   onToggle,
+  inFlight,
   onClick,
 }: {
   row: LibraryItem;
@@ -535,6 +542,7 @@ function Row({
   onTagClick: (tag: string) => void;
   checked: boolean;
   onToggle: () => void;
+  inFlight: boolean;
   onClick: () => void;
 }) {
   return (
@@ -594,6 +602,7 @@ function Row({
         <ProcessingBadge
           tags={row.lifecycle_tags}
           errorMessage={row.ai_error_message}
+          inFlight={inFlight}
         />
       </td>
     </tr>

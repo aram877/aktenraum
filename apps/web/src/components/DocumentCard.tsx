@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import type { DocumentSummary } from "../lib/ai";
+import { isInFlight, useProcessingState } from "../lib/documents";
 import { DocumentPreviewModal } from "./DocumentPreviewModal";
 import { ProcessingBadge } from "./ProcessingBadge";
 
@@ -11,6 +12,7 @@ type Props = {
 
 export function DocumentCard({ doc, citationLabel }: Props) {
   const [previewOpen, setPreviewOpen] = useState(false);
+  const processing = useProcessingState();
 
   return (
     <article className="rounded-md border border-neutral-200 bg-white p-4">
@@ -35,6 +37,7 @@ export function DocumentCard({ doc, citationLabel }: Props) {
             <ProcessingBadge
               tags={doc.lifecycle_tags ?? []}
               errorMessage={doc.ai_error_message}
+              inFlight={isInFlight(doc.id, processing.data)}
             />
           </div>
         </div>

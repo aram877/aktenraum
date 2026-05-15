@@ -104,6 +104,7 @@ export const DOC_TYPES = [
   "Steuer",
   "Bescheid",
   "Behördenbrief",
+  "Sozialversicherungsmeldung",
   "Kfz",
   "Arztbrief",
   "Garantie",

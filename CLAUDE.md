@@ -248,11 +248,13 @@ Together these turn user corrections into future signal: edit the AI fields pre-
 
 Switch by editing `docker/auto-tagger.env` and running `docker compose up -d auto-tagger` (restart alone does NOT re-read env files — must use `up -d`). After Python source changes also use `--build`.
 
-### Document taxonomy (20 types)
+### Document taxonomy (21 types)
 
-Rechnung · Gehaltsabrechnung · Kontoauszug · Nebenkostenabrechnung · Mahnung · Vertrag · Kündigung · Versicherung · Steuer · Bescheid · Behördenbrief · Kfz · Arztbrief · Garantie · Urkunde · Ausweis · Zeugnis · Arbeitszeugnis · Mitgliedschaft · Sonstiges
+Rechnung · Gehaltsabrechnung · Kontoauszug · Nebenkostenabrechnung · Mahnung · Vertrag · Kündigung · Versicherung · Steuer · Bescheid · Behördenbrief · Sozialversicherungsmeldung · Kfz · Arztbrief · Garantie · Urkunde · Ausweis · Zeugnis · Arbeitszeugnis · Mitgliedschaft · Sonstiges
 
-Defined in `services/auto-tagger/src/auto_tagger/models.py` `DocumentType` enum. Prompt definitions in `tagger.py` `SYSTEM_PROMPT` (which also has explicit per-field disambiguation rules — read before editing).
+Defined in `packages/aktenraum-core/src/aktenraum_core/models/extraction.py` `DocumentType` enum. Prompt definitions in `services/auto-tagger/src/auto_tagger/tagger.py` `SYSTEM_PROMPT` (with explicit disambiguation rules — read before editing). Per-type extraction fields in `packages/aktenraum-core/src/aktenraum_core/models/type_schema.py` `TYPE_FIELD_SCHEMA`.
+
+**Gotcha — Meldebescheinigung**: two German documents share this name. The annual employer-issued "Meldebescheinigung zur Sozialversicherung" (DEÜV §25) goes to `Sozialversicherungsmeldung`; the Bürgeramt-issued address-confirmation "Meldebescheinigung" stays under `Behördenbrief`. The system prompt encodes this split explicitly — keep it when editing.
 
 ---
 

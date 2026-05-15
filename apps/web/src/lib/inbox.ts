@@ -139,3 +139,36 @@ export function useReject(id: number) {
     },
   });
 }
+
+export type BulkApproveResult = {
+  succeeded: number[];
+  failed: { id: number; message: string }[];
+};
+
+export function useBulkApprove() {
+  const qc = useQueryClient();
+  return useMutation<BulkApproveResult, AxiosError, number[]>({
+    mutationFn: async (ids) => {
+      const tasks = ids.map(async (id) => {
+        try {
+          await approveInbox(id);
+          return { id, ok: true as const };
+        } catch (err) {
+          const message = (err as AxiosError | Error)?.message ?? "Fehler";
+          return { id, ok: false as const, message };
+        }
+      });
+      const results = await Promise.all(tasks);
+      const succeeded: number[] = [];
+      const failed: { id: number; message: string }[] = [];
+      for (const r of results) {
+        if (r.ok) succeeded.push(r.id);
+        else failed.push({ id: r.id, message: r.message });
+      }
+      return { succeeded, failed };
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: INBOX_KEY });
+    },
+  });
+}

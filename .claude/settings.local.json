@@ -24,7 +24,15 @@
       "Bash(python3.exe -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('OK count=', d.get\\('count','?'\\)\\)\")",
       "Bash(xxd)",
       "Bash(grep -v \"^$\")",
-      "Bash(grep -o '\"title\":\"[^\"]*\"\\\\|\"tags\":\\\\[[^]]*\\\\]\\\\|\"custom_fields\":\\\\[[^]]*\\\\]\\\\|\"content\":\"[^\"]\\\\{0,100\\\\}')"
+      "Bash(grep -o '\"title\":\"[^\"]*\"\\\\|\"tags\":\\\\[[^]]*\\\\]\\\\|\"custom_fields\":\\\\[[^]]*\\\\]\\\\|\"content\":\"[^\"]\\\\{0,100\\\\}')",
+      "Bash(xargs grep *)",
+      "Bash(task ps *)",
+      "Bash(task recreate *)",
+      "Bash(task logs *)",
+      "Bash(ollama pull *)",
+      "Bash(ollama list *)",
+      "Bash(grep -i 'detail\\\\|id\\\\|review\\\\|$id')",
+      "Bash(task nginx:rebuild)"
     ]
   },
   "hooks": {

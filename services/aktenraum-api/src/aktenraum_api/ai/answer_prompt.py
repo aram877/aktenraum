@@ -132,6 +132,20 @@ def _render_candidate(c: dict, *, chunks: list[str] | None = None) -> str:
     summary = c.get("ai_summary_de")
     if summary:
         rendered += f"\n  Zusammenfassung: {summary}"
+    # Pass-2 structured fields (Gehaltsabrechnung.bruttogehalt etc.). These
+    # are the canonical money/date/identifier values stored in the
+    # aktenraum DB. Surfacing them here is what makes questions like
+    # "Wie viel habe ich verdient?" answerable WITHOUT relying on RAG
+    # luckily retrieving the right span.
+    type_specific = c.get("type_specific_fields") or []
+    if type_specific:
+        rendered += "\n  Typenspezifische Felder:"
+        for f in type_specific:
+            label = f.get("label") or f.get("name") or ""
+            value = f.get("value")
+            if value in (None, ""):
+                continue
+            rendered += f"\n    {label}: {value}"
     if chunks:
         rendered += "\n  Relevante Auszüge:"
         for i, chunk in enumerate(chunks, start=1):

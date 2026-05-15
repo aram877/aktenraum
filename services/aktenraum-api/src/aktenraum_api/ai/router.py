@@ -6,14 +6,18 @@ from collections.abc import AsyncIterator
 
 import structlog
 from aktenraum_core.llm import LLMBackend
+from aktenraum_core.models import TYPE_FIELD_SCHEMA, DocumentType
 from aktenraum_core.paperless import LIFECYCLE_TAGS
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.deps import get_current_user
 from ..db.models import User
+from ..db.session import get_session
 from ..paperless_gw import PaperlessAuthError, PaperlessGateway
+from ..type_fields import service as type_fields_service
 from .answer_prompt import build_answer_messages, build_streaming_answer_messages
 from .deps import (
     get_answer_llm_backend,
@@ -96,6 +100,7 @@ async def answer(
     gateway: PaperlessGateway = Depends(get_paperless_gateway),
     llm: LLMBackend = Depends(get_llm_backend),
     answer_llm: LLMBackend = Depends(get_answer_llm_backend),
+    session: AsyncSession = Depends(get_session),
 ) -> AnswerResponse:
     """Conversational Q&A: question → filter → top matches → German prose answer.
 
@@ -128,7 +133,7 @@ async def answer(
     # set: the filter LLM sometimes drops question verbs ("verlängern",
     # "kosten") into `text`, which then over-constrains a search that already
     # has document_type / correspondent / dates / amounts to narrow it.
-    retrieval_filter = _broaden_for_answer(search_filter)
+    retrieval_filter = await _broaden_for_answer(search_filter, gateway)
     try:
         results, total = await _execute_filter(gateway, retrieval_filter)
     except PaperlessAuthError as e:
@@ -147,7 +152,9 @@ async def answer(
     # `answer_llm` may point at a stronger model than `llm`; the filter step
     # only needs to map question → schema, the answer step needs to actually
     # reason over the candidate fields.
-    candidates = await _enrich_with_ai_fields(gateway, results[:_ANSWER_CONTEXT_SIZE])
+    candidates = await _enrich_with_ai_fields(
+        gateway, results[:_ANSWER_CONTEXT_SIZE], session=session
+    )
     answer_messages = build_answer_messages(body.question, candidates=candidates)
     try:
         answer_out = await answer_llm.complete(
@@ -209,6 +216,7 @@ async def answer_stream(
     llm: LLMBackend = Depends(get_llm_backend),
     answer_llm: LLMBackend = Depends(get_answer_llm_backend),
     retrieval_deps: RetrievalDeps | None = Depends(get_retrieval_deps),
+    session: AsyncSession = Depends(get_session),
 ) -> StreamingResponse:
     """SSE-streamed variant of /answer.
 
@@ -235,7 +243,9 @@ async def answer_stream(
     render a graceful fallback rather than a half-finished answer.
     """
     return StreamingResponse(
-        _stream_answer_events(body, gateway, llm, answer_llm, retrieval_deps),
+        _stream_answer_events(
+            body, gateway, llm, answer_llm, retrieval_deps, session=session
+        ),
         media_type="text/event-stream",
         # Disable nginx response buffering on this endpoint so chunks reach
         # the browser as soon as they're emitted; the global config also
@@ -350,6 +360,8 @@ async def _stream_answer_events(
     llm: LLMBackend,
     answer_llm: LLMBackend,
     retrieval_deps: RetrievalDeps | None = None,
+    *,
+    session: AsyncSession | None = None,
 ) -> AsyncIterator[bytes]:
     # Step 1 — filter extraction (non-streamed; cheap and we need its output
     # before we can pick candidates). Stream errors as `error` events so the
@@ -372,7 +384,7 @@ async def _stream_answer_events(
         return
 
     # Step 2 — retrieval (broadened the same way the JSON answer endpoint does it).
-    retrieval_filter = _broaden_for_answer(search_filter)
+    retrieval_filter = await _broaden_for_answer(search_filter, gateway)
     try:
         results, total = await _execute_filter(gateway, retrieval_filter)
     except PaperlessAuthError:
@@ -425,7 +437,9 @@ async def _stream_answer_events(
     # Step 3c — streamed prose. Accumulate so the terminal `final` event
     # can carry the full text for archival, and so post-hoc citation
     # extraction has the complete answer to scan.
-    candidates = await _enrich_with_ai_fields(gateway, prompt_results)
+    candidates = await _enrich_with_ai_fields(
+        gateway, prompt_results, session=session
+    )
     chunks_by_doc = _group_chunks_by_doc(rag_chunks)
     answer_messages = build_streaming_answer_messages(
         body.question, candidates=candidates, chunks_by_doc=chunks_by_doc
@@ -537,14 +551,38 @@ def _is_degenerate_answer(text: str) -> bool:
     return text.lower().strip(" .:") in _DEGENERATE_ANSWER_TOKENS
 
 
-def _broaden_for_answer(f: SearchFilter) -> SearchFilter:
-    """Strip free-text from a filter when any structural field is already set.
+async def _broaden_for_answer(
+    f: SearchFilter, gateway: PaperlessGateway
+) -> SearchFilter:
+    """Q&A retrieval prefers recall, so massage the LLM-extracted filter
+    before it hits Paperless.
 
-    Q&A retrieval prefers recall: as long as document_type / correspondent /
-    tags / a date bound exists, that's enough scope, and dropping the noisier
-    `text` field avoids killing matches over conjugated verbs the OCR will
-    never contain ("verlängern", "kostete", "ablaufen").
+    Two corrections:
+
+    1. **Strip ALL tags.** The filter LLM over-eagerly adds tag names on
+       natural-language questions ("Wie viel habe ich verdient?" →
+       tags=[Arbeitslohn, Gehalt, Gehaltszettel, Verdienstabrechnung]).
+       `_execute_filter` uses AND semantics, so the target doc has to
+       carry every one of those tags or it's filtered out — and the
+       auto-tagger only assigns the suggested tags it itself emitted at
+       extraction time, so two docs about salary often have different
+       tag sets. Tags add nothing the structural fields
+       (document_type / correspondent / dates) and RAG retrieval don't
+       already provide here; on /ask they are pure narrowing hazard. /find
+       is unaffected — it keeps strict tag semantics for the chip UI.
+
+    2. **Strip free-text when structural scope already exists.** As long
+       as document_type / correspondent / a date bound is set, that's
+       enough narrowing, and dropping the noisier `text` field avoids
+       killing matches over conjugated verbs the OCR will never contain
+       ("verlängern", "kostete", "verdient").
     """
+    updates: dict = {}
+
+    if f.tags:
+        log.info("ai_answer_tags_stripped", tags=f.tags)
+        updates["tags"] = []
+
     has_structural = any(
         v is not None
         for v in (
@@ -553,10 +591,15 @@ def _broaden_for_answer(f: SearchFilter) -> SearchFilter:
             f.date_from,
             f.date_to,
         )
-    ) or bool(f.tags)
+    )
     if has_structural and f.text:
-        return f.model_copy(update={"text": None})
-    return f
+        updates["text"] = None
+
+    # `gateway` accepted for future hooks (e.g. resolving correspondent
+    # synonyms); not used by the current strip-only path.
+    del gateway
+
+    return f.model_copy(update=updates) if updates else f
 
 
 async def _resolve_filter(
@@ -651,14 +694,32 @@ async def _execute_filter(
 
 
 async def _enrich_with_ai_fields(
-    gateway: PaperlessGateway, results: list[DocumentSummary]
+    gateway: PaperlessGateway,
+    results: list[DocumentSummary],
+    *,
+    session: AsyncSession | None = None,
 ) -> list[dict]:
-    """For each result, fetch the AI custom fields the answer LLM needs.
+    """For each result, fetch the metadata the answer LLM needs.
 
-    We pull the full doc to read `ai_summary_de`, `ai_issue_date`,
-    `ai_reference_numbers` — the metadata that lets the LLM answer most
-    personal-DMS questions without seeing the PDF body. Monetary values
-    live on type-specific fields and are surfaced via the RAG chunk path.
+    Three layers per candidate:
+
+      1. The structural fields off the DocumentSummary (id, title, type,
+         correspondent, created).
+      2. The Paperless `ai_*` custom fields — `ai_summary_de`,
+         `ai_issue_date`, `ai_reference_numbers`. Same data the SPA shows
+         in the inbox/library review form.
+      3. The type-specific (pass-2) fields stored in the aktenraum DB —
+         `bruttogehalt`/`nettogehalt` for Gehaltsabrechnung,
+         `gesamtbetrag` for Rechnung, etc. Without these the answer LLM
+         has no money figures to read for the most common personal-DMS
+         questions ("Wie viel habe ich verdient?", "Was hat die
+         Versicherung gekostet?"). Pre-Phase-2 the comment here said
+         monetary lived only in RAG chunks; that meant the LLM saw
+         numbers only when retrieval happened to hit the right span. Now
+         we surface them directly when the row exists.
+
+    `session` is optional so unit tests for the structural path don't
+    need a DB. When `session is None` the type-specific layer is skipped.
     """
     field_id_to_name = await _custom_field_id_to_name(gateway)
     enriched: list[dict] = []
@@ -673,6 +734,11 @@ async def _enrich_with_ai_fields(
             name = field_id_to_name.get(cf.get("field"))
             if name:
                 ai[name] = cf.get("value")
+
+        type_specific = await _load_type_specific_fields(
+            session, r.id, r.document_type
+        )
+
         enriched.append(
             {
                 "id": r.id,
@@ -683,9 +749,47 @@ async def _enrich_with_ai_fields(
                 "ai_summary_de": ai.get("ai_summary_de"),
                 "ai_issue_date": ai.get("ai_issue_date"),
                 "ai_reference_numbers": ai.get("ai_reference_numbers"),
+                "type_specific_fields": type_specific,
             }
         )
     return enriched
+
+
+async def _load_type_specific_fields(
+    session: AsyncSession | None,
+    doc_id: int,
+    document_type: str | None,
+) -> list[dict]:
+    """Return [{name, label, value}, ...] for the pass-2 fields stored on
+    this doc. Empty list if no session, no row, no schema match, or no
+    populated fields. Resolves the German `label` from `TYPE_FIELD_SCHEMA`
+    so the answer prompt gets a human-readable name ("Bruttogehalt"
+    rather than `bruttogehalt`).
+    """
+    if session is None or not document_type:
+        return []
+    try:
+        doc_type_enum = DocumentType(document_type)
+    except ValueError:
+        return []
+    schema = TYPE_FIELD_SCHEMA.get(doc_type_enum) or []
+    if not schema:
+        return []
+    try:
+        row = await type_fields_service.get(session, doc_id)
+    except Exception:
+        log.warning("answer_enrich_type_fields_failed", doc_id=doc_id, exc_info=True)
+        return []
+    if row is None or not row.fields:
+        return []
+    label_by_name = {f.name: f.label for f in schema}
+    out: list[dict] = []
+    for name, value in row.fields.items():
+        if value in (None, ""):
+            continue
+        label = label_by_name.get(name, name)
+        out.append({"name": name, "label": label, "value": value})
+    return out
 
 
 def _resolve_citations(

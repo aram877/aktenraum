@@ -246,3 +246,66 @@ tasks:
     desc: "List restic snapshots"
     cmds:
       - MSYS_NO_PATHCONV=1 {{.COMPOSE}} exec backup restic snapshots --tag aktenraum
+
+  # ----- DB / Qdrant inspection -----
+
+  db:paperless:
+    desc: "Open a psql shell on the Paperless database"
+    cmds:
+      - "{{.COMPOSE}} exec postgres psql -U paperless -d paperless"
+
+  db:aktenraum:
+    desc: "Open a psql shell on the aktenraum database (users, type_fields)"
+    cmds:
+      - "{{.COMPOSE}} exec postgres psql -U paperless -d aktenraum"
+
+  db:query:
+    desc: 'Run a one-shot query against a DB. DB=aktenraum|paperless SQL="..."'
+    cmds:
+      - |
+        if [ -z "{{.SQL}}" ]; then
+          echo 'Usage: task db:query DB=aktenraum SQL="SELECT 1"' >&2; exit 1
+        fi
+        DB="{{.DB}}"
+        if [ -z "$DB" ]; then DB=aktenraum; fi
+        {{.COMPOSE}} exec postgres psql -U paperless -d "$DB" -c "{{.SQL}}"
+
+  qdrant:dashboard:
+    desc: "Open the Qdrant web UI. Stack must be up; 127.0.0.1:6333:6333 mapping enabled."
+    cmds:
+      - |
+        URL="http://localhost:${AKTENRAUM_QDRANT_PORT:-6333}/dashboard"
+        echo "Opening $URL"
+        if command -v open >/dev/null 2>&1; then open "$URL"
+        elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$URL"
+        else echo "Open it manually in a browser."
+        fi
+
+  qdrant:info:
+    desc: "Print the aktenraum_chunks collection info (point count, vector dims)"
+    cmds:
+      - |
+        URL="http://localhost:${AKTENRAUM_QDRANT_PORT:-6333}"
+        curl -sS "$URL/collections/aktenraum_chunks" | python3 -m json.tool
+
+  qdrant:count:
+    desc: "Total point count in aktenraum_chunks"
+    cmds:
+      - |
+        URL="http://localhost:${AKTENRAUM_QDRANT_PORT:-6333}"
+        curl -sS -X POST "$URL/collections/aktenraum_chunks/points/count" \
+          -H "Content-Type: application/json" -d '{}' \
+          | python3 -m json.tool
+
+  qdrant:chunks:
+    desc: "Show the indexed chunks for one document. ID=<doc-id> required."
+    cmds:
+      - |
+        if [ -z "{{.ID}}" ]; then
+          echo 'Usage: task qdrant:chunks ID=<doc-id>' >&2; exit 1
+        fi
+        URL="http://localhost:${AKTENRAUM_QDRANT_PORT:-6333}"
+        curl -sS -X POST "$URL/collections/aktenraum_chunks/points/scroll" \
+          -H "Content-Type: application/json" \
+          -d '{"filter":{"must":[{"key":"doc_id","match":{"value":{{.ID}}}}]},"limit":20,"with_payload":true}' \
+          | python3 -c "import sys,json; r=json.load(sys.stdin); [print(p['payload']['chunk_index'],'·',(p['payload']['text'] or '')[:200].replace(chr(10),' ')) for p in r['result']['points']]"

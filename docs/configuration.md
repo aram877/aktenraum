@@ -196,6 +196,22 @@ different model for full extractions.
 
 ---
 
+## SPA dev server (`apps/web/.env*` or shell)
+
+Two knobs honoured by [`apps/web/vite.config.ts`](../apps/web/vite.config.ts) at
+`pnpm dev` / `task web:dev` time. Production builds ignore them.
+
+| Var | Default | Purpose |
+|---|---|---|
+| `VITE_API_PROXY_TARGET` | `http://localhost:8080` | Where Vite proxies `/api/*`. Must match where nginx is published (the compose default is `:8080`, overridable via `AKTENRAUM_WEB_PORT` in `docker/.env`). |
+| `VITE_HOST` | `0.0.0.0` | Vite bind address. The default exposes the dev server on the LAN so a second device can hit `http://<dev-machine-ip>:5173` with hot reload. Set to `127.0.0.1` if you want to limit it to the dev machine. |
+
+Vite is also configured to accept any `Host` header (`allowedHosts: true`) so LAN hostnames / IPs don't 403 the way they would on a stock Vite 5+ setup.
+
+To override either, drop a line like `VITE_API_PROXY_TARGET=http://localhost:9000` into `apps/web/.env.local` (gitignored) or export it in the shell before `task web:dev`.
+
+---
+
 ## `docker/backup.env` — restic backup
 
 Loaded only by the `backup` service.

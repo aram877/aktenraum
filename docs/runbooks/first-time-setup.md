@@ -2,11 +2,22 @@
 
 ## Prerequisites
 
-- Linux host with Docker and Docker Compose v2 installed
-- `restic` installed (`apt install restic` or equivalent)
+- Linux or macOS host with Docker and Docker Compose v2 installed
+- `restic` installed only if you opt into the host-side systemd timer (step 7). The Dockerised `backup` service ships its own restic
 - This repository cloned to your workstation
+- [`task`](https://taskfile.dev) — strongly recommended (`brew install go-task` / `winget install Task.Task`). Every step below has a `task` shortcut.
 
-## Steps
+## The fast path (with `task`)
+
+```bash
+task bootstrap
+```
+
+This runs `scripts/setup.sh` (host dirs) + `scripts/bootstrap-secrets.sh` (generates all REQUIRED secrets into `docker/*.env`) + `task up` (compose up) and prints the two manual follow-ups (mint Paperless API token, run `task paperless:bootstrap`). The bootstrap script is idempotent — re-runs are safe.
+
+The remaining sections walk through every step in detail; do them only if `task bootstrap` doesn't fit your setup or you want the raw commands.
+
+## Steps (raw)
 
 ### 1. Create host directories
 

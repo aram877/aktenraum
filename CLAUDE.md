@@ -2,6 +2,15 @@
 
 Self-hosted personal DMS built on Paperless-ngx with an AI classification layer. Everything runs in Docker. Scripts target bash and run on macOS, Linux, or Windows (Git Bash). Deployment target is Docker Desktop or native Linux Docker.
 
+**Deep-dive docs for humans** (skim before changing anything load-bearing — they describe the *why* this guide takes for granted):
+
+- [`docs/architecture.md`](docs/architecture.md) — services, data flow, lifecycle, RAG pipeline
+- [`docs/development.md`](docs/development.md) — start/build/test/debug, common tasks
+- [`docs/document-types.md`](docs/document-types.md) — the 26 doc types + disambiguation + per-type fields
+- [`docs/configuration.md`](docs/configuration.md) — every env var, organised by file
+- [`docs/api-reference.md`](docs/api-reference.md) — endpoint catalog with auth + shapes
+- [`Taskfile.yml`](Taskfile.yml) — every common workflow as a `task <name>` shortcut
+
 ---
 
 ## Stack (10 services — all in `docker/docker-compose.yml`)
@@ -21,20 +30,39 @@ Self-hosted personal DMS built on Paperless-ngx with an AI classification layer.
 
 > **Note**: use `apache/tika` — NOT `ghcr.io/paperless-ngx/tika` (requires auth, returns 403).
 
-### Start / stop
+### Task runner
+
+The root `Taskfile.yml` ([Taskfile.dev](https://taskfile.dev), `brew install go-task`) wraps every common workflow. `task --list` enumerates them. Use these shortcuts in preference to raw commands so future sessions stay consistent:
+
+| Task | Equivalent |
+| --- | --- |
+| `task bootstrap` | `setup.sh` + `bootstrap-secrets.sh` + `compose up -d` + next-step hints |
+| `task up` / `task down` / `task ps` / `task restart` | compose lifecycle |
+| `task logs SVC=auto-tagger` | tail a single service |
+| `task recreate SVC=auto-tagger` | recreate a service after env-file edits (env files are NOT re-read by `restart`) |
+| `task web:dev` | Vite hot-reload on `:5173`, bound to `0.0.0.0` so LAN devices can hit it |
+| `task web:deploy` / `task nginx:rebuild` | bake the SPA into the nginx image |
+| `task api:rebuild` / `task tagger:rebuild` | rebuild + recreate a Python service |
+| `task test` / `task test:py` / `task test:web` | full suite or one half |
+| `task lint` / `task lint:py` / `task lint:web` | ruff + eslint |
+| `task reprocess ID=27` | clear lifecycle tags so the auto-tagger re-extracts |
+| `task rag:backfill` / `task rag:eval` | RAG ops |
+| `task backup:run` / `task backup:snapshots` | manual backup ops |
+
+### Start / stop (raw)
 
 ```bash
 cd docker
-docker compose up -d          # start all
-docker compose down           # stop all (data preserved)
-docker compose up -d --build auto-tagger   # rebuild after code changes
+docker compose up -d          # start all                 (task up)
+docker compose down           # stop all (data preserved) (task down)
+docker compose up -d --build auto-tagger   # rebuild after code changes (task tagger:rebuild)
 docker compose up -d --build backup        # rebuild after backup changes
 ```
 
-### Logs
+### Logs (raw)
 
 ```bash
-docker compose logs -f auto-tagger
+docker compose logs -f auto-tagger        # task logs SVC=auto-tagger
 docker compose logs -f backup
 docker compose logs --tail=50 paperless
 ```
@@ -183,7 +211,7 @@ The service runs four concurrent async tasks via `asyncio.gather` in `main.py`, 
    propagation loop (every 30s, polls for ai-approved → native fields)
 ```
 
-### Lifecycle tags (7 total — 6 lifecycle + 1 auxiliary)
+### Lifecycle tags (8 total — 6 lifecycle + 2 auxiliary)
 
 | Tag                    | Meaning                                                                                                                 |
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------- |
@@ -193,6 +221,7 @@ The service runs four concurrent async tasks via `asyncio.gather` in `main.py`, 
 | `ai-propagated`        | Native correspondent/document_type/tags written; final success state                                                    |
 | `ai-propagation-error` | Propagation failed mid-run; manual intervention needed                                                                  |
 | `ai-error`             | Extraction failed (LLM error, schema validation, etc.); manual retry by clearing tags                                   |
+| `ai-auto-approved`     | Auxiliary flag (not a lifecycle state); set alongside `ai-approved` when confidence ≥ `AUTO_APPROVE_CONFIDENCE` so the SPA can show an "Auto-genehmigt" badge. Persists through propagation. |
 | `ai-low-confidence`    | Auxiliary flag (not a lifecycle state); coexists with `ai-pending` to surface uncertain extractions in the review queue |
 
 The auto-tagger's poller excludes the six lifecycle tags from its scan; the worker re-checks on dequeue and skips with `skip_already_processed` if any lifecycle tag is set (handles webhook+poller race).
@@ -377,11 +406,11 @@ Run all Python commands from the **repository root** — it is the uv workspace 
 
 ```bash
 uv sync                          # install incl. dev deps (pytest, ruff, etc.) for both members
-uv run pytest                    # full suite across both members (testpaths set in root pyproject.toml)
-uv run ruff check                # lint both members
+uv run pytest                    # task test:py — full suite across both members
+uv run ruff check                # task lint:py — lint both members
 ```
 
-After Python changes: `cd docker && docker compose up -d --build auto-tagger`. The Dockerfile build context is the repo root, so edits to either `services/auto-tagger/src/` or `packages/aktenraum-core/src/` are picked up by the rebuild.
+After Python changes: `task tagger:rebuild` (or `cd docker && docker compose up -d --build auto-tagger`). The Dockerfile build context is the repo root, so edits to either `services/auto-tagger/src/` or `packages/aktenraum-core/src/` are picked up by the rebuild.
 
 Test layout (all pure-function, no live HTTP):
 
@@ -403,16 +432,17 @@ CI (`.github/workflows/ci.yml`) runs two jobs on push and PR: `python` (ruff + p
 The SPA lives at `apps/web/` (Vite + React 19 + TypeScript + Tailwind v4 + TanStack Router + TanStack Query). All commands run from the repo root.
 
 ```bash
-pnpm install                              # install workspace deps
-pnpm --filter @aktenraum/web dev          # vite dev server on :5173
-                                          # proxies /api → http://localhost:8080 (the running nginx)
-pnpm --filter @aktenraum/web build        # production build into apps/web/dist
-pnpm --filter @aktenraum/web lint         # eslint
-pnpm --filter @aktenraum/web generate:api-types
-                                          # codegen TS types from /api/openapi.json (compose stack must be running)
+pnpm install                                          # task web:install
+pnpm --filter @aktenraum/web dev                      # task web:dev   — vite on :5173, bound to 0.0.0.0
+                                                      # proxies /api → http://localhost:8080 (nginx)
+pnpm --filter @aktenraum/web build                    # task web:build — production bundle into apps/web/dist
+pnpm --filter @aktenraum/web lint                     # task web:lint
+pnpm --filter @aktenraum/web generate:api-types       # task web:types — codegen TS types from /api/openapi.json
 ```
 
-For a full-stack dev cycle, keep the compose stack up (`docker compose up -d`) so the API is reachable, then run `pnpm dev` for hot-reloaded SPA changes. Production deploys go through the nginx container, which builds the SPA in a multi-stage Docker build — no Node runtime needed at deploy time.
+For a full-stack dev cycle, keep the compose stack up (`task up`), then run `task web:dev` for hot-reloaded SPA changes. Two Vite knobs control proxy + LAN exposure: `VITE_API_PROXY_TARGET` (default `http://localhost:8080`; honour `AKTENRAUM_WEB_PORT`) and `VITE_HOST` (default `0.0.0.0`). Vite accepts any `Host` header so a second device hitting `http://<dev-machine-ip>:5173` works without further config.
+
+Production deploys go through the nginx container, which builds the SPA in a multi-stage Docker build — no Node runtime needed at deploy time. Run `task web:deploy` after SPA changes when you are NOT using the dev server.
 
 ---
 
@@ -537,7 +567,7 @@ Without `PAPERLESS_API_TOKEN` set, `/api/ai/*` and `/api/documents/*` respond 50
 - Lifecycle-tag swap is a single `tags=[…]` PATCH planned by `_plan_tag_swap` (pure helper). Idempotent re-approve / re-reject is a no-op.
 - **Paperless `custom_fields` PATCH is full-array replace**, not partial upsert — sending only `{ai_correspondent: …}` would wipe the other 11 fields. The gateway's `patch_document_custom_fields` reads the existing array, merges the requested updates by field id (`_merge_custom_fields`), then writes back. Same gotcha class as the silent `?name=` and `?correspondent=` filters.
 - Field-update normalisation reuses `aktenraum_core.paperless.normalisers` — date fields go strict ISO, monetary becomes `<ISO><amount>`, strings get truncated to 128 chars. Server-side at the boundary; client cannot bypass.
-- SPA `/inbox` lists pending docs; `/inbox/$id` is a two-pane review (PDF iframe via the proxy + editable form). Keyboard shortcuts: `a` Approve, `r` Reject, `j`/`k` next/prev, `Esc` back to list. Auto-advance to the next pending doc on action.
+- SPA: the review queue now lives at `/library?tab=review` (the `ZurPruefungTab` inside `apps/web/src/routes/Library.tsx`). The standalone `/inbox` route redirects there and `Inbox.tsx` is kept only as a defensive fallback. The list supports **multi-select bulk approve**: per-row checkboxes + a header "select all" checkbox + a sticky dark action bar that runs `useBulkApprove` (parallel POSTs against `/api/inbox/{id}/approve`) and reports `N genehmigt · M fehlgeschlagen`. Per-doc detail page is `/inbox/$id` — two-pane review (PDF iframe via the proxy + editable form), keyboard shortcuts `a` Approve / `r` Reject / `j`,`k` next/prev / `Esc` back. Auto-advance to the next pending doc on action.
 
 The `tagger.py` per-file `E501` ruff ignore is intentional: `SYSTEM_PROMPT` is a long German-text block where line wrapping damages the prompt as content.
 

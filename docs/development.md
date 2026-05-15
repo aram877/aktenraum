@@ -98,23 +98,23 @@ A more detailed walkthrough lives at
 ## Daily start / stop
 
 ```bash
-cd docker
-docker compose up -d                 # start everything
-docker compose down                  # stop everything (data preserved)
-docker compose ps                    # status overview
+task up                              # start everything
+task down                            # stop everything (data preserved)
+task ps                              # status overview
 ```
 
 A typical dev session:
 
 ```bash
-# Backend services run in compose; SPA runs with hot-reload on the host
-cd docker && docker compose up -d
-cd ../apps/web && pnpm install
-pnpm --filter @aktenraum/web dev     # vite on :5173, proxies /api → :8080
+task up                              # backend stack
+task web:dev                         # vite on :5173, bound to 0.0.0.0
 ```
 
 Open <http://localhost:5173> for hot-reloaded SPA against the running
-compose stack. The production SPA at `:8080` is unaffected.
+compose stack. The production SPA at `:8080` is unaffected. A second
+device on your LAN can hit `http://<dev-machine-ip>:5173` and get the
+same hot-reload (Vite is bound to all interfaces and accepts any Host
+header).
 
 ---
 
@@ -123,14 +123,14 @@ compose stack. The production SPA at `:8080` is unaffected.
 `docker compose restart` does **not** re-read env files or pick up
 Python/source changes. Use `up -d --build`:
 
-| You changed | Rebuild |
-|---|---|
-| `services/auto-tagger/**` or `packages/aktenraum-core/**` | `docker compose up -d --build auto-tagger` |
-| `services/aktenraum-api/**` or `packages/aktenraum-core/**` | `docker compose up -d --build aktenraum-api` |
-| `apps/web/**` (production build) | `docker compose up -d --build nginx` |
-| `docker/nginx/nginx.conf` | `docker compose up -d --build nginx` |
-| Any `docker/*.env` value | `docker compose up -d <service>` (re-create, no rebuild) |
-| `docker/docker-compose.yml` | `docker compose up -d` |
+| You changed | Task | Raw command |
+|---|---|---|
+| `services/auto-tagger/**` or `packages/aktenraum-core/**` | `task tagger:rebuild` | `docker compose up -d --build auto-tagger` |
+| `services/aktenraum-api/**` or `packages/aktenraum-core/**` | `task api:rebuild` | `docker compose up -d --build aktenraum-api` |
+| `apps/web/**` (production build, not dev server) | `task web:deploy` (alias of `nginx:rebuild`) | `docker compose up -d --build nginx` |
+| `docker/nginx/nginx.conf` | `task nginx:rebuild` | `docker compose up -d --build nginx` |
+| Any `docker/*.env` value | `task recreate SVC=<svc>` | `docker compose up -d <service>` |
+| `docker/docker-compose.yml` | `task up` | `docker compose up -d` |
 
 The auto-tagger Dockerfile's build context is the repo root, so a
 single rebuild picks up both `services/auto-tagger/src/` and
@@ -144,11 +144,11 @@ single rebuild picks up both `services/auto-tagger/src/` and
 
 ```bash
 uv sync                              # install deps for both workspace members
-uv run pytest                        # full suite (~50s, 420+ tests)
+task test:py                         # full suite (~50s, 420+ tests)
 uv run pytest services/auto-tagger   # auto-tagger only
 uv run pytest -k webhook             # tests matching "webhook"
-uv run ruff check                    # lint both members
-uv run ruff format                   # auto-format
+task lint:py                         # ruff check
+task format                          # ruff format
 ```
 
 The pytest suite is pure-function — no live HTTP, no docker dependency.
@@ -157,11 +157,9 @@ You can run it without the stack up.
 ### SPA
 
 ```bash
-pnpm --filter @aktenraum/web lint    # eslint
-pnpm --filter @aktenraum/web build   # tsc + vite production build
-pnpm --filter @aktenraum/web generate:api-types
-                                     # regenerate TS types from /api/openapi.json
-                                     # (compose stack must be running)
+task lint:web                        # eslint
+task test:web                        # tsc + vite production build
+task web:types                       # regenerate TS types from /api/openapi.json (stack must be running)
 ```
 
 There is no Vitest/Jest suite for the SPA yet — `tsc -b && vite build`
@@ -234,10 +232,23 @@ curl -s -H "Authorization: Token $TOKEN" "$BASE/api/custom_fields/?page_size=100
 curl -s -H "Authorization: Token $TOKEN" "$BASE/api/documents/?document_type__id=5&ordering=-created" | python3 -m json.tool
 ```
 
+### Reprocess a single document
+
+`task reprocess ID=27` clears every lifecycle tag on that doc; the
+poller (or the auto-tagger webhook for the SPA's reprocess button)
+re-extracts it within 30 s.
+
+```bash
+# Equivalent without task:
+TOKEN=$(grep PAPERLESS_API_TOKEN docker/auto-tagger.env | cut -d= -f2)
+curl -s -X PATCH "http://localhost:8000/api/documents/27/" \
+  -H "Authorization: Token $TOKEN" -H "Content-Type: application/json" \
+  -d '{"tags": []}'
+```
+
 ### Reprocess every document (re-run the AI on the full corpus)
 
-`/api/documents/{id}/reprocess` on each doc, or clear lifecycle tags in
-Paperless and let the poller catch up:
+Useful after a prompt change. Cost: one LLM call per doc.
 
 ```bash
 TOKEN=$(grep PAPERLESS_API_TOKEN docker/auto-tagger.env | cut -d= -f2)
@@ -249,8 +260,6 @@ for id in $(curl -s -H "Authorization: Token $TOKEN" \
     -d '{"tags": []}'
 done
 ```
-
-Useful after a prompt change. Cost: one LLM call per doc.
 
 ### Switch LLM backend
 
@@ -264,8 +273,14 @@ ANTHROPIC_API_KEY=sk-ant-...
 ANTHROPIC_MODEL=claude-sonnet-4-6
 ```
 
-Then `docker compose up -d auto-tagger aktenraum-api` to recreate the
-containers (env-file changes need a recreate, not a restart).
+Then recreate the containers (env-file changes need a recreate, not a restart):
+
+```bash
+task recreate SVC=auto-tagger
+task recreate SVC=aktenraum-api
+# or:
+cd docker && docker compose up -d auto-tagger aktenraum-api
+```
 
 You can pair models: a fast 8B for filter extraction + a smarter 14B+
 for prose answers. Set `OLLAMA_ANSWER_MODEL` / `ANTHROPIC_ANSWER_MODEL` to
@@ -278,8 +293,8 @@ existing corpus needs a one-shot index pass — newly-propagated docs
 index automatically but old ones don't:
 
 ```bash
-bash scripts/backfill-rag-index.sh           # idempotent, skips already-indexed
-bash scripts/backfill-rag-index.sh --force   # re-index everything
+task rag:backfill                            # idempotent, skips already-indexed
+bash scripts/backfill-rag-index.sh --force   # re-index everything (no task wrapper for --force)
 ```
 
 JSON-line events on stdout (`started → doc_indexed* → completed`).
@@ -291,7 +306,7 @@ Cases live in `evals/golden-questions.yaml` (bind-mounted into the api
 container at `/app/evals/`).
 
 ```bash
-bash scripts/run-rag-eval.sh              # text report
+task rag:eval                             # text report
 bash scripts/run-rag-eval.sh --json       # CI-friendly JSON
 ```
 
@@ -306,6 +321,10 @@ their own corpus.
 
 ```bash
 # Dockerised path (default)
+task backup:run                             # trigger a snapshot
+task backup:snapshots                       # list snapshots
+
+# Or the raw commands:
 MSYS_NO_PATHCONV=1 docker compose exec backup //usr/local/bin/entrypoint.sh
 MSYS_NO_PATHCONV=1 docker compose exec backup restic snapshots --tag aktenraum
 

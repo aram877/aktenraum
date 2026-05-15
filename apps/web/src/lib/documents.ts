@@ -198,6 +198,7 @@ export type DocumentDetail = {
   ai_confidence: number | null;
   ai_backend: string | null;
   ai_model: string | null;
+  ai_confidence_reason: string | null;
   low_confidence: boolean;
   tags: string[];
   content_excerpt: string;

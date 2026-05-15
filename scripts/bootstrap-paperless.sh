@@ -97,6 +97,11 @@ ensure_custom_field "ai_model"            "string"
 # so the SPA can show a real message instead of a bare "Fehler" pill.
 # Long text so we never lose the tail of a stack trace.
 ensure_custom_field "ai_error_message"    "longtext"
+# One-sentence German explanation of what drove the confidence value
+# (clear letterhead vs. fragmented OCR, ambiguous doc type, missing
+# correspondent, etc.). Renders under the percentage in the review form
+# so the user can decide whether to trust a low score.
+ensure_custom_field "ai_confidence_reason" "longtext"
 
 # --------------------------------------------------------------------------
 # Tags

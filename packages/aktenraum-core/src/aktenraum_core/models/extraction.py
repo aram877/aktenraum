@@ -86,3 +86,13 @@ class DocumentExtraction(BaseModel):
     confidence: float = Field(
         default=0.5, ge=0.0, le=1.0, description="Konfidenz der Extraktion (0–1)"
     )
+    confidence_reason: str | None = Field(
+        None,
+        description=(
+            "Ein deutscher Satz, der erklärt, was den Konfidenzwert getrieben hat — "
+            "z.B. 'Klarer Briefkopf des Finanzamts, alle Pflichtfelder eindeutig "
+            "lesbar' oder 'OCR-Text teilweise fragmentiert, Korrespondent nur aus "
+            "Logo erschlossen'. Hilft dem Nutzer bei der Prüfung zu erkennen, "
+            "was die KI unsicher gemacht hat. Null wenn nicht angegeben."
+        ),
+    )

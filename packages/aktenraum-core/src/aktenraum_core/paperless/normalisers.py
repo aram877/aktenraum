@@ -15,7 +15,9 @@ _PAPERLESS_STRING_MAX = 128
 # explicitly so the truncation helpers stay pure / context-free — callers do
 # not need to pass field metadata. Update this set whenever a new longtext
 # AI field is introduced (or the bootstrap script is changed).
-LONGTEXT_FIELDS = frozenset({"ai_summary_de", "ai_error_message"})
+LONGTEXT_FIELDS = frozenset(
+    {"ai_summary_de", "ai_error_message", "ai_confidence_reason"}
+)
 
 
 def _truncate_string_field(value: str | None) -> str | None:

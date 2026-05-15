@@ -123,6 +123,12 @@ class PaperlessClient:
                 truncate_for_field("ai_summary_de", extraction.summary_de),
             ),
             fv("ai_confidence", extraction.confidence),
+            fv(
+                "ai_confidence_reason",
+                truncate_for_field(
+                    "ai_confidence_reason", extraction.confidence_reason
+                ),
+            ),
             fv("ai_backend", truncate_for_field("ai_backend", backend_name)),
             fv("ai_model", truncate_for_field("ai_model", model_name)),
         ]

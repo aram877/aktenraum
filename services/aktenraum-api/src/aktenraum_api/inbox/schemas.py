@@ -32,6 +32,11 @@ class InboxDetail(InboxItem):
     ai_summary_de: str | None = None
     ai_backend: str | None = None
     ai_model: str | None = None
+    # One-sentence explanation of what drove `ai_confidence`. Rendered
+    # under the percentage in the review form so the user knows whether
+    # a 50 % score reflects OCR quality, doc-type ambiguity, or just LLM
+    # hedging on a clean doc.
+    ai_confidence_reason: str | None = None
     content_excerpt: str = ""
     tags: list[str] = Field(default_factory=list)
     type_fields: dict[str, str] | None = None

@@ -286,6 +286,14 @@ export function LibraryReview({ id }: { id: number }) {
                       inFlight={isInFlight(id, processing.data)}
                     />
                   </div>
+                  {detail.data.ai_confidence_reason && (
+                    <div
+                      className="mt-0.5 text-[11px] italic leading-snug text-neutral-500"
+                      title="Begründung der KI für den Konfidenzwert"
+                    >
+                      {detail.data.ai_confidence_reason}
+                    </div>
+                  )}
                 </div>
               </header>
 

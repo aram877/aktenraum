@@ -27,6 +27,7 @@ export type InboxDetail = InboxItem & {
   ai_summary_de: string | null;
   ai_backend: string | null;
   ai_model: string | null;
+  ai_confidence_reason: string | null;
   content_excerpt: string;
   tags: string[];
 };

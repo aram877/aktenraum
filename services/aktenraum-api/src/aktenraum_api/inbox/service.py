@@ -152,6 +152,7 @@ def _project_inbox_detail(
         ai_confidence=fields.get("ai_confidence"),
         ai_backend=fields.get("ai_backend"),
         ai_model=fields.get("ai_model"),
+        ai_confidence_reason=fields.get("ai_confidence_reason"),
         ai_error_message=fields.get("ai_error_message"),
         low_confidence=LOW_CONFIDENCE_TAG in tag_names_clean,
         tags=tag_names_clean,

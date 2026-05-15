@@ -6,6 +6,7 @@ import { api } from "./api";
 export type LibraryItem = {
   id: number;
   title: string;
+  original_file_name: string | null;
   created: string | null;
   correspondent: string | null;
   document_type: string | null;

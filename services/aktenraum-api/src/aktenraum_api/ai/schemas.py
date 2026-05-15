@@ -51,6 +51,7 @@ class SearchFilter(BaseModel):
 class DocumentSummary(BaseModel):
     id: int
     title: str
+    original_file_name: str | None = None
     correspondent: str | None = None
     document_type: str | None = None
     created: date | None = None

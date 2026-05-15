@@ -456,6 +456,11 @@ function Row({
     <tr onClick={onClick} className="cursor-pointer hover:bg-neutral-50">
       <td className="px-2 py-2">
         <div className="font-medium text-neutral-900">{row.title}</div>
+        {row.original_file_name && row.original_file_name !== row.title && (
+          <div className="text-[10px] text-neutral-400">
+            Original: {row.original_file_name}
+          </div>
+        )}
         {row.tags.length > 0 && (
           <div className="mt-1 flex flex-wrap gap-1">
             {row.tags.slice(0, 5).map((t) => {

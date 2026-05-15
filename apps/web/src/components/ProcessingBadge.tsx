@@ -7,6 +7,8 @@
  *   ai-error / ai-propagation-error → "Fehler"
  *   ai-rejected                     → "Abgelehnt"
  *   ai-pending                      → "Bereit zum Prüfen"
+ *   ai-propagated + ai-auto-approved → "Auto-genehmigt"
+ *   ai-approved + ai-auto-approved   → "Auto-genehmigt (wird übertragen)"
  *   ai-approved                     → "Wird übertragen"
  *   ai-propagated                   → "Verarbeitet"
  *   ai-low-confidence (alone)       → "Niedrige Konfidenz"
@@ -47,6 +49,32 @@ function classify(tags: string[]): State {
       label: "Bereit zum Prüfen",
       title: "Wartet auf deine Prüfung.",
       variant: "warning",
+    };
+  }
+  // `ai-auto-approved` is auxiliary and persists through propagation, so
+  // pair it with the lifecycle state to keep the "wird übertragen / verarbeitet"
+  // distinction visible while still surfacing that no human approved it.
+  if (set.has("ai-auto-approved") && set.has("ai-approved")) {
+    return {
+      label: "Auto-genehmigt · überträgt",
+      title:
+        "Automatisch genehmigt (Konfidenz ≥ 90 %). Der Propagator setzt die nativen Felder in Kürze.",
+      variant: "info",
+    };
+  }
+  if (set.has("ai-auto-approved") && set.has("ai-propagated")) {
+    return {
+      label: "Auto-genehmigt",
+      title:
+        "Automatisch genehmigt wegen hoher Konfidenz (≥ 90 %). Keine manuelle Prüfung.",
+      variant: "success",
+    };
+  }
+  if (set.has("ai-auto-approved")) {
+    return {
+      label: "Auto-genehmigt",
+      title: "Automatisch genehmigt wegen hoher Konfidenz (≥ 90 %).",
+      variant: "success",
     };
   }
   if (set.has("ai-approved")) {

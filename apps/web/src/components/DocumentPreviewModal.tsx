@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import type { DocumentSummary } from "../lib/ai";
-import { useReprocess } from "../lib/documents";
+import { useDeleteDocument, useReprocess } from "../lib/documents";
 
 type Props = {
   doc: DocumentSummary;
@@ -9,15 +9,21 @@ type Props = {
   /** Hide the Reprocess button — used on the inbox review page where the doc
    *  is already in flight. */
   showReprocess?: boolean;
+  /** Hide the Delete button — opt out where deletion isn't appropriate
+   *  (e.g. a citation card in /ask). Default true. */
+  showDelete?: boolean;
 };
 
 export function DocumentPreviewModal({
   doc,
   onClose,
   showReprocess = true,
+  showDelete = true,
 }: Props) {
   const reprocess = useReprocess();
+  const deleteDoc = useDeleteDocument();
   const [confirming, setConfirming] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -39,8 +45,20 @@ export function DocumentPreviewModal({
     }
   };
 
+  const onDelete = async () => {
+    try {
+      await deleteDoc.mutateAsync(doc.id);
+      onClose();
+    } catch {
+      // surfaced via deleteError below
+    }
+  };
+
   const reprocessError = reprocess.error?.response?.data?.detail
     ?? reprocess.error?.message
+    ?? null;
+  const deleteError = deleteDoc.error?.response?.data?.detail
+    ?? deleteDoc.error?.message
     ?? null;
 
   return (
@@ -57,6 +75,11 @@ export function DocumentPreviewModal({
         <header className="flex items-center justify-between border-b border-neutral-200 px-4 py-3">
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold">{doc.title}</div>
+            {doc.original_file_name && doc.original_file_name !== doc.title && (
+              <div className="truncate text-[11px] text-neutral-400">
+                Original: {doc.original_file_name}
+              </div>
+            )}
             <div className="text-xs text-neutral-500">
               {doc.document_type ?? "—"}
               {doc.correspondent ? ` · ${doc.correspondent}` : ""}
@@ -101,6 +124,38 @@ export function DocumentPreviewModal({
                 ✓ Zur Prüfung hinzugefügt
               </span>
             )}
+            {showDelete && !confirmingDelete && (
+              <button
+                type="button"
+                onClick={() => setConfirmingDelete(true)}
+                disabled={deleteDoc.isPending}
+                className="rounded-md border border-red-300 bg-red-50 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
+                title="Dokument unwiderruflich löschen"
+              >
+                Löschen
+              </button>
+            )}
+            {showDelete && confirmingDelete && (
+              <div className="flex items-center gap-1 rounded-md border border-red-300 bg-red-50 px-2 py-1 text-xs text-red-900">
+                <span>Wirklich löschen?</span>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingDelete(false)}
+                  disabled={deleteDoc.isPending}
+                  className="rounded px-2 py-0.5 hover:bg-red-100"
+                >
+                  Abbrechen
+                </button>
+                <button
+                  type="button"
+                  onClick={onDelete}
+                  disabled={deleteDoc.isPending}
+                  className="rounded bg-red-600 px-2 py-0.5 font-medium text-white hover:bg-red-700 disabled:opacity-60"
+                >
+                  {deleteDoc.isPending ? "…" : "Ja, löschen"}
+                </button>
+              </div>
+            )}
             <a
               href={`/api/documents/${doc.id}/download`}
               className="rounded-md border border-neutral-300 bg-white px-3 py-1 text-xs font-medium text-neutral-900 hover:bg-neutral-100"
@@ -117,9 +172,9 @@ export function DocumentPreviewModal({
             </button>
           </div>
         </header>
-        {reprocessError && (
+        {(reprocessError || deleteError) && (
           <div className="border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700">
-            {reprocessError}
+            {reprocessError ?? deleteError}
           </div>
         )}
         <iframe

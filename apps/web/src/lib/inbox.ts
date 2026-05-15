@@ -10,9 +10,11 @@ import { api } from "./api";
 export type InboxItem = {
   id: number;
   title: string;
+  original_file_name: string | null;
   created: string | null;
   ai_correspondent: string | null;
   ai_document_type: string | null;
+  ai_title: string | null;
   ai_issue_date: string | null;
   ai_monetary_amount: string | null;
   ai_confidence: number | null;
@@ -20,8 +22,6 @@ export type InboxItem = {
 };
 
 export type InboxDetail = InboxItem & {
-  ai_due_date: string | null;
-  ai_expiry_date: string | null;
   ai_reference_numbers: string | null;
   ai_suggested_tags: string | null;
   ai_summary_de: string | null;
@@ -41,9 +41,8 @@ export type InboxList = {
 export type InboxFieldUpdate = Partial<{
   ai_document_type: string | null;
   ai_correspondent: string | null;
+  ai_title: string | null;
   ai_issue_date: string | null;
-  ai_due_date: string | null;
-  ai_expiry_date: string | null;
   ai_monetary_amount: string | null;
   ai_reference_numbers: string | null;
   ai_suggested_tags: string | null;

@@ -58,7 +58,10 @@ _ANSWER_CONTEXT_SIZE = 5
 # Tag names the SPA shows as a status badge. Includes ai-pending so a doc
 # returned by /find that's still in the inbox queue surfaces an "In Inbox"
 # pill on its result card.
-_LIFECYCLE_BADGE_NAMES = frozenset(LIFECYCLE_TAGS) | {"ai-low-confidence"}
+_LIFECYCLE_BADGE_NAMES = frozenset(LIFECYCLE_TAGS) | {
+    "ai-low-confidence",
+    "ai-auto-approved",
+}
 
 
 @router.post("/find", response_model=AskResponse)
@@ -334,6 +337,7 @@ def _doc_to_summary(doc: dict) -> DocumentSummary:
     return DocumentSummary(
         id=doc["id"],
         title=doc.get("title") or f"Dokument #{doc['id']}",
+        original_file_name=doc.get("original_file_name"),
         correspondent=None,
         document_type=None,
         created=created,
@@ -656,9 +660,8 @@ async def _enrich_with_ai_fields(
     """For each result, fetch the AI custom fields the answer LLM needs.
 
     We pull the full doc to read `ai_summary_de`, `ai_issue_date`,
-    `ai_due_date`, `ai_expiry_date`, `ai_monetary_amount`,
-    `ai_reference_numbers` — the metadata that lets the LLM answer most
-    personal-DMS questions without seeing the PDF body.
+    `ai_monetary_amount`, `ai_reference_numbers` — the metadata that lets the
+    LLM answer most personal-DMS questions without seeing the PDF body.
     """
     field_id_to_name = await _custom_field_id_to_name(gateway)
     enriched: list[dict] = []
@@ -682,8 +685,6 @@ async def _enrich_with_ai_fields(
                 "created": r.created.isoformat() if r.created else None,
                 "ai_summary_de": ai.get("ai_summary_de"),
                 "ai_issue_date": ai.get("ai_issue_date"),
-                "ai_due_date": ai.get("ai_due_date"),
-                "ai_expiry_date": ai.get("ai_expiry_date"),
                 "ai_monetary_amount": ai.get("ai_monetary_amount") or r.monetary_amount,
                 "ai_reference_numbers": ai.get("ai_reference_numbers"),
             }

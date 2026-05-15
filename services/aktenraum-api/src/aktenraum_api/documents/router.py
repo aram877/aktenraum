@@ -27,15 +27,17 @@ log = structlog.get_logger()
 router = APIRouter(prefix="/documents", tags=["documents"])
 
 # Tags we strip on reprocess: every lifecycle state plus the auxiliary
-# ai-low-confidence flag. After this PATCH the document looks "fresh" to the
-# auto-tagger and gets re-enqueued.
-_REPROCESS_REMOVE = list(LIFECYCLE_TAGS) + ["ai-low-confidence"]
+# ai-low-confidence and ai-auto-approved flags. After this PATCH the
+# document looks "fresh" to the auto-tagger and gets re-enqueued.
+_REPROCESS_REMOVE = list(LIFECYCLE_TAGS) + ["ai-low-confidence", "ai-auto-approved"]
 
 # Tag names the SPA renders as status badges, including ai-pending so the
 # upload-progress poller can distinguish "landed in inbox" from "still
 # classifying". Library lists already exclude pending docs server-side, so
 # this set being permissive doesn't leak pending docs into /library.
-_BADGE_TAG_NAMES = frozenset(LIFECYCLE_TAGS) | {"ai-low-confidence"}
+# `ai-auto-approved` is auxiliary but joined here so the ProcessingBadge can
+# render an "Auto-genehmigt" pill wherever a doc card appears.
+_BADGE_TAG_NAMES = frozenset(LIFECYCLE_TAGS) | {"ai-low-confidence", "ai-auto-approved"}
 
 # A doc counts as "in flight" when it has no terminal lifecycle tag yet.
 # Concretely: it has ai-pending (still in the inbox queue), ai-approved
@@ -421,6 +423,32 @@ async def get_download(
         cache="private, no-store",
         forward_disposition=True,
     )
+
+
+@router.delete("/{doc_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_document(
+    doc_id: int,
+    _user: User = Depends(get_current_user),
+    gateway: PaperlessGateway = Depends(get_paperless_gateway),
+) -> None:
+    """Permanently remove a document from Paperless.
+
+    No soft-delete: the PDF, OCR, custom fields, and any Qdrant chunks for
+    the doc are gone. The SPA wraps this in a confirm step; on success it
+    invalidates the library / inbox / in-flight caches so the row disappears.
+    """
+    try:
+        await gateway.delete_document(doc_id)
+    except PaperlessNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document {doc_id} not found",
+        ) from e
+    except PaperlessAuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Paperless rejected the API token",
+        ) from e
 
 
 async def _proxy_stream(

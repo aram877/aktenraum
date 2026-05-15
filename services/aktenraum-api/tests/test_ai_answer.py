@@ -42,17 +42,15 @@ def test_answer_prompt_includes_candidate_metadata():
             "created": "2024-02-28",
             "ai_summary_de": "Personalausweis ausgestellt am 28.02.2024.",
             "ai_issue_date": "2024-02-28",
-            "ai_due_date": None,
-            "ai_expiry_date": "2034-02-27",
             "ai_monetary_amount": None,
             "ai_reference_numbers": "L01XYZ",
         }
     ]
-    msgs = build_answer_messages("Wann läuft mein Pass ab?", candidates=candidates)
+    msgs = build_answer_messages("Wann wurde mein Pass ausgestellt?", candidates=candidates)
     user = _user(msgs)
     assert "Dokument 17" in user
     assert "Perso Aram" in user
-    assert "2034-02-27" in user
+    assert "2024-02-28" in user
     assert "Personalausweis ausgestellt" in user
 
 
@@ -66,8 +64,6 @@ def test_answer_prompt_skips_null_fields():
             "created": None,
             "ai_summary_de": None,
             "ai_issue_date": None,
-            "ai_due_date": None,
-            "ai_expiry_date": None,
             "ai_monetary_amount": "EUR99.00",
             "ai_reference_numbers": None,
         }
@@ -236,7 +232,7 @@ async def test_answer_question_returns_prose_with_citations(client_factory):
     app, _settings, transport = await _logged_in(client_factory)
     field_ids = {
         "ai_summary_de": 9,
-        "ai_expiry_date": 5,
+        "ai_issue_date": 3,
         "ai_monetary_amount": 6,
     }
     perso_doc = _doc(
@@ -249,13 +245,13 @@ async def test_answer_question_returns_prose_with_citations(client_factory):
                 "field": 9,
                 "value": "Personalausweis ausgestellt am 28.02.2024.",
             },
-            {"field": 5, "value": "2034-02-27"},
+            {"field": 3, "value": "2024-02-28"},
         ],
     )
     backend = _ScriptedBackend(
         on_filter=SearchFilter(document_type=DocumentType.Ausweis),
         on_answer=AnswerOutput(
-            answer_de="Dein Personalausweis läuft am 27.02.2034 ab.",
+            answer_de="Dein Personalausweis wurde am 28.02.2024 ausgestellt.",
             cited_ids=[17],
         ),
     )
@@ -279,7 +275,7 @@ async def test_answer_question_returns_prose_with_citations(client_factory):
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert "27.02.2034" in body["answer_de"]
+    assert "28.02.2024" in body["answer_de"]
     assert len(body["citations"]) == 1
     assert body["citations"][0]["id"] == 17
     assert body["filter"]["document_type"] == "Ausweis"
@@ -332,7 +328,7 @@ async def test_answer_drops_text_when_structural_constraint_present(client_facto
         correspondent_id=12,
         document_type_id=5,
         custom_fields=[
-            {"field": 5, "value": "2034-02-27"},
+            {"field": 3, "value": "2024-02-28"},
             {"field": 9, "value": "Personalausweis ausgestellt 2024-02-28."},
         ],
     )
@@ -341,14 +337,14 @@ async def test_answer_drops_text_when_structural_constraint_present(client_facto
             document_type=DocumentType.Ausweis, text="verlängern"
         ),
         on_answer=AnswerOutput(
-            answer_de="Dein Personalausweis läuft am 27.02.2034 ab.",
+            answer_de="Dein Personalausweis wurde am 28.02.2024 ausgestellt.",
             cited_ids=[17],
         ),
     )
     gateway = _make_gateway(
         document_types={"Ausweis": 5},
         documents=[perso],
-        field_ids={"ai_expiry_date": 5, "ai_summary_de": 9},
+        field_ids={"ai_issue_date": 3, "ai_summary_de": 9},
     )
     app.dependency_overrides[get_llm_backend] = lambda: backend
     app.dependency_overrides[get_answer_llm_backend] = lambda: backend

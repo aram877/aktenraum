@@ -39,6 +39,7 @@ export type SearchFilter = {
 export type DocumentSummary = {
   id: number;
   title: string;
+  original_file_name: string | null;
   correspondent: string | null;
   document_type: string | null;
   created: string | null;

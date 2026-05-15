@@ -16,6 +16,11 @@ log = structlog.get_logger()
 # Tags that mark a document as having entered the AI pipeline. The auto-tagger
 # excludes documents carrying any of these from its unprocessed-doc query, and
 # the propagator filters by individual states (ai-approved, ai-propagated, …).
+#
+# `ai-auto-approved` is an auxiliary marker — NOT a lifecycle state. It lives
+# alongside `ai-approved` (and later `ai-propagated`) so the UI can show
+# "auto-genehmigt" forever. It's intentionally excluded from this tuple so the
+# poller's "no lifecycle tag" filter doesn't change behaviour.
 LIFECYCLE_TAGS = (
     "ai-pending",
     "ai-approved",
@@ -95,9 +100,11 @@ class PaperlessClient:
                 "ai_correspondent",
                 truncate_for_field("ai_correspondent", extraction.correspondent),
             ),
+            fv(
+                "ai_title",
+                truncate_for_field("ai_title", extraction.ai_title),
+            ),
             fv("ai_issue_date", _normalize_date(extraction.key_dates.issue)),
-            fv("ai_due_date", _normalize_date(extraction.key_dates.due)),
-            fv("ai_expiry_date", _normalize_date(extraction.key_dates.expiry)),
             fv("ai_monetary_amount", _normalize_monetary(extraction.monetary_amount)),
             fv(
                 "ai_reference_numbers",
@@ -221,6 +228,7 @@ class PaperlessClient:
         document_type: int | None = None,
         created_date: str | None = None,
         tags: list[int] | None = None,
+        title: str | None = None,
     ) -> None:
         payload: dict[str, Any] = {}
         if correspondent is not None:
@@ -231,6 +239,8 @@ class PaperlessClient:
             payload["created_date"] = created_date
         if tags is not None:
             payload["tags"] = tags
+        if title is not None:
+            payload["title"] = title
         if not payload:
             return
         resp = await self._client.patch(f"/api/documents/{doc_id}/", json=payload)

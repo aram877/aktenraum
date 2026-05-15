@@ -101,6 +101,7 @@ def apply_post_filter(
             DocumentSummary(
                 id=doc["id"],
                 title=doc.get("title") or f"Dokument #{doc['id']}",
+                original_file_name=doc.get("original_file_name"),
                 correspondent=correspondents.get(doc.get("correspondent")),
                 document_type=document_types.get(doc.get("document_type")),
                 created=_parse_date_field(doc.get("created_date") or doc.get("created")),

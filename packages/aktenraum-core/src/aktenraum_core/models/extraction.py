@@ -54,13 +54,19 @@ class DocumentType(StrEnum):
 
 class KeyDates(BaseModel):
     issue: str | None = Field(None, description="Ausstellungsdatum (YYYY-MM-DD)")
-    due: str | None = Field(None, description="Fälligkeitsdatum (YYYY-MM-DD)")
-    expiry: str | None = Field(None, description="Ablaufdatum (YYYY-MM-DD)")
 
 
 class DocumentExtraction(BaseModel):
     document_type: DocumentType = Field(description="Dokumenttyp aus der vorgegebenen Liste")
     correspondent: str | None = Field(None, description="Absender oder Aussteller des Dokuments")
+    ai_title: str | None = Field(
+        None,
+        description=(
+            "Prägnanter, sprechender Dokumenttitel auf Deutsch — Typ + Korrespondent "
+            "+ optional Datum/Stichwort, max. ~8 Wörter. Beispiel: "
+            "'Rechnung Stadtwerke März 2024'."
+        ),
+    )
     key_dates: KeyDates = Field(default_factory=KeyDates, description="Relevante Datumsangaben")
     monetary_amount: str | None = Field(
         None, description="Geldbetrag mit Währung, z.B. '149,99 EUR'"

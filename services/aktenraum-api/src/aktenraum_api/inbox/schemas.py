@@ -10,9 +10,11 @@ class InboxItem(BaseModel):
 
     id: int
     title: str
+    original_file_name: str | None = None
     created: date | None = None
     ai_correspondent: str | None = None
     ai_document_type: str | None = None
+    ai_title: str | None = None
     ai_issue_date: str | None = None
     ai_monetary_amount: str | None = None
     ai_confidence: float | None = None
@@ -22,8 +24,6 @@ class InboxItem(BaseModel):
 class InboxDetail(InboxItem):
     """Full review payload for /inbox/{id}."""
 
-    ai_due_date: str | None = None
-    ai_expiry_date: str | None = None
     ai_reference_numbers: str | None = None
     ai_suggested_tags: str | None = None
     ai_summary_de: str | None = None
@@ -44,9 +44,8 @@ class InboxFieldUpdate(BaseModel):
 
     ai_document_type: str | None = None
     ai_correspondent: str | None = None
+    ai_title: str | None = None
     ai_issue_date: str | None = None
-    ai_due_date: str | None = None
-    ai_expiry_date: str | None = None
     ai_monetary_amount: str | None = None
     ai_reference_numbers: str | None = None
     ai_suggested_tags: str | None = None

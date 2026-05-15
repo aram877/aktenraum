@@ -146,12 +146,14 @@ async def test_reprocess_clears_lifecycle_tags_and_pings_auto_tagger(client_fact
     body = resp.json()
     assert body["doc_id"] == 9
     assert body["auto_tagger_notified"] is True
-    # Cleared tags should be every lifecycle entry plus ai-low-confidence.
-    assert set(body["cleared_tags"]) == set(LIFECYCLE_TAGS) | {"ai-low-confidence"}
+    # Cleared tags should be every lifecycle entry plus the auxiliary
+    # ai-low-confidence + ai-auto-approved flags.
+    expected_cleared = set(LIFECYCLE_TAGS) | {"ai-low-confidence", "ai-auto-approved"}
+    assert set(body["cleared_tags"]) == expected_cleared
     gateway.swap_lifecycle_tag.assert_awaited_once()
     kwargs = gateway.swap_lifecycle_tag.await_args.kwargs
     assert kwargs["add"] == []
-    assert set(kwargs["remove"]) == set(LIFECYCLE_TAGS) | {"ai-low-confidence"}
+    assert set(kwargs["remove"]) == expected_cleared
     assert ping.called
     body_sent = ping.calls.last.request.read()
     assert b'"document_id": 9' in body_sent or b'"document_id":9' in body_sent

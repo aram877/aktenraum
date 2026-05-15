@@ -26,20 +26,17 @@ class TestRouteLifecycleTags:
     @pytest.mark.parametrize(
         "doc_type,confidence,expected",
         [
-            # In allowlist + above threshold → auto-approve
-            ("Rechnung", 0.95, ["ai-approved"]),
-            ("Rechnung", 1.0, ["ai-approved"]),
-            ("Kontoauszug", 0.96, ["ai-approved"]),
-            # In allowlist but below auto-approve threshold → pending
-            ("Rechnung", 0.94, ["ai-pending"]),
-            ("Rechnung", 0.70, ["ai-pending"]),
-            # Below low-confidence threshold + in allowlist → pending + flag
+            # Above threshold (any document type) → auto-approve + auxiliary marker.
+            ("Rechnung", 0.90, ["ai-approved", "ai-auto-approved"]),
+            ("Rechnung", 1.0, ["ai-approved", "ai-auto-approved"]),
+            ("Vertrag", 0.95, ["ai-approved", "ai-auto-approved"]),
+            ("Versicherung", 0.99, ["ai-approved", "ai-auto-approved"]),
+            ("Sonstiges", 1.0, ["ai-approved", "ai-auto-approved"]),
+            # Below auto-approve threshold (and above low-confidence) → pending only.
+            ("Rechnung", 0.89, ["ai-pending"]),
+            ("Vertrag", 0.70, ["ai-pending"]),
+            # Below low-confidence threshold → pending + flag.
             ("Rechnung", 0.50, ["ai-pending", "ai-low-confidence"]),
-            # Not in allowlist (any confidence) → pending
-            ("Vertrag", 0.99, ["ai-pending"]),
-            ("Versicherung", 1.0, ["ai-pending"]),
-            ("Sonstiges", 0.90, ["ai-pending"]),
-            # Not in allowlist + low confidence → pending + flag
             ("Sonstiges", 0.30, ["ai-pending", "ai-low-confidence"]),
             ("Vertrag", 0.10, ["ai-pending", "ai-low-confidence"]),
         ],
@@ -49,22 +46,33 @@ class TestRouteLifecycleTags:
         extraction = _make_extraction(doc_type, confidence)
         assert _route_lifecycle_tags(extraction, settings) == expected
 
-    def test_empty_allowlist_disables_auto_approve_for_all_types(self, make_settings):
+    def test_type_allowlist_is_ignored(self, make_settings):
+        # Legacy setting is parsed but no longer consulted — every doc type
+        # qualifies for auto-approve once confidence crosses the threshold.
         settings = make_settings(AUTO_APPROVE_TYPES="")
-        extraction = _make_extraction("Rechnung", 1.0)
-        assert _route_lifecycle_tags(extraction, settings) == ["ai-pending"]
+        extraction = _make_extraction("Vertrag", 1.0)
+        assert _route_lifecycle_tags(extraction, settings) == [
+            "ai-approved",
+            "ai-auto-approved",
+        ]
 
     def test_threshold_at_exact_boundary_auto_approves(self, make_settings):
-        settings = make_settings(AUTO_APPROVE_CONFIDENCE="0.95")
-        extraction = _make_extraction("Rechnung", 0.95)
-        assert _route_lifecycle_tags(extraction, settings) == ["ai-approved"]
+        settings = make_settings(AUTO_APPROVE_CONFIDENCE="0.90")
+        extraction = _make_extraction("Rechnung", 0.90)
+        assert _route_lifecycle_tags(extraction, settings) == [
+            "ai-approved",
+            "ai-auto-approved",
+        ]
 
     def test_low_confidence_flag_skipped_when_auto_approving(self, make_settings):
         # Defensive: auto-approve always wins; low_confidence flag is review-queue
         # signal, irrelevant once the doc skips review entirely.
         settings = make_settings(LOW_CONFIDENCE_THRESHOLD="0.99")
         extraction = _make_extraction("Rechnung", 0.96)
-        assert _route_lifecycle_tags(extraction, settings) == ["ai-approved"]
+        assert _route_lifecycle_tags(extraction, settings) == [
+            "ai-approved",
+            "ai-auto-approved",
+        ]
 
 
 class TestSplitCsv:
@@ -102,8 +110,6 @@ class TestExamplePayload:
             "ai_document_type": "Sonstiges",  # ← stale AI guess
             "ai_correspondent": "GitHub Inc",  # ← stale AI guess
             "ai_issue_date": "2022-01-01",
-            "ai_due_date": None,
-            "ai_expiry_date": None,
             "ai_reference_numbers": "INV-1, REF-2",
             "ai_suggested_tags": "raw, suggestions",
             "ai_summary_de": "Beispieltext.",

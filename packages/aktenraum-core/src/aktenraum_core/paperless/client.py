@@ -351,6 +351,60 @@ class PaperlessClient:
     async def get_or_create_document_type(self, name: str) -> int:
         return await self._get_or_create_named("/api/document_types/", name)
 
+    async def ensure_custom_field(self, name: str, data_type: str) -> tuple[int, bool]:
+        """Look up a custom field by exact name, creating it if missing.
+
+        Returns (field_id, created). Idempotent — safe to call on every
+        boot. Used by the cross-platform bootstrap entry point in
+        services/auto-tagger so the operator doesn't need a Unix shell.
+        """
+        resp = await self._client.get(
+            "/api/custom_fields/", params={"name__iexact": name, "page_size": 100}
+        )
+        resp.raise_for_status()
+        results = resp.json().get("results", [])
+        existing = next((x for x in results if x["name"] == name), None)
+        if existing is not None:
+            return existing["id"], False
+        resp = await self._client.post(
+            "/api/custom_fields/",
+            json={"name": name, "data_type": data_type},
+        )
+        if resp.status_code >= 400:
+            log.error(
+                "paperless_create_field_rejected",
+                name=name,
+                data_type=data_type,
+                status=resp.status_code,
+                body=resp.text,
+            )
+        resp.raise_for_status()
+        return resp.json()["id"], True
+
+    async def ensure_tag(self, name: str, color: str | None = None) -> tuple[int, bool]:
+        """Look up a tag by exact name, creating it if missing.
+
+        Returns (tag_id, created). Idempotent. `color` is the hex string
+        Paperless stores as the tag's display colour ("#22c55e" etc.);
+        ignored on lookup (it doesn't influence uniqueness).
+        """
+        existing = await self._get_tag_id(name)
+        if existing is not None:
+            return existing, False
+        body: dict[str, Any] = {"name": name}
+        if color:
+            body["color"] = color
+        resp = await self._client.post("/api/tags/", json=body)
+        if resp.status_code >= 400:
+            log.error(
+                "paperless_create_tag_rejected",
+                name=name,
+                status=resp.status_code,
+                body=resp.text,
+            )
+        resp.raise_for_status()
+        return resp.json()["id"], True
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------

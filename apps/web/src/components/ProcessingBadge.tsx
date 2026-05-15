@@ -6,7 +6,7 @@
  * Precedence (top wins so the most actionable state surfaces):
  *   ai-error / ai-propagation-error → "Fehler"
  *   ai-rejected                     → "Abgelehnt"
- *   ai-pending                      → "In Inbox"
+ *   ai-pending                      → "Bereit zum Prüfen"
  *   ai-approved                     → "Wird übertragen"
  *   ai-propagated                   → "Verarbeitet"
  *   ai-low-confidence (alone)       → "Niedrige Konfidenz"
@@ -30,7 +30,8 @@ function classify(tags: string[]): State {
   if (set.has("ai-error") || set.has("ai-propagation-error")) {
     return {
       label: "Fehler",
-      title: "Verarbeitung fehlgeschlagen — über das Vorschau-Fenster erneut verarbeiten.",
+      title:
+        "Verarbeitung fehlgeschlagen — über das Vorschau-Fenster erneut verarbeiten.",
       variant: "danger",
     };
   }
@@ -43,7 +44,7 @@ function classify(tags: string[]): State {
   }
   if (set.has("ai-pending")) {
     return {
-      label: "In Inbox",
+      label: "Bereit zum Prüfen",
       title: "Wartet auf deine Prüfung in der Inbox.",
       variant: "warning",
     };

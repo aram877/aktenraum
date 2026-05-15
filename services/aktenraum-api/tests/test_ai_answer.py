@@ -78,6 +78,54 @@ def test_answer_prompt_handles_empty_candidates():
     assert "(keine)" in user
 
 
+def test_answer_prompt_includes_type_specific_fields():
+    """Without these the LLM has no money figures for the most common
+    personal-DMS question — "Wie viel habe ich verdient?" / "Was kostet
+    die Versicherung?". The pass-2 fields are the canonical place."""
+    candidates = [
+        {
+            "id": 42,
+            "title": "Gehaltsabrechnung Acme GmbH September 2024",
+            "correspondent": "Acme GmbH",
+            "document_type": "Gehaltsabrechnung",
+            "created": "2024-09-30",
+            "ai_summary_de": "Gehaltsabrechnung für September 2024.",
+            "ai_issue_date": "2024-09-30",
+            "ai_reference_numbers": None,
+            "type_specific_fields": [
+                {"name": "bruttogehalt", "label": "Bruttogehalt", "value": "EUR3500.00"},
+                {"name": "nettogehalt", "label": "Nettogehalt", "value": "EUR2200.00"},
+                {"name": "abrechnungsmonat", "label": "Abrechnungsmonat", "value": "2024-09"},
+            ],
+        }
+    ]
+    msgs = build_answer_messages("Wie viel habe ich verdient?", candidates=candidates)
+    user = _user(msgs)
+    assert "Typenspezifische Felder" in user
+    assert "Bruttogehalt: EUR3500.00" in user
+    assert "Nettogehalt: EUR2200.00" in user
+    assert "Abrechnungsmonat: 2024-09" in user
+
+
+def test_answer_prompt_omits_type_section_when_empty():
+    candidates = [
+        {
+            "id": 5,
+            "title": "Rechnung",
+            "correspondent": "Vodafone",
+            "document_type": "Rechnung",
+            "created": "2024-03-15",
+            "ai_summary_de": "Rechnung.",
+            "ai_issue_date": "2024-03-15",
+            "ai_reference_numbers": None,
+            "type_specific_fields": [],
+        }
+    ]
+    msgs = build_answer_messages("test", candidates=candidates)
+    user = _user(msgs)
+    assert "Typenspezifische Felder" not in user
+
+
 # ---- Router tests ----
 
 

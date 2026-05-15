@@ -333,7 +333,9 @@ function FileRow({ state }: { state: FileState }) {
           <span className="text-neutral-500">{humanSize(state.file.size)} · </span>
           <span className={tone}>{label}</span>
           {state.detail && state.phase === "error" && (
-            <span className="ml-1 text-red-700">— {state.detail}</span>
+            <span className="ml-1 text-red-700">
+              — <DuplicateDetail detail={state.detail} />
+            </span>
           )}
         </div>
         {showProgress && (
@@ -356,4 +358,28 @@ function humanSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+// Renders error detail text, turning a Paperless duplicate notice like
+// "It is a duplicate of SomeName (#81)." into clickable link on the #81 part.
+function DuplicateDetail({ detail }: { detail: string }) {
+  const match = detail.match(/#(\d+)/);
+  if (!match || !match[1]) return <>{detail}</>;
+  const docId: string = match[1];
+  const idx = detail.indexOf(match[0]);
+  const before = detail.slice(0, idx);
+  const after = detail.slice(idx + match[0].length);
+  return (
+    <>
+      {before}
+      <Link
+        to="/library/$id"
+        params={{ id: docId }}
+        className="font-medium underline hover:text-red-900"
+      >
+        #{docId}
+      </Link>
+      {after}
+    </>
+  );
 }

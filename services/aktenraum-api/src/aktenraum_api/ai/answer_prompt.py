@@ -229,13 +229,19 @@ def _streaming_system_prompt() -> str:
     parts.append("Feld-Hinweise (wichtig — nutze diese Felder direkt!):")
     parts.append("- 'wann ausgestellt' → Feld 'Ausstellung'.")
     parts.append(
-        "- 'wieviel' / 'kosten' → Geldbeträge stehen in den typspezifischen "
+        "- 'wieviel' / 'kosten' / 'ausgegeben' → Geldbeträge stehen in den typspezifischen "
         "Feldern (Rechnung-Gesamtbetrag, Mahnung-Forderungsbetrag etc.) "
         "und in den Textauszügen."
     )
     parts.append(
         "- Wenn ein passendes Feld bereits einen Wert hat, IST das die Antwort. "
         "Sage NICHT 'keine Information', wenn das Feld gefüllt ist."
+    )
+    parts.append(
+        "- Wenn nach dem Gesamtbetrag über mehrere Dokumente gefragt wird "
+        "('wie viel habe ich bei X ausgegeben', 'Gesamtausgaben'), "
+        "addiere die Gesamtbeträge aller relevanten Dokumente und nenne die Summe. "
+        "Liste auch die Einzelbeträge auf."
     )
     return "\n".join(parts)
 
@@ -257,6 +263,12 @@ def _streaming_user_prompt(
         "  Frage: 'Was hat die Stromrechnung gekostet?'\n"
         "  Auszug nennt einen Gesamtbetrag von 149,99 €\n"
         "  → 'Die Stromrechnung betrug 149,99 €. [Quelle: 23]'"
+    )
+    parts.append(
+        "  Frage: 'Wie viel habe ich bei Wizz Air ausgegeben?'\n"
+        "  3 Dokumente mit Gesamtbetrag: EUR676.50, EUR55.00, EUR45.00\n"
+        "  → 'Du hast insgesamt 776,50 € bei Wizz Air ausgegeben "
+        "(676,50 € + 55,00 € + 45,00 €). [Quelle: 109, 132, 133]'"
     )
     parts.append("")
     parts.append(f"Frage: {question}")

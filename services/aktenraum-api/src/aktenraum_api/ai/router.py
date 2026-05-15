@@ -782,7 +782,7 @@ async def _load_type_specific_fields(
         return []
     if row is None or not row.fields:
         return []
-    label_by_name = {f.name: f.label for f in schema}
+    label_by_name = {f.name: f.label_de for f in schema}
     out: list[dict] = []
     for name, value in row.fields.items():
         if value in (None, ""):

@@ -633,12 +633,19 @@ async def _execute_filter(
         "document_types": {v: k for k, v in document_types.items()},
     }
     tag_name_by_id = {v: k for k, v in tags.items()}
+    # Resolve ai_error_message id so apply_post_filter can surface it on each
+    # DocumentSummary. Defence-in-depth None when the field is missing — older
+    # installs that haven't re-run bootstrap-paperless.sh.
+    error_field_id = (await gateway._get_custom_field_ids()).get(  # noqa: SLF001
+        "ai_error_message"
+    )
     summaries = apply_post_filter(
         raw_results,
         f,
         name_by_id=name_by_id,
         tag_name_by_id=tag_name_by_id,
         lifecycle_tag_names=_LIFECYCLE_BADGE_NAMES,
+        error_field_id=error_field_id,
     )
     return summaries, total_native
 

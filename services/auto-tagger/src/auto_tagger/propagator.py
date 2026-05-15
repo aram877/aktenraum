@@ -8,6 +8,20 @@ log = structlog.get_logger()
 _LIFECYCLE_SET = set(LIFECYCLE_TAGS)
 
 
+def _format_error(label: str, exc: BaseException) -> str:
+    """Compact, user-facing error string for the ai_error_message field.
+
+    Mirrors `tagger._format_error` (kept independent so the two modules don't
+    cross-import). German prefix; 2 KB cap.
+    """
+    cls = type(exc).__name__
+    msg = str(exc).strip() or repr(exc)
+    out = f"{label} – {cls}: {msg}"
+    if len(out) > 2000:
+        out = out[:1997] + "…"
+    return out
+
+
 def _split_suggested_tags(raw: str | None) -> list[str]:
     """Parse the comma-separated string Paperless stores in ai_suggested_tags.
 
@@ -102,6 +116,12 @@ async def process_approved_document(
             title=ai_title,
         )
 
+        # Successful propagation clears any prior failure message. Propagation
+        # only touches native fields, so we explicitly clear the custom field
+        # (the extraction success path drops it via full-array replace; here
+        # we need a targeted write).
+        await paperless.set_error_message(doc_id, None)
+
         logger.info(
             "propagation_successful",
             correspondent_id=correspondent_id,
@@ -121,6 +141,9 @@ async def process_approved_document(
     except Exception as exc:
         logger.exception("propagation_failed", error=str(exc))
         try:
+            await paperless.set_error_message(
+                doc_id, _format_error("Übertragung fehlgeschlagen", exc)
+            )
             error_id = await paperless.get_or_create_tag("ai-propagation-error")
             recovery_set = set(current_tags)
             if approved_id is not None:

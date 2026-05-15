@@ -1,5 +1,6 @@
+import httpx
 import pytest
-from aktenraum_core.paperless import LIFECYCLE_TAGS
+from aktenraum_core.paperless import LIFECYCLE_TAGS, PaperlessClient
 from aktenraum_core.paperless.normalisers import (
     LONGTEXT_FIELDS,
     _normalize_date,
@@ -93,7 +94,7 @@ class TestTruncateForField:
         # The set is intentionally tiny — adding a longtext field requires a
         # paired bootstrap-script change, so we want the test to flinch when
         # someone widens the set without thinking.
-        assert LONGTEXT_FIELDS == {"ai_summary_de"}
+        assert LONGTEXT_FIELDS == {"ai_summary_de", "ai_error_message"}
 
     def test_none_passthrough_for_both_kinds(self):
         assert truncate_for_field("ai_summary_de", None) is None
@@ -139,3 +140,152 @@ class TestLifecycleTags:
             "ai-error",
         }
         assert set(LIFECYCLE_TAGS) == expected
+
+
+def _client_with_transport(handler):
+    transport = httpx.MockTransport(handler)
+    client = PaperlessClient(base_url="http://paperless.test", api_token="tok")
+    # Swap the live httpx.AsyncClient for one bound to the mock transport so the
+    # tests stay pure-function with no real network.
+    client._client = httpx.AsyncClient(
+        base_url="http://paperless.test",
+        transport=transport,
+        timeout=5.0,
+    )
+    return client
+
+
+_CUSTOM_FIELDS_PAGE = {
+    "results": [
+        {"id": 1, "name": "ai_document_type"},
+        {"id": 2, "name": "ai_correspondent"},
+        {"id": 15, "name": "ai_title"},
+        {"id": 99, "name": "ai_error_message"},
+    ]
+}
+
+
+class TestSetErrorMessage:
+    @pytest.mark.asyncio
+    async def test_writes_message_and_preserves_existing_fields(self):
+        captured: dict = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/api/custom_fields/":
+                return httpx.Response(200, json=_CUSTOM_FIELDS_PAGE)
+            if (
+                request.method == "GET"
+                and request.url.path == "/api/documents/42/"
+            ):
+                return httpx.Response(
+                    200,
+                    json={
+                        "id": 42,
+                        "custom_fields": [
+                            {"field": 1, "value": "Rechnung"},
+                            {"field": 2, "value": "Stadtwerke"},
+                            # No prior error message — fresh failure.
+                        ],
+                    },
+                )
+            if (
+                request.method == "PATCH"
+                and request.url.path == "/api/documents/42/"
+            ):
+                captured["body"] = request.read()
+                return httpx.Response(200, json={})
+            return httpx.Response(404)
+
+        client = _client_with_transport(handler)
+        try:
+            await client.set_error_message(42, "Boom")
+        finally:
+            await client.aclose()
+
+        body = captured["body"].decode()
+        assert '"field":99' in body.replace(" ", "")
+        assert '"value":"Boom"' in body.replace(" ", "")
+        # Existing fields must survive the merge.
+        assert '"value":"Rechnung"' in body.replace(" ", "")
+        assert '"value":"Stadtwerke"' in body.replace(" ", "")
+
+    @pytest.mark.asyncio
+    async def test_clears_existing_message_when_none_passed(self):
+        captured: dict = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/api/custom_fields/":
+                return httpx.Response(200, json=_CUSTOM_FIELDS_PAGE)
+            if request.method == "GET":
+                return httpx.Response(
+                    200,
+                    json={
+                        "id": 42,
+                        "custom_fields": [
+                            {"field": 1, "value": "Rechnung"},
+                            {"field": 99, "value": "prior failure"},
+                        ],
+                    },
+                )
+            if request.method == "PATCH":
+                captured["body"] = request.read()
+                return httpx.Response(200, json={})
+            return httpx.Response(404)
+
+        client = _client_with_transport(handler)
+        try:
+            await client.set_error_message(42, None)
+        finally:
+            await client.aclose()
+
+        body = captured["body"].decode().replace(" ", "")
+        # ai_error_message is dropped, other fields stay.
+        assert '"field":99' not in body
+        assert '"value":"Rechnung"' in body
+
+    @pytest.mark.asyncio
+    async def test_silently_skips_when_field_not_bootstrapped(self):
+        """Older installs that haven't re-run bootstrap-paperless.sh don't have
+        ai_error_message yet; the writer must log + skip without raising."""
+
+        seen: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(request.method + " " + request.url.path)
+            if request.url.path == "/api/custom_fields/":
+                # Field map without ai_error_message.
+                return httpx.Response(
+                    200,
+                    json={"results": [{"id": 1, "name": "ai_document_type"}]},
+                )
+            return httpx.Response(500)  # would fail the assertion below if hit
+
+        client = _client_with_transport(handler)
+        try:
+            # Must not raise; no document GET / PATCH should occur.
+            await client.set_error_message(42, "Boom")
+        finally:
+            await client.aclose()
+
+        assert seen == ["GET /api/custom_fields/"]
+
+    @pytest.mark.asyncio
+    async def test_swallows_paperless_4xx_so_caller_failure_path_continues(self):
+        """The writer is best-effort — the caller is already handling a primary
+        failure; we must never raise and mask it."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/api/custom_fields/":
+                return httpx.Response(200, json=_CUSTOM_FIELDS_PAGE)
+            if request.method == "GET":
+                return httpx.Response(
+                    200, json={"id": 42, "custom_fields": []}
+                )
+            # PATCH rejected — must NOT raise.
+            return httpx.Response(400, text="bad request")
+
+        client = _client_with_transport(handler)
+        try:
+            await client.set_error_message(42, "Boom")
+        finally:
+            await client.aclose()

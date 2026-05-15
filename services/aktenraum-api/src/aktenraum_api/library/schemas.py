@@ -26,6 +26,10 @@ class LibraryItem(BaseModel):
     document_type: str | None = None
     lifecycle_tags: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
+    # Populated when the doc is in an error state (ai-error /
+    # ai-propagation-error / ai-index-error). Lets the SPA show a tooltip on
+    # the status badge with the actual reason instead of a bare "Fehler".
+    ai_error_message: str | None = None
 
 
 class LibraryList(BaseModel):

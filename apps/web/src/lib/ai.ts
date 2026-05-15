@@ -48,6 +48,7 @@ export type DocumentSummary = {
   document_type: string | null;
   created: string | null;
   lifecycle_tags: string[];
+  ai_error_message: string | null;
 };
 
 export type FindResponse = {

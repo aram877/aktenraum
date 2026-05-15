@@ -123,6 +123,7 @@ export type DocumentDetail = {
   low_confidence: boolean;
   tags: string[];
   content_excerpt: string;
+  ai_error_message: string | null;
 };
 
 export type DocumentFieldUpdate = Partial<{

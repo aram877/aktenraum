@@ -12,6 +12,7 @@ export type LibraryItem = {
   document_type: string | null;
   lifecycle_tags: string[];
   tags: string[];
+  ai_error_message: string | null;
 };
 
 export type LibraryList = {

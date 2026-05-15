@@ -5,6 +5,7 @@ from aktenraum_core.models import DocumentExtraction, DocumentType, KeyDates
 
 from auto_tagger.tagger import (
     _example_payload,
+    _format_error,
     _format_history_hint,
     _format_issue_date_de,
     _route_lifecycle_tags,
@@ -289,3 +290,26 @@ class TestTruncateText:
         result = _truncate_text(text, max_tokens=100)  # 100 * 4 = 400 chars
         assert len(result) == 400 + len("\n\n[Dokument wurde aufgrund der Länge gekürzt.]")
         assert "gekürzt" in result
+
+
+class TestFormatError:
+    def test_basic_shape(self):
+        exc = RuntimeError("Ollama returned 500")
+        out = _format_error("LLM-Extraktion fehlgeschlagen", exc)
+        assert out == "LLM-Extraktion fehlgeschlagen – RuntimeError: Ollama returned 500"
+
+    def test_empty_message_falls_back_to_repr(self):
+        exc = ValueError()
+        out = _format_error("X", exc)
+        # repr(ValueError()) is "ValueError()" — guarantees something non-empty.
+        assert "ValueError" in out
+        assert out.startswith("X – ValueError: ")
+
+    def test_caps_around_2000_chars(self):
+        # The cap is "anything over 2000 → keep 1997 chars + ellipsis", so the
+        # final length is 1998 — well under the Paperless longtext column
+        # limit but stable across runs.
+        exc = RuntimeError("x" * 5000)
+        out = _format_error("Label", exc)
+        assert len(out) == 1998
+        assert out.endswith("…")

@@ -32,7 +32,10 @@ export function DocumentCard({ doc, citationLabel }: Props) {
             )}
             {doc.correspondent && <span>{doc.correspondent}</span>}
             {doc.created && <span>{doc.created}</span>}
-            <ProcessingBadge tags={doc.lifecycle_tags ?? []} />
+            <ProcessingBadge
+              tags={doc.lifecycle_tags ?? []}
+              errorMessage={doc.ai_error_message}
+            />
           </div>
         </div>
         <div className="flex shrink-0 gap-2">

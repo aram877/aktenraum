@@ -123,6 +123,7 @@ def _project_inbox_item(
         ai_issue_date=fields.get("ai_issue_date"),
         ai_confidence=fields.get("ai_confidence"),
         low_confidence=low_conf_id is not None and low_conf_id in (doc.get("tags") or []),
+        ai_error_message=fields.get("ai_error_message"),
     )
 
 
@@ -151,6 +152,7 @@ def _project_inbox_detail(
         ai_confidence=fields.get("ai_confidence"),
         ai_backend=fields.get("ai_backend"),
         ai_model=fields.get("ai_model"),
+        ai_error_message=fields.get("ai_error_message"),
         low_confidence=LOW_CONFIDENCE_TAG in tag_names_clean,
         tags=tag_names_clean,
         content_excerpt=content,

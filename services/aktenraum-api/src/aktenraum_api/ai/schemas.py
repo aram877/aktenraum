@@ -60,6 +60,9 @@ class DocumentSummary(BaseModel):
     # Empty list means the document has no AI lifecycle tag — it might be
     # legacy or freshly uploaded.
     lifecycle_tags: list[str] = Field(default_factory=list)
+    # Populated when the doc is in an error state; lets the SPA tooltip on
+    # the lifecycle badge surface the actual failure reason.
+    ai_error_message: str | None = None
 
 
 class AskRequest(BaseModel):

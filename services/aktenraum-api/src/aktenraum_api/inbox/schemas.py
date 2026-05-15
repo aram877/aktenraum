@@ -18,6 +18,10 @@ class InboxItem(BaseModel):
     ai_issue_date: str | None = None
     ai_confidence: float | None = None
     low_confidence: bool = False
+    # Populated by the auto-tagger / propagator / indexer whenever they tag
+    # ai-error / ai-propagation-error / ai-index-error. Cleared on the next
+    # successful run. Empty for docs that have never errored.
+    ai_error_message: str | None = None
 
 
 class InboxDetail(InboxItem):

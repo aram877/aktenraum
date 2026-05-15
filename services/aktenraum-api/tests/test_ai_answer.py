@@ -42,7 +42,6 @@ def test_answer_prompt_includes_candidate_metadata():
             "created": "2024-02-28",
             "ai_summary_de": "Personalausweis ausgestellt am 28.02.2024.",
             "ai_issue_date": "2024-02-28",
-            "ai_monetary_amount": None,
             "ai_reference_numbers": "L01XYZ",
         }
     ]
@@ -64,7 +63,6 @@ def test_answer_prompt_skips_null_fields():
             "created": None,
             "ai_summary_de": None,
             "ai_issue_date": None,
-            "ai_monetary_amount": "EUR99.00",
             "ai_reference_numbers": None,
         }
     ]
@@ -174,7 +172,6 @@ def _make_gateway(
         side_effect=lambda doc_id: docs_by_id[doc_id]
     )
     gateway._get_custom_field_ids = AsyncMock(return_value=field_ids or {})
-    gateway._monetary_field_id = (field_ids or {}).get("ai_monetary_amount")
     return gateway
 
 
@@ -233,7 +230,6 @@ async def test_answer_question_returns_prose_with_citations(client_factory):
     field_ids = {
         "ai_summary_de": 9,
         "ai_issue_date": 3,
-        "ai_monetary_amount": 6,
     }
     perso_doc = _doc(
         17,

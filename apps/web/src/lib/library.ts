@@ -10,7 +10,6 @@ export type LibraryItem = {
   created: string | null;
   correspondent: string | null;
   document_type: string | null;
-  monetary_amount: string | null;
   lifecycle_tags: string[];
   tags: string[];
 };
@@ -27,8 +26,6 @@ export type LibraryQuery = {
   correspondent?: string | null;
   date_from?: string | null;
   date_to?: string | null;
-  min_amount?: number | null;
-  max_amount?: number | null;
   text?: string | null;
   tags?: string[] | null;
   page?: number | null;

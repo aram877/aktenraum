@@ -22,12 +22,6 @@ def explain_filter(f: SearchFilter) -> str:
         parts.append(f"ab {f.date_from.isoformat()}")
     elif f.date_to is not None:
         parts.append(f"bis {f.date_to.isoformat()}")
-    if f.min_amount is not None and f.max_amount is not None:
-        parts.append(f"Betrag zwischen {_fmt(f.min_amount)}€ und {_fmt(f.max_amount)}€")
-    elif f.min_amount is not None:
-        parts.append(f"Betrag mindestens {_fmt(f.min_amount)}€")
-    elif f.max_amount is not None:
-        parts.append(f"Betrag höchstens {_fmt(f.max_amount)}€")
     if f.text:
         parts.append(f"Stichwort '{f.text}'")
     if f.tags:
@@ -37,7 +31,3 @@ def explain_filter(f: SearchFilter) -> str:
     if not parts:
         return "Ich habe verstanden: keine Einschränkungen."
     return "Ich habe verstanden: " + ", ".join(parts) + "."
-
-
-def _fmt(amount: float) -> str:
-    return f"{amount:.2f}".replace(".", ",").rstrip("0").rstrip(",")

@@ -321,10 +321,9 @@ async def _reorder_or_fetch(
 
 
 def _doc_to_summary(doc: dict) -> DocumentSummary:
-    """Project a raw Paperless doc dict into the SPA-facing summary
-    shape — same projection `_execute_filter` does, minus the
-    custom-fields read (we don't need ai_monetary_amount in the
-    citation card; the reranker already used the body)."""
+    """Project a raw Paperless doc dict into the SPA-facing summary shape —
+    same projection `_execute_filter` does, minus the custom-fields read
+    (the reranker already used the body)."""
     from datetime import date as _date
 
     created_raw = doc.get("created_date") or doc.get("created")
@@ -341,7 +340,6 @@ def _doc_to_summary(doc: dict) -> DocumentSummary:
         correspondent=None,
         document_type=None,
         created=created,
-        monetary_amount=None,
         lifecycle_tags=[],
     )
 
@@ -543,9 +541,9 @@ def _broaden_for_answer(f: SearchFilter) -> SearchFilter:
     """Strip free-text from a filter when any structural field is already set.
 
     Q&A retrieval prefers recall: as long as document_type / correspondent /
-    tags / a date bound / an amount bound exists, that's enough scope, and
-    dropping the noisier `text` field avoids killing matches over conjugated
-    verbs the OCR will never contain ("verlängern", "kostete", "ablaufen").
+    tags / a date bound exists, that's enough scope, and dropping the noisier
+    `text` field avoids killing matches over conjugated verbs the OCR will
+    never contain ("verlängern", "kostete", "ablaufen").
     """
     has_structural = any(
         v is not None
@@ -554,8 +552,6 @@ def _broaden_for_answer(f: SearchFilter) -> SearchFilter:
             f.correspondent,
             f.date_from,
             f.date_to,
-            f.min_amount,
-            f.max_amount,
         )
     ) or bool(f.tags)
     if has_structural and f.text:
@@ -637,21 +633,14 @@ async def _execute_filter(
         "document_types": {v: k for k, v in document_types.items()},
     }
     tag_name_by_id = {v: k for k, v in tags.items()}
-    monetary_field_id = await _resolve_monetary_field_id(gateway)
     summaries = apply_post_filter(
         raw_results,
         f,
         name_by_id=name_by_id,
-        monetary_field_id=monetary_field_id,
         tag_name_by_id=tag_name_by_id,
         lifecycle_tag_names=_LIFECYCLE_BADGE_NAMES,
     )
-
-    if f.min_amount is not None or f.max_amount is not None:
-        total = len(summaries)
-    else:
-        total = total_native
-    return summaries, total
+    return summaries, total_native
 
 
 async def _enrich_with_ai_fields(
@@ -660,8 +649,9 @@ async def _enrich_with_ai_fields(
     """For each result, fetch the AI custom fields the answer LLM needs.
 
     We pull the full doc to read `ai_summary_de`, `ai_issue_date`,
-    `ai_monetary_amount`, `ai_reference_numbers` — the metadata that lets the
-    LLM answer most personal-DMS questions without seeing the PDF body.
+    `ai_reference_numbers` — the metadata that lets the LLM answer most
+    personal-DMS questions without seeing the PDF body. Monetary values
+    live on type-specific fields and are surfaced via the RAG chunk path.
     """
     field_id_to_name = await _custom_field_id_to_name(gateway)
     enriched: list[dict] = []
@@ -685,7 +675,6 @@ async def _enrich_with_ai_fields(
                 "created": r.created.isoformat() if r.created else None,
                 "ai_summary_de": ai.get("ai_summary_de"),
                 "ai_issue_date": ai.get("ai_issue_date"),
-                "ai_monetary_amount": ai.get("ai_monetary_amount") or r.monetary_amount,
                 "ai_reference_numbers": ai.get("ai_reference_numbers"),
             }
         )
@@ -709,28 +698,6 @@ def _resolve_citations(
 async def _custom_field_id_to_name(gateway: PaperlessGateway) -> dict[int, str]:
     name_to_id = await gateway._get_custom_field_ids()  # noqa: SLF001
     return {fid: name for name, fid in name_to_id.items()}
-
-
-_MONETARY_FIELD_NAME = "ai_monetary_amount"
-
-
-async def _resolve_monetary_field_id(gateway: PaperlessGateway) -> int | None:
-    cache = getattr(gateway, "_monetary_field_id", "unset")
-    if cache != "unset":
-        return cache
-    try:
-        resp = await gateway._client.get(  # noqa: SLF001 — internal cache hop
-            "/api/custom_fields/", params={"page_size": 100}
-        )
-        resp.raise_for_status()
-        for f in resp.json().get("results", []):
-            if f.get("name") == _MONETARY_FIELD_NAME:
-                gateway._monetary_field_id = f["id"]  # type: ignore[attr-defined]
-                return f["id"]
-    except Exception:
-        log.warning("ai_monetary_field_lookup_failed", exc_info=True)
-    gateway._monetary_field_id = None  # type: ignore[attr-defined]
-    return None
 
 
 def _bad_gateway() -> HTTPException:

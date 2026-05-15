@@ -16,7 +16,6 @@ class InboxItem(BaseModel):
     ai_document_type: str | None = None
     ai_title: str | None = None
     ai_issue_date: str | None = None
-    ai_monetary_amount: str | None = None
     ai_confidence: float | None = None
     low_confidence: bool = False
 
@@ -46,7 +45,6 @@ class InboxFieldUpdate(BaseModel):
     ai_correspondent: str | None = None
     ai_title: str | None = None
     ai_issue_date: str | None = None
-    ai_monetary_amount: str | None = None
     ai_reference_numbers: str | None = None
     ai_suggested_tags: str | None = None
     ai_summary_de: str | None = None

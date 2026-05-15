@@ -32,7 +32,6 @@ export function DocumentCard({ doc, citationLabel }: Props) {
             )}
             {doc.correspondent && <span>{doc.correspondent}</span>}
             {doc.created && <span>{doc.created}</span>}
-            {doc.monetary_amount && <span>{doc.monetary_amount}</span>}
             <ProcessingBadge tags={doc.lifecycle_tags ?? []} />
           </div>
         </div>

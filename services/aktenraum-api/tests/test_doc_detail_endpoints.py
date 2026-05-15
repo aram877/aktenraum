@@ -17,7 +17,6 @@ FIELD_IDS = {
     "ai_correspondent": 2,
     "ai_title": 3,
     "ai_issue_date": 4,
-    "ai_monetary_amount": 6,
     "ai_reference_numbers": 7,
     "ai_suggested_tags": 8,
     "ai_summary_de": 9,

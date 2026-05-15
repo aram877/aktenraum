@@ -67,7 +67,6 @@ class TestDocumentExtractionValidation:
 
     def test_optional_fields_default_correctly(self):
         ex = DocumentExtraction(**self._base())
-        assert ex.monetary_amount is None
         assert ex.ai_title is None
         assert ex.reference_numbers == []
         assert ex.suggested_tags == []

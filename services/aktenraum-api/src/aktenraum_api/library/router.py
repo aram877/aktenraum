@@ -27,12 +27,12 @@ _ALLOWED_ORDERING = {
 
 @router.get("/", response_model=LibraryList)
 async def list_library(
-    document_type: str | None = Query(None, description="Exact name from the 20-type taxonomy"),
+    document_type: str | None = Query(
+        None, description="Exact name from the document-type taxonomy"
+    ),
     correspondent: str | None = Query(None, description="Exact correspondent name"),
     date_from: date | None = Query(None, description="created_date >= this"),
     date_to: date | None = Query(None, description="created_date <= this"),
-    min_amount: float | None = Query(None, ge=0),
-    max_amount: float | None = Query(None, ge=0),
     text: str | None = Query(None, description="Free-text Paperless full-text search"),
     tags: list[str] | None = Query(
         None,
@@ -59,8 +59,6 @@ async def list_library(
             correspondent=correspondent,
             date_from=date_from,
             date_to=date_to,
-            min_amount=min_amount,
-            max_amount=max_amount,
             text=text,
             tags=tags,
             page=page,

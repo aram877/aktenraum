@@ -421,17 +421,17 @@ For a full-stack dev cycle, keep the compose stack up (`docker compose up -d`) s
 ### AI: Find docs (`/api/ai/find`)
 
 - `POST /api/ai/find` is the structured-search endpoint. Auth-gated. Accepts either `{"query": str}` (LLM path) or `{"filter": SearchFilter}` (no LLM, used for chip-edit re-runs). Returns `{filter, results, explanation, total}`.
-- `SearchFilter` is closed-enum: `document_type` reuses `aktenraum_core.models.DocumentType`, plus `correspondent`, `date_from`, `date_to`, `min_amount`, `max_amount`, `text`. Unknown doc types → 422.
+- `SearchFilter` is closed-enum: `document_type` reuses `aktenraum_core.models.DocumentType`, plus `correspondent`, `date_from`, `date_to`, `text`, `tags`. Unknown doc types → 422. Cross-type amount filtering was removed when the generic `monetary_amount` field was retired — money lives on type-specific schemas only (Rechnung.gesamtbetrag, Mahnung.forderungsbetrag, etc.).
 - Server-side `PaperlessGateway` (`aktenraum_api.paperless_gw`) holds the API token; per-process correspondent / tag / custom-field-id caches; the token never reaches the SPA.
-- Translator (`aktenraum_api.ai.translate`) → Paperless query params using `document_type__id` / `correspondent__id` (the bare names are silently ignored — same gotcha class as `?name=` on `/api/tags/`). Amount bounds are post-filter against `ai_monetary_amount`.
-- Prompt (`aktenraum_api.ai.prompt`) inlines all 20 doc types, the live correspondent list (cap 200), date/amount rules, and four German few-shot exemplars.
+- Translator (`aktenraum_api.ai.translate`) → Paperless query params using `document_type__id` / `correspondent__id` (the bare names are silently ignored — same gotcha class as `?name=` on `/api/tags/`).
+- Prompt (`aktenraum_api.ai.prompt`) inlines the doc-type taxonomy, the live correspondent list (cap 200), date rules, and a few German few-shot exemplars. An explicit note tells the LLM there are no amount fields on the filter.
 
 ### AI: Conversational answer (`/api/ai/answer`)
 
 - `POST /api/ai/answer` runs a two-step pipeline: filter extraction → retrieval → second LLM call that reads the AI metadata of the top matches and produces a German prose answer with citations.
 - Response shape: `{question, answer_de, citations: list[DocumentSummary], filter, total}`. Hallucinated citation ids are dropped server-side (intersection with the searched docs).
 - Retrieval broadens the filter for the answer step: when any structural field (doc_type, correspondent, dates, amounts) is set, we drop the `text` constraint — verbs like "verlängern" / "kostete" land in `text` from the filter LLM but rarely appear in OCR'd content, so keeping them kills recall. `/find` keeps `text` honored.
-- The answer prompt (`aktenraum_api.ai.answer_prompt`) ships three German few-shot exemplars showing question→field mappings ("Wann läuft … ab?" → Ablauf field, "Was hat … gekostet?" → Betrag, "Bis wann muss ich zahlen?" → Fällig).
+- The answer prompt (`aktenraum_api.ai.answer_prompt`) ships German few-shot exemplars showing question→field mappings (e.g. "Wann wurde … ausgestellt?" → Ausstellung field). Monetary questions are routed to type-specific fields (Rechnung.gesamtbetrag etc.) and the RAG chunk path — there is no generic Betrag field anymore.
 - Two LLM backends: the filter-extraction call uses `OLLAMA_MODEL` / `ANTHROPIC_MODEL`; the answer call optionally uses `OLLAMA_ANSWER_MODEL` / `ANTHROPIC_ANSWER_MODEL` so a deployer can pair a fast 8B for filters with a smarter 14B+ for answers (the 8B is too small to read citations reliably).
 
 ### AI: Streaming answer + RAG (`/api/ai/answer/stream`)
@@ -494,9 +494,9 @@ The committed YAML is keyed to the dev maintainer's local Paperless ids; buyers 
 ### Library (`/api/library/`)
 
 - `GET /api/library/` — paginated list of non-pending documents. Server-side excludes `ai-pending` via `tags__id__none=<ai-pending-id>` so anything still under review never reaches the library.
-- Query params: `document_type`, `correspondent`, `date_from`, `date_to`, `min_amount`, `max_amount`, `text`, `page` (≥1), `page_size` (1..100), `ordering` (allowlist: `-created`, `created`, `-modified`, `modified`, `title`, `-title`).
+- Query params: `document_type`, `correspondent`, `date_from`, `date_to`, `text`, `tags`, `page` (≥1), `page_size` (1..100), `ordering` (allowlist: `-created`, `created`, `-modified`, `modified`, `title`, `-title`). Cross-type amount filtering was retired with the generic `monetary_amount` field.
 - Returns `LibraryItem` rows with `lifecycle_tags` so the SPA can render a small badge per tag (propagated / approved / rejected / error). Falls back to AI custom-field correspondent / doc_type when the native FK is unset.
-- Amount is post-filter against `ai_monetary_amount` (Paperless can't filter monetary custom fields server-side); when a bound is set, `total` reflects the post-filter survivor count.
+- Money is no longer exposed at this layer — type-specific schemas carry it (Rechnung.gesamtbetrag, Mahnung.forderungsbetrag, Versicherung.jahrespraemie, etc.). The Library detail page surfaces them via `TypeSpecificFieldsSection`.
 - SPA route `/library` keeps filter state in URL search params (bookmarkable; back-button works); auto-applies form changes after a 400ms debounce; click row → `/library/$id`.
 - `/library/$id` is the per-document review: PDF iframe on the left, editable form for the 12 AI fields on the right (Save / Reset / Erneut verarbeiten / Download / Back). Backed by `GET /api/documents/{id}/detail` and `PATCH /api/documents/{id}/fields` — both reuse `aktenraum_api.inbox.service` so they work on any doc, not just pending. Edits update only the AI fields; the propagator only runs on `ai-approved`, so to also rewrite the native Paperless fields the user clicks **Erneut verarbeiten** (which restarts the full pipeline). The page closes the same `DocumentPreviewModal` Find / Ask citation cards still use for quick looks.
 

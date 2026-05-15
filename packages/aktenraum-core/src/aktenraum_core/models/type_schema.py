@@ -3,6 +3,7 @@ from .extraction import DocumentType, FieldDef
 TYPE_FIELD_SCHEMA: dict[DocumentType, list[FieldDef]] = {
     DocumentType.Rechnung: [
         FieldDef("rechnungsnummer", "Rechnungsnummer", "string"),
+        FieldDef("gesamtbetrag", "Gesamtbetrag (brutto)", "money"),
         FieldDef("nettobetrag", "Nettobetrag", "money"),
         FieldDef("mwst_satz", "MwSt-Satz", "string"),
         FieldDef("mwst_betrag", "MwSt-Betrag", "money"),
@@ -34,7 +35,9 @@ TYPE_FIELD_SCHEMA: dict[DocumentType, list[FieldDef]] = {
     DocumentType.Mahnung: [
         FieldDef("mahnstufe", "Mahnstufe", "string"),
         FieldDef("ursprungsrechnung", "Ursprüngliche Rechnungsnr.", "string"),
+        FieldDef("forderungsbetrag", "Forderungsbetrag (Hauptforderung)", "money"),
         FieldDef("mahngebuehr", "Mahngebühr", "money"),
+        FieldDef("gesamtforderung", "Gesamtforderung (inkl. Gebühren)", "money"),
         FieldDef("zahlungsfrist", "Zahlungsfrist", "date"),
     ],
     DocumentType.Vertrag: [

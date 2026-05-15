@@ -95,22 +95,6 @@ function chipsFromFilter(f: SearchFilter): Chip[] {
   if (f.date_to) {
     out.push({ kind: "scalar", key: "date_to", label: "Bis", value: f.date_to });
   }
-  if (f.min_amount != null) {
-    out.push({
-      kind: "scalar",
-      key: "min_amount",
-      label: "Min",
-      value: `${f.min_amount}€`,
-    });
-  }
-  if (f.max_amount != null) {
-    out.push({
-      kind: "scalar",
-      key: "max_amount",
-      label: "Max",
-      value: `${f.max_amount}€`,
-    });
-  }
   if (f.text) {
     out.push({ kind: "scalar", key: "text", label: "Stichwort", value: f.text });
   }

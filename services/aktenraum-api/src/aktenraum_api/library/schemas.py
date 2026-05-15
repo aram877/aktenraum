@@ -24,7 +24,6 @@ class LibraryItem(BaseModel):
     created: date | None = None
     correspondent: str | None = None
     document_type: str | None = None
-    monetary_amount: str | None = None
     lifecycle_tags: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
 

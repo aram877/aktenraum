@@ -16,8 +16,6 @@ type Search = {
   correspondent?: string;
   date_from?: string;
   date_to?: string;
-  min_amount?: number;
-  max_amount?: number;
   text?: string;
   tags?: string[];
   page?: number;
@@ -28,8 +26,6 @@ type LocalForm = {
   correspondent: string;
   date_from: string;
   date_to: string;
-  min_amount: string;
-  max_amount: string;
   text: string;
 };
 
@@ -39,8 +35,6 @@ function searchToForm(s: Search): LocalForm {
     correspondent: s.correspondent ?? "",
     date_from: s.date_from ?? "",
     date_to: s.date_to ?? "",
-    min_amount: s.min_amount != null ? String(s.min_amount) : "",
-    max_amount: s.max_amount != null ? String(s.max_amount) : "",
     text: s.text ?? "",
   };
 }
@@ -55,10 +49,6 @@ function formToSearch(
   if (f.correspondent) out.correspondent = f.correspondent;
   if (f.date_from) out.date_from = f.date_from;
   if (f.date_to) out.date_to = f.date_to;
-  const min = parseFloat(f.min_amount);
-  const max = parseFloat(f.max_amount);
-  if (!Number.isNaN(min)) out.min_amount = min;
-  if (!Number.isNaN(max)) out.max_amount = max;
   if (f.text) out.text = f.text;
   if (tags && tags.length > 0) out.tags = tags;
   if (page > 1) out.page = page;
@@ -225,32 +215,6 @@ export function Library({ search }: { search: Search }) {
                 />
               </Field>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <Field label="Min €">
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={form.min_amount}
-                  onChange={(e) =>
-                    setForm({ ...form, min_amount: e.target.value })
-                  }
-                  className={inputCls}
-                />
-              </Field>
-              <Field label="Max €">
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={form.max_amount}
-                  onChange={(e) =>
-                    setForm({ ...form, max_amount: e.target.value })
-                  }
-                  className={inputCls}
-                />
-              </Field>
-            </div>
             <Field label="Stichwort">
               <input
                 type="text"
@@ -327,7 +291,6 @@ export function Library({ search }: { search: Search }) {
                   <th className="px-2 py-2">Typ</th>
                   <th className="px-2 py-2">Korrespondent</th>
                   <th className="px-2 py-2">Datum</th>
-                  <th className="px-2 py-2 text-right">Betrag</th>
                   <th className="px-2 py-2">Status</th>
                 </tr>
               </thead>
@@ -492,9 +455,6 @@ function Row({
         {row.correspondent ?? "—"}
       </td>
       <td className="px-2 py-2 text-neutral-700">{row.created ?? "—"}</td>
-      <td className="px-2 py-2 text-right text-neutral-700">
-        {row.monetary_amount ?? "—"}
-      </td>
       <td className="px-2 py-2">
         <ProcessingBadge tags={row.lifecycle_tags} />
       </td>
@@ -561,7 +521,6 @@ function ZurPruefungTab() {
               <th className="px-2 py-2">Typ</th>
               <th className="px-2 py-2">Korrespondent</th>
               <th className="px-2 py-2">Datum</th>
-              <th className="px-2 py-2">Betrag</th>
               <th className="px-2 py-2 text-right">Konfidenz</th>
             </tr>
           </thead>
@@ -588,7 +547,6 @@ function ReviewRow({ row, onClick }: { row: InboxItem; onClick: () => void }) {
       <td className="px-2 py-2 text-neutral-700">{row.ai_document_type ?? "—"}</td>
       <td className="px-2 py-2 text-neutral-700">{row.ai_correspondent ?? "—"}</td>
       <td className="px-2 py-2 text-neutral-700">{row.ai_issue_date ?? row.created ?? "—"}</td>
-      <td className="px-2 py-2 text-neutral-700">{row.ai_monetary_amount ?? "—"}</td>
       <td className="px-2 py-2 text-right text-neutral-700">
         {row.ai_confidence != null ? `${Math.round(row.ai_confidence * 100)}%` : "—"}
       </td>

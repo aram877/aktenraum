@@ -50,11 +50,6 @@ def test_normalise_field_values_handles_german_date():
     assert out == {"ai_issue_date": "2024-12-01"}
 
 
-def test_normalise_field_values_handles_german_monetary():
-    out = _normalise_field_values({"ai_monetary_amount": "1.234,56 EUR"})
-    assert out == {"ai_monetary_amount": "EUR1234.56"}
-
-
 def test_normalise_field_values_truncates_long_strings():
     long = "x" * 200
     out = _normalise_field_values({"ai_correspondent": long})

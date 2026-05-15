@@ -39,11 +39,11 @@ def test_prompt_includes_date_rules():
     assert "letzten Monat" in text
 
 
-def test_prompt_includes_amount_rules():
+def test_prompt_notes_amount_filter_unavailable():
+    # The generic monetary_amount field was retired; the prompt now warns
+    # the LLM that no betragsbezogene Felder exist on the filter.
     text = _system_text(build_messages("test", correspondents=[]))
-    assert "Betragsregeln" in text
-    assert "über 3000" in text
-    assert "unter 100" in text
+    assert "KEINE betragsbezogenen Felder" in text
 
 
 def test_prompt_has_at_least_four_examples():

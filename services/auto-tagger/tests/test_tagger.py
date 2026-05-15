@@ -143,14 +143,6 @@ class TestExamplePayload:
         assert parsed["key_dates"]["issue"] == "2022-09-07"
         assert parsed["suggested_tags"] == ["tag-a", "tag-b"]
 
-    def test_omits_monetary_amount(self):
-        # Paperless stores monetary as ISO+amount which conflicts with the
-        # German format the prompt asks the model to produce.
-        parsed = self._payload(
-            {"ai_document_type": "Rechnung", "ai_monetary_amount": "EUR149.99"}
-        )
-        assert "monetary_amount" not in parsed
-
     def test_handles_minimal_fields(self):
         parsed = self._payload({"ai_document_type": "Sonstiges"})
         assert parsed["document_type"] == "Sonstiges"

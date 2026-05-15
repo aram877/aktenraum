@@ -42,6 +42,22 @@ def _format_issue_date_de(raw: str | None) -> str | None:
     return f"{_GERMAN_MONTHS[parsed.month]} {parsed.year}"
 
 
+def _format_error(label: str, exc: BaseException) -> str:
+    """Build a compact, user-facing error string for the ai_error_message field.
+
+    Format: "{Label} – {ExceptionClass}: {message}". Capped at 2000 chars so a
+    runaway traceback can't blow the Paperless DB column, but well above the
+    128-char string-field limit (the field is `longtext`). Keep the prefix
+    German to match the rest of the SPA — the user reads this directly.
+    """
+    cls = type(exc).__name__
+    msg = str(exc).strip() or repr(exc)
+    out = f"{label} – {cls}: {msg}"
+    if len(out) > 2000:
+        out = out[:1997] + "…"
+    return out
+
+
 def _synthesize_ai_title(extraction: DocumentExtraction) -> str:
     """Build a sensible Paperless-displayable title from the structured fields.
 
@@ -390,6 +406,9 @@ async def process_document(
         # backends (Anthropic, Ollama, future) raise different exception types
         # we cannot enumerate from this layer.
         logger.exception("extraction_failed", error=str(exc))
+        await paperless.set_error_message(
+            doc_id, _format_error("LLM-Extraktion fehlgeschlagen", exc)
+        )
         await paperless.add_tag_to_document(doc_id, "ai-error")
         return
 
@@ -418,6 +437,9 @@ async def process_document(
         # re-processed forever on every poll cycle.
         logger.exception("paperless_write_failed", error=str(exc))
         try:
+            await paperless.set_error_message(
+                doc_id, _format_error("Paperless-Schreibvorgang fehlgeschlagen", exc)
+            )
             await paperless.add_tag_to_document(doc_id, "ai-error")
         except Exception as tag_exc:
             logger.error("paperless_tag_failed", error=str(tag_exc))

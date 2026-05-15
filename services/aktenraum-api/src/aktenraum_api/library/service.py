@@ -198,6 +198,7 @@ def _project(
         or custom_fields.get("ai_document_type"),
         lifecycle_tags=lifecycle,
         tags=user_tags,
+        ai_error_message=custom_fields.get("ai_error_message"),
     )
 
 

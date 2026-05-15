@@ -18,6 +18,7 @@ export type InboxItem = {
   ai_issue_date: string | null;
   ai_confidence: number | null;
   low_confidence: boolean;
+  ai_error_message: string | null;
 };
 
 export type InboxDetail = InboxItem & {

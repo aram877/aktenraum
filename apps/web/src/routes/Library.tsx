@@ -456,7 +456,7 @@ function Row({
       </td>
       <td className="px-2 py-2 text-neutral-700">{row.created ?? "—"}</td>
       <td className="px-2 py-2">
-        <ProcessingBadge tags={row.lifecycle_tags} />
+        <ProcessingBadge tags={row.lifecycle_tags} errorMessage={row.ai_error_message} />
       </td>
     </tr>
   );

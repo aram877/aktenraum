@@ -27,13 +27,15 @@ const VARIANT_STYLE: Record<Variant, string> = {
   danger: "bg-red-100 text-red-700",
 };
 
-function classify(tags: string[]): State {
+function classify(tags: string[], errorMessage?: string | null): State {
   const set = new Set(tags);
   if (set.has("ai-error") || set.has("ai-propagation-error")) {
+    const reason = (errorMessage ?? "").trim();
     return {
       label: "Fehler",
-      title:
-        "Verarbeitung fehlgeschlagen — über das Vorschau-Fenster erneut verarbeiten.",
+      title: reason
+        ? `Verarbeitung fehlgeschlagen: ${reason}`
+        : "Verarbeitung fehlgeschlagen — über das Vorschau-Fenster erneut verarbeiten.",
       variant: "danger",
     };
   }
@@ -107,12 +109,14 @@ function classify(tags: string[]): State {
 
 export function ProcessingBadge({
   tags,
+  errorMessage,
   className = "",
 }: {
   tags: string[];
+  errorMessage?: string | null;
   className?: string;
 }) {
-  const state = classify(tags);
+  const state = classify(tags, errorMessage);
   return (
     <span
       title={state.title}

@@ -55,6 +55,7 @@ def apply_post_filter(
     name_by_id: dict[str, dict[int, str]],
     tag_name_by_id: dict[int, str] | None = None,
     lifecycle_tag_names: frozenset[str] | None = None,
+    error_field_id: int | None = None,
 ) -> list[DocumentSummary]:
     """Project Paperless docs into DocumentSummary, surfacing lifecycle tags.
 
@@ -63,8 +64,10 @@ def apply_post_filter(
     receives display strings. `tag_name_by_id` plus the `lifecycle_tag_names`
     allowlist let the projection populate `DocumentSummary.lifecycle_tags`
     so the SPA can render "Wartet auf KI" / "Wird übertragen" / … badges.
-    If either is omitted, lifecycle_tags stays empty (older callers continue
-    to work).
+    `error_field_id` is the resolved id of the `ai_error_message` custom
+    field — when supplied, the projection surfaces the field's value so the
+    SPA can tooltip the real failure reason on the lifecycle badge. Any
+    omitted parameter stays opt-out (older callers continue to work).
     """
     # f is unused now (post-filter no longer narrows results) but kept in
     # the signature to avoid churn at every caller.
@@ -81,6 +84,14 @@ def apply_post_filter(
                 if name and name in lifecycle_tag_names:
                     lifecycle.append(name)
 
+        error_message: str | None = None
+        if error_field_id is not None:
+            for cf in doc.get("custom_fields") or []:
+                if cf.get("field") == error_field_id:
+                    raw = cf.get("value")
+                    error_message = raw if isinstance(raw, str) and raw else None
+                    break
+
         out.append(
             DocumentSummary(
                 id=doc["id"],
@@ -90,6 +101,7 @@ def apply_post_filter(
                 document_type=document_types.get(doc.get("document_type")),
                 created=_parse_date_field(doc.get("created_date") or doc.get("created")),
                 lifecycle_tags=lifecycle,
+                ai_error_message=error_message,
             )
         )
     return out

@@ -135,12 +135,32 @@ async def index_document(doc_id: int, deps: IndexingDeps) -> None:
             content_chars=len(content),
         )
         await _clear_index_error_tag_if_present(deps.paperless, doc)
+        # Clear any prior failure banner. Indexing only touches Qdrant; the
+        # custom field has to be cleared explicitly.
+        await deps.paperless.set_error_message(doc_id, None)
     except Exception as exc:
         logger.exception("indexer_failed", error=str(exc))
         try:
+            await deps.paperless.set_error_message(
+                doc_id, _format_indexer_error(exc)
+            )
             await _tag_index_error(deps.paperless, doc)
         except Exception as inner:
             logger.error("indexer_tag_failed", error=str(inner))
+
+
+def _format_indexer_error(exc: BaseException) -> str:
+    """Compact, user-facing error string for the ai_error_message field.
+
+    Mirrors the helpers in tagger.py / propagator.py — kept independent so
+    the modules don't cross-import. German prefix; 2 KB cap.
+    """
+    cls = type(exc).__name__
+    msg = str(exc).strip() or repr(exc)
+    out = f"RAG-Indizierung fehlgeschlagen – {cls}: {msg}"
+    if len(out) > 2000:
+        out = out[:1997] + "…"
+    return out
 
 
 async def _read_content(paperless: PaperlessClient, doc: dict) -> str:

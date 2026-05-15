@@ -218,6 +218,54 @@ class PaperlessClient:
             if cf.get("field") in name_by_id
         }
 
+    async def set_error_message(self, doc_id: int, message: str | None) -> None:
+        """Write or clear `ai_error_message` on a document.
+
+        Merge-by-id: reads the doc's existing `custom_fields`, drops any prior
+        entry for `ai_error_message`, optionally appends the new value, and
+        PATCHes the full array back. Paperless's custom_fields PATCH is
+        full-array replace (not partial), so a naive single-field PATCH would
+        wipe every other ai_* field.
+
+        Best-effort: any failure here is logged but never raised. The caller
+        is almost always already handling a primary failure (extraction /
+        propagation / indexing); a secondary write failure must not mask it.
+        Likewise if the `ai_error_message` custom field hasn't been
+        bootstrapped yet (older install), we log + skip.
+        """
+        try:
+            field_map = await self._get_custom_field_ids()
+            field_id = field_map.get("ai_error_message")
+            if field_id is None:
+                log.warning(
+                    "ai_error_message_field_missing",
+                    doc_id=doc_id,
+                    hint="run scripts/bootstrap-paperless.sh to create the field",
+                )
+                return
+
+            doc = await self.get_document(doc_id)
+            existing = list(doc.get("custom_fields") or [])
+            merged = [cf for cf in existing if cf.get("field") != field_id]
+            if message is not None and message.strip():
+                merged.append({"field": field_id, "value": message})
+
+            resp = await self._client.patch(
+                f"/api/documents/{doc_id}/",
+                json={"custom_fields": merged},
+            )
+            if resp.status_code >= 400:
+                log.error(
+                    "ai_error_message_write_failed",
+                    doc_id=doc_id,
+                    status=resp.status_code,
+                    body=resp.text,
+                )
+        except Exception as exc:  # noqa: BLE001 — best-effort writer
+            log.warning(
+                "ai_error_message_write_exception", doc_id=doc_id, error=str(exc)
+            )
+
     async def patch_document_native_fields(
         self,
         doc_id: int,

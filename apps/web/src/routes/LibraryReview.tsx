@@ -267,12 +267,19 @@ export function LibraryReview({ id }: { id: number }) {
                         {Math.round(detail.data.ai_confidence * 100)}% Konfidenz
                       </span>
                     )}
-                    <ProcessingBadge tags={detail.data.tags} />
+                    <ProcessingBadge
+                      tags={detail.data.tags}
+                      errorMessage={detail.data.ai_error_message}
+                    />
                   </div>
                 </div>
               </header>
 
               <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3 text-sm">
+                <ErrorBanner
+                  tags={detail.data.tags}
+                  message={detail.data.ai_error_message}
+                />
                 <Field
                   label="Titel (KI-Vorschlag)"
                   value={form.ai_title}
@@ -487,5 +494,35 @@ function Field({
         />
       )}
     </label>
+  );
+}
+
+function ErrorBanner({
+  tags,
+  message,
+}: {
+  tags: string[];
+  message: string | null;
+}) {
+  const errorTags = tags.filter((t) =>
+    t === "ai-error" || t === "ai-propagation-error" || t === "ai-index-error",
+  );
+  if (errorTags.length === 0) return null;
+  const label =
+    errorTags[0] === "ai-propagation-error"
+      ? "Übertragung fehlgeschlagen"
+      : errorTags[0] === "ai-index-error"
+        ? "RAG-Indizierung fehlgeschlagen"
+        : "KI-Analyse fehlgeschlagen";
+  return (
+    <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs">
+      <div className="font-semibold text-red-900">{label}</div>
+      <pre className="mt-1 whitespace-pre-wrap font-mono text-[11px] leading-snug text-red-800">
+        {(message ?? "").trim() || "Kein Fehlertext gespeichert. Logs des auto-tagger oder propagator prüfen."}
+      </pre>
+      <div className="mt-1 text-[11px] text-red-700">
+        Tag: <code>{errorTags.join(", ")}</code> · „Erneut verarbeiten" löscht die Lifecycle-Tags und stößt die KI neu an.
+      </div>
+    </div>
   );
 }

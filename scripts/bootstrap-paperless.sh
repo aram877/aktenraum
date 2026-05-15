@@ -93,6 +93,10 @@ ensure_custom_field "ai_summary_de"       "longtext"
 ensure_custom_field "ai_confidence"       "float"
 ensure_custom_field "ai_backend"          "string"
 ensure_custom_field "ai_model"            "string"
+# Surfaces the WHY behind ai-error / ai-propagation-error / ai-index-error
+# so the SPA can show a real message instead of a bare "Fehler" pill.
+# Long text so we never lose the tail of a stack trace.
+ensure_custom_field "ai_error_message"    "longtext"
 
 # --------------------------------------------------------------------------
 # Tags

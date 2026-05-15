@@ -172,7 +172,7 @@ export function InboxReview({ id }: { id: number }) {
       <main className="flex-1 px-6 py-4">
         <div className="mb-3 flex items-center justify-between">
           <Link to="/inbox" className="text-sm text-neutral-600 hover:text-neutral-900">
-            ← Zurück zur Inbox
+            ← Zur Prüfung
           </Link>
           <span className="text-xs text-neutral-500">
             Tasten: <kbd className="rounded bg-neutral-200 px-1">A</kbd> Genehmigen ·{" "}

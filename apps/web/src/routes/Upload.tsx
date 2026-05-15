@@ -33,7 +33,7 @@ const PHASE_COPY: Record<Phase, { label: string; tone: string }> = {
   uploading: { label: "Wird hochgeladen", tone: "text-neutral-700" },
   consuming: { label: "Paperless verarbeitet…", tone: "text-blue-700" },
   ai: { label: "KI klassifiziert…", tone: "text-amber-700" },
-  inbox: { label: "✓ in der Inbox", tone: "text-emerald-700" },
+  inbox: { label: "✓ Zur Prüfung", tone: "text-emerald-700" },
   library: { label: "✓ in der Bibliothek", tone: "text-emerald-700" },
   error: { label: "✗ Fehler", tone: "text-red-700" },
 };
@@ -273,10 +273,10 @@ export function Upload() {
             {allTerminal && inboxCount > 0 && (
               <button
                 type="button"
-                onClick={() => navigate({ to: "/inbox" })}
+                onClick={() => navigate({ to: "/library", search: { tab: "review" } })}
                 className="rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm font-medium text-neutral-900 hover:bg-neutral-100"
               >
-                Zur Inbox →
+                Zur Prüfung →
               </button>
             )}
             {allTerminal && inboxCount === 0 && (
@@ -311,7 +311,6 @@ function FileRow({ state }: { state: FileState }) {
   const showProgress = state.phase === "uploading";
   const showDocLink =
     (state.phase === "inbox" || state.phase === "library") && state.docId !== null;
-  const target = state.phase === "inbox" ? "/inbox" : "/library";
 
   return (
     <li className="flex items-center gap-3 px-4 py-3 text-sm">
@@ -320,9 +319,10 @@ function FileRow({ state }: { state: FileState }) {
           <span className="truncate font-medium text-neutral-900">
             {state.file.name}
           </span>
-          {showDocLink && (
+          {showDocLink && state.docId !== null && (
             <Link
-              to={target}
+              to="/library/$id"
+              params={{ id: String(state.docId) }}
               className="text-xs text-neutral-500 underline hover:text-neutral-900"
             >
               #{state.docId}

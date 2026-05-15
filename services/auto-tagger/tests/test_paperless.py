@@ -94,7 +94,11 @@ class TestTruncateForField:
         # The set is intentionally tiny — adding a longtext field requires a
         # paired bootstrap-script change, so we want the test to flinch when
         # someone widens the set without thinking.
-        assert LONGTEXT_FIELDS == {"ai_summary_de", "ai_error_message"}
+        assert LONGTEXT_FIELDS == {
+            "ai_summary_de",
+            "ai_error_message",
+            "ai_confidence_reason",
+        }
 
     def test_none_passthrough_for_both_kinds(self):
         assert truncate_for_field("ai_summary_de", None) is None

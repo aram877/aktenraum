@@ -275,6 +275,14 @@ export function InboxReview({ id }: { id: number }) {
                       ? `${Math.round(detail.data.ai_confidence * 100)}% Konfidenz`
                       : "Konfidenz unbekannt"}
                   </div>
+                  {detail.data.ai_confidence_reason && (
+                    <div
+                      className="mt-0.5 text-[11px] italic leading-snug text-neutral-500"
+                      title="Begründung der KI für den Konfidenzwert"
+                    >
+                      {detail.data.ai_confidence_reason}
+                    </div>
+                  )}
                 </div>
                 {detail.data.low_confidence && (
                   <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">

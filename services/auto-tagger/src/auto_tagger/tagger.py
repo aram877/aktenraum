@@ -144,6 +144,11 @@ Weitere Regeln:
 - Geldbeträge gehören NICHT in das generische Schema. Werte zu Beträgen, Gebühren, Bruttosummen, Nettosummen, Rückerstattungen, Forderungen, Prämien, Beiträgen etc. werden im typspezifischen Schritt (Pass 2) erfasst, falls der Dokumenttyp passende Felder vorsieht (z.B. Rechnung → gesamtbetrag, Mahnung → forderungsbetrag, Steuer → erstattung). Im hier vorliegenden Schritt KEINEN Geldbetrag ausgeben.
 - summary_de muss genau 3 Sätze auf Deutsch enthalten
 - confidence gibt an, wie sicher du dir bei der Extraktion bist (0.0 = unsicher, 1.0 = sehr sicher)
+- confidence_reason: PFLICHTFELD wenn confidence gesetzt ist. Gib einen kurzen deutschen Satz (max. ~20 Wörter) zurück, der ehrlich begründet, was diesen konkreten Konfidenzwert getrieben hat. Nenne den Hauptgrund — was war eindeutig, was war zweifelhaft? Beispiele:
+  • hoch (0.9+): "Klarer Briefkopf, Rechnungsnummer und Betrag sauber lesbar."
+  • mittel (0.4–0.7): "Dokumenttyp eindeutig, aber Korrespondent nur aus dem Briefkopf erschlossen — IBAN fehlt."
+  • niedrig (<0.4): "OCR fragmentiert mehrere Datumsfelder; kein klarer Briefkopf vorhanden."
+  Verbiete generische Floskeln ("hohe Sicherheit", "passt schon"). Wenn alles eindeutig ist, sage WAS eindeutig war.
 - ai_title NIE leer lassen, wenn document_type erkennbar ist — synthetisiere notfalls aus document_type + correspondent + Datum.
 - Bei nicht-ermittelbaren Skalar-Feldern (correspondent, key_dates.*): null
 - Bei nicht-ermittelbaren Listen-Feldern (reference_numbers, suggested_tags): leere Liste []

@@ -62,6 +62,19 @@ TYPE_FIELD_SCHEMA: dict[DocumentType, list[FieldDef]] = {
         FieldDef("steuernummer", "Steuernummer", "string"),
         FieldDef("erstattung", "Erstattung / Nachzahlung", "money"),
     ],
+    DocumentType.Lohnsteuerbescheinigung: [
+        FieldDef("bescheinigungsjahr", "Bescheinigungsjahr", "year"),
+        FieldDef(
+            "steueridentifikationsnummer",
+            "Steuer-Identifikationsnummer (11-stellig)",
+            "string",
+        ),
+        FieldDef("steuerklasse", "Steuerklasse (1–6)", "string"),
+        FieldDef("brutto_arbeitslohn", "Brutto-Arbeitslohn (Zeile 3)", "money"),
+        FieldDef("lohnsteuer", "Einbehaltene Lohnsteuer (Zeile 4)", "money"),
+        FieldDef("kirchensteuer", "Kirchensteuer", "money"),
+        FieldDef("finanzamt", "Zuständiges Finanzamt", "string"),
+    ],
     DocumentType.Bescheid: [
         FieldDef("aktenzeichen", "Aktenzeichen", "string"),
         FieldDef("behoerde", "Behörde", "string"),

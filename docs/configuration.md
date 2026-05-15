@@ -97,7 +97,7 @@ Loaded only by the `auto-tagger` service.
 | `ANTHROPIC_API_KEY` | if anthropic | — | From <https://console.anthropic.com>. |
 | `ANTHROPIC_MODEL` | no | `claude-sonnet-4-6` | Anthropic model id. |
 | `OLLAMA_BASE_URL` | no | `http://host.docker.internal:11434` | URL of the host's Ollama. |
-| `OLLAMA_MODEL` | no | `llama3.1:8b` | Tag of a locally-pulled Ollama model. `gemma4:latest`, `qwen2.5:14b` etc. all work. |
+| `OLLAMA_MODEL` | no | `qwen2.5:32b-instruct-q8_0` | Tag of a locally-pulled Ollama model. Recommend ≥14B Q8 for reliable structured output; smaller models drop schema fields. |
 
 ### Polling and routing
 
@@ -184,7 +184,7 @@ different model for full extractions.
 | `ANTHROPIC_API_KEY` | if anthropic | — | From console.anthropic.com. |
 | `ANTHROPIC_MODEL` | no | `claude-sonnet-4-6` | Filter-extraction model. |
 | `OLLAMA_BASE_URL` | no | `http://host.docker.internal:11434` | Host Ollama. |
-| `OLLAMA_MODEL` | no | `llama3.1:8b` | Filter-extraction model. |
+| `OLLAMA_MODEL` | no | `qwen2.5:32b-instruct-q8_0` | Filter-extraction model. A smaller model is fine here if you split via `OLLAMA_ANSWER_MODEL`. |
 | `OLLAMA_ANSWER_MODEL` | no | empty | Overrides `OLLAMA_MODEL` for the answer step in `/api/ai/answer/stream` only. Use a bigger model here (14B+); 8B reads citations unreliably. |
 | `ANTHROPIC_ANSWER_MODEL` | no | empty | Same split for Anthropic. |
 
@@ -251,13 +251,18 @@ Best quality. Cost is roughly proportional to corpus turnover.
 | Var | Value |
 |---|---|
 | `LLM_BACKEND` (both files) | `ollama` |
-| `OLLAMA_MODEL` (both files) | `gemma4:latest` |
-| `OLLAMA_ANSWER_MODEL` (api only) | `qwen2.5:14b` or larger |
+| `OLLAMA_MODEL` (both files) | `qwen2.5:32b-instruct-q8_0` |
+| `OLLAMA_ANSWER_MODEL` (api only) | empty (reuse the 32B for both) |
 
-Filter extraction with a fast small model; answer generation with
-something bigger that can reliably read citations. The auto-tagger's
-classification model can stay small — accuracy comes mostly from the
-few-shot exemplars + correspondent history hint.
+Recommended sizing: `qwen2.5:32b-instruct-q8_0` (~32 GB RAM/VRAM) for
+both extraction and answer. Schema adherence is dramatically better
+than 8B and the JSON-truncation failure mode largely goes away.
+
+If 32B doesn't fit, step down to `qwen2.5:14b-instruct-q8_0` (~16 GB) —
+still a big jump from gemma4 8B for structured output. Going below
+14B starts dropping `ai_title` / `ai_summary_de` / `confidence_reason`
+reliably; the Python-side fallbacks catch this but the output is less
+specific.
 
 ### Hybrid
 

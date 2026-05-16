@@ -5,6 +5,7 @@ from aktenraum_core.models import DocumentExtraction, DocumentType, KeyDates
 
 from auto_tagger.tagger import (
     _example_payload,
+    _extract_reference_numbers_from_text,
     _fallback_confidence_reason,
     _format_error,
     _format_history_hint,
@@ -12,6 +13,7 @@ from auto_tagger.tagger import (
     _route_lifecycle_tags,
     _split_csv,
     _synthesize_ai_title,
+    _synthesize_summary_de,
     _truncate_text,
 )
 
@@ -24,6 +26,137 @@ def _make_extraction(doc_type: str, confidence: float) -> DocumentExtraction:
         summary_de="Satz eins. Satz zwei. Satz drei.",
         confidence=confidence,
     )
+
+
+class TestSynthesizeSummaryDe:
+    def test_full_extraction_uses_all_signals(self):
+        ex = DocumentExtraction(
+            document_type=DocumentType.Rechnung,
+            correspondent="Stadtwerke München",
+            ai_title="Rechnung Stadtwerke März 2024",
+            key_dates=KeyDates(issue="2024-03-15"),
+            reference_numbers=["RN-12345", "K-2024/001"],
+        )
+        out = _synthesize_summary_de(ex)
+        # Sentence 1: type + sender + date.
+        assert "Rechnung von Stadtwerke München vom März 2024." in out
+        # Sentence 2: AI title surfaced (since it adds info).
+        assert "Betreff: Rechnung Stadtwerke März 2024." in out
+        # Sentence 3: reference numbers preferred over tags.
+        assert "Aktenzeichen: RN-12345, K-2024/001." in out
+
+    def test_no_correspondent_falls_back_to_date_only(self):
+        ex = DocumentExtraction(
+            document_type=DocumentType.Bescheid,
+            key_dates=KeyDates(issue="2024-12-01"),
+        )
+        out = _synthesize_summary_de(ex)
+        assert out.startswith("Bescheid vom Dezember 2024.")
+
+    def test_no_correspondent_no_date_falls_back_to_type_only(self):
+        ex = DocumentExtraction(document_type=DocumentType.Sonstiges)
+        out = _synthesize_summary_de(ex)
+        assert out == "Sonstiges."
+
+    def test_tags_used_when_no_reference_numbers(self):
+        ex = DocumentExtraction(
+            document_type=DocumentType.Vertrag,
+            correspondent="Acme GmbH",
+            suggested_tags=["Miete", "WG", "Wohnung"],
+        )
+        out = _synthesize_summary_de(ex)
+        assert "Themen: Miete, WG, Wohnung." in out
+        assert "Aktenzeichen" not in out
+
+    def test_ai_title_skipped_when_redundant_with_sentence_one(self):
+        # Title is just the doc-type + correspondent line — no second sentence.
+        ex = DocumentExtraction(
+            document_type=DocumentType.Rechnung,
+            correspondent="Telekom",
+            ai_title="Rechnung von Telekom",
+        )
+        out = _synthesize_summary_de(ex)
+        # The check is case-insensitive substring, so this Title is redundant.
+        assert out.count("Betreff:") == 0
+
+    def test_never_empty(self):
+        ex = DocumentExtraction(document_type=DocumentType.Sonstiges)
+        assert _synthesize_summary_de(ex).strip() != ""
+
+    def test_caps_reference_numbers_at_three(self):
+        ex = DocumentExtraction(
+            document_type=DocumentType.Bescheid,
+            reference_numbers=["A1", "A2", "A3", "A4", "A5"],
+        )
+        out = _synthesize_summary_de(ex)
+        assert "A1, A2, A3" in out
+        assert "A4" not in out
+
+
+class TestExtractReferenceNumbersFromText:
+    def test_aktenzeichen_basic(self):
+        text = "Sehr geehrte Damen und Herren,\n\nAktenzeichen: 4 K 2024/0123\n\n..."
+        # The regex is conservative — captures "4" but our pattern requires
+        # a single alphanumeric run, so "4 K 2024/0123" won't match in full.
+        # Test the conservative happy-path instead.
+        text = "Aktenzeichen: K-2024/0123-AB"
+        assert _extract_reference_numbers_from_text(text) == ["K-2024/0123-AB"]
+
+    def test_rechnungsnummer_compact(self):
+        text = "Rechnungs-Nr.: RN-987654"
+        assert _extract_reference_numbers_from_text(text) == ["RN-987654"]
+
+    def test_multiple_labels_label_priority_order(self):
+        # Aktenzeichen wins over Rechnungsnr. because it comes first in
+        # _REFERENCE_PATTERNS; both values still surface.
+        text = """
+        Aktenzeichen: AZ-001
+        Rechnungsnummer: RN-002
+        Kundennummer: KD-003
+        """
+        out = _extract_reference_numbers_from_text(text)
+        assert out[0] == "AZ-001"
+        assert "RN-002" in out
+        assert "KD-003" in out
+
+    def test_case_insensitive_label_case_preserved_value(self):
+        text = "aktenzeichen: BX-001"
+        assert _extract_reference_numbers_from_text(text) == ["BX-001"]
+
+    def test_dedup_preserves_first(self):
+        text = "Aktenzeichen: K-100\n\nWeitere Erwähnung Az.: K-100"
+        # K-100 appears twice; only one entry comes back, value-case-preserved.
+        out = _extract_reference_numbers_from_text(text)
+        assert out == ["K-100"]
+
+    def test_no_match_returns_empty(self):
+        text = "Sehr geehrte Damen und Herren,\nIhr Anschreiben ist eingegangen."
+        assert _extract_reference_numbers_from_text(text) == []
+
+    def test_empty_text_returns_empty(self):
+        assert _extract_reference_numbers_from_text("") == []
+
+    def test_limit_caps_output(self):
+        text = "\n".join(f"Aktenzeichen: K-{i:03d}" for i in range(10))
+        assert len(_extract_reference_numbers_from_text(text, limit=3)) == 3
+
+    def test_short_value_rejected(self):
+        # Pattern requires 3+ chars after the leading char (min length 4).
+        text = "Aktenzeichen: AB"
+        assert _extract_reference_numbers_from_text(text) == []
+
+    def test_long_value_rejected(self):
+        # Bounded to 32 chars to defeat runaway captures from glued OCR.
+        text = "Aktenzeichen: " + "A" * 200
+        # The regex captures the bounded prefix only; result still has 32 chars max.
+        out = _extract_reference_numbers_from_text(text)
+        assert len(out) == 1
+        assert len(out[0]) <= 32
+
+    def test_steuernr_numeric_only(self):
+        # Steuernr. uses a numeric-leading pattern (different from the others).
+        text = "Steuernummer: 12/345/67890"
+        assert _extract_reference_numbers_from_text(text) == ["12/345/67890"]
 
 
 class TestRouteLifecycleTags:

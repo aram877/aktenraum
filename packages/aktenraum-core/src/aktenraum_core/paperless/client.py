@@ -1,3 +1,4 @@
+import time
 from typing import Any
 
 import httpx
@@ -10,6 +11,15 @@ from .normalisers import (
 )
 
 log = structlog.get_logger()
+
+# Per-process cache TTL for entity lookups. Five minutes is short enough
+# that a manual Paperless edit (delete a tag, rename a correspondent) is
+# picked up within a poll cycle; long enough that the auto-tagger's poll
+# loop doesn't smash Paperless with the same six tag-id lookups every
+# 30s. Invalidation: any create-path (`_get_or_create_named`,
+# `ensure_tag`, `ensure_custom_field`) drops its own cache key so freshly-
+# created entities are immediately available.
+_DEFAULT_CACHE_TTL = 300.0
 
 
 # Tags that mark a document as having entered the AI pipeline. The auto-tagger
@@ -31,15 +41,40 @@ LIFECYCLE_TAGS = (
 
 
 class PaperlessClient:
-    def __init__(self, base_url: str, api_token: str) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        api_token: str,
+        *,
+        cache_ttl_seconds: float = _DEFAULT_CACHE_TTL,
+    ) -> None:
         self._client = httpx.AsyncClient(
             base_url=base_url.rstrip("/"),
             headers={"Authorization": f"Token {api_token}"},
             timeout=30.0,
         )
+        self._cache_ttl = cache_ttl_seconds
+        # name → (timestamp, tag_id). None values are cached too so a
+        # missing tag doesn't trigger a fresh GET every 30s during the
+        # poller's `LIFECYCLE_TAGS` scan.
+        self._tag_id_cache: dict[str, tuple[float, int | None]] = {}
+        self._custom_field_ids_cache: tuple[float, dict[str, int]] | None = None
+        # endpoint URL → (timestamp, {id: name}) map.
+        self._entity_name_map_cache: dict[str, tuple[float, dict[int, str]]] = {}
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+    def invalidate_caches(self) -> None:
+        """Drop every per-process entity cache.
+
+        Call this when something out-of-band changed Paperless state (e.g.
+        the operator just ran `scripts/bootstrap-paperless.sh` and we need
+        newly-created custom fields to resolve immediately).
+        """
+        self._tag_id_cache.clear()
+        self._custom_field_ids_cache = None
+        self._entity_name_map_cache.clear()
 
     async def __aenter__(self):
         return self
@@ -201,10 +236,22 @@ class PaperlessClient:
     async def get_entity_name_map(self, endpoint: str) -> dict[int, str]:
         """Return {id: name} for any Paperless entity endpoint with a `name`
         field (correspondents, document_types, tags). Used to resolve foreign
-        keys on documents returned by list endpoints."""
+        keys on documents returned by list endpoints.
+
+        Cached per-endpoint with TTL `_cache_ttl` so the propagator and the
+        indexer don't re-fetch the same correspondent / document_type / tag
+        list on every doc.
+        """
+        cached = self._entity_name_map_cache.get(endpoint)
+        if cached is not None:
+            when, value = cached
+            if time.monotonic() - when <= self._cache_ttl:
+                return value
         resp = await self._client.get(endpoint, params={"page_size": 200})
         resp.raise_for_status()
-        return {x["id"]: x["name"] for x in resp.json().get("results", [])}
+        result = {x["id"]: x["name"] for x in resp.json().get("results", [])}
+        self._entity_name_map_cache[endpoint] = (time.monotonic(), result)
+        return result
 
     async def get_correspondent_history(
         self, sample_size: int = 200
@@ -357,6 +404,10 @@ class PaperlessClient:
         Returns (field_id, created). Idempotent — safe to call on every
         boot. Used by the cross-platform bootstrap entry point in
         services/auto-tagger so the operator doesn't need a Unix shell.
+        On creation the per-process custom-field-id cache is invalidated so
+        the new field resolves on the very next `_get_custom_field_ids()`
+        call (otherwise PATCHes would emit `paperless_unknown_custom_field`
+        warnings until the cache TTL expired).
         """
         resp = await self._client.get(
             "/api/custom_fields/", params={"name__iexact": name, "page_size": 100}
@@ -379,6 +430,7 @@ class PaperlessClient:
                 body=resp.text,
             )
         resp.raise_for_status()
+        self._custom_field_ids_cache = None
         return resp.json()["id"], True
 
     async def ensure_tag(self, name: str, color: str | None = None) -> tuple[int, bool]:
@@ -403,6 +455,7 @@ class PaperlessClient:
                 body=resp.text,
             )
         resp.raise_for_status()
+        self._tag_id_cache.pop(name, None)
         return resp.json()["id"], True
 
     # ------------------------------------------------------------------
@@ -419,6 +472,13 @@ class PaperlessClient:
         passes one page our exact-match check would not find the existing
         entity and POST would trip the unique-name constraint with a 400.
         The Python-side equality re-check stays as defence in depth.
+
+        Race-tolerant: two propagator/extractor coroutines can both miss the
+        cache for the same correspondent name and both POST; the loser of
+        the race gets a 4xx from the unique-name constraint. On POST failure
+        we re-GET once — the parallel worker has just created the row by
+        the time we look again — and reuse its id instead of bubbling up an
+        error that would tag the doc `ai-propagation-error`.
         """
         resp = await self._client.get(endpoint, params={"name__iexact": name})
         resp.raise_for_status()
@@ -428,6 +488,24 @@ class PaperlessClient:
             return found
         resp = await self._client.post(endpoint, json={"name": name})
         if resp.status_code >= 400:
+            # Most likely cause is a parallel create. Re-GET; if the row is
+            # now visible, return its id and only log at info level.
+            retry = await self._client.get(
+                endpoint, params={"name__iexact": name}
+            )
+            if retry.status_code < 400:
+                results = retry.json().get("results", [])
+                raced = next(
+                    (x["id"] for x in results if x["name"] == name), None
+                )
+                if raced is not None:
+                    log.info(
+                        "paperless_create_raced_resolved",
+                        endpoint=endpoint,
+                        name=name,
+                        id=raced,
+                    )
+                    return raced
             log.error(
                 "paperless_create_rejected",
                 endpoint=endpoint,
@@ -436,16 +514,35 @@ class PaperlessClient:
                 body=resp.text,
             )
         resp.raise_for_status()
+        # Invalidate the relevant caches so the freshly-created row is
+        # visible to the next read in this process. Cheap: just drop the
+        # cache entry, the next access repopulates.
+        if endpoint == "/api/tags/":
+            self._tag_id_cache.pop(name, None)
+        self._entity_name_map_cache.pop(endpoint, None)
         return resp.json()["id"]
 
     async def _get_tag_id(self, name: str) -> int | None:
         # See _get_or_create_named for why we must use ?name__iexact= here.
+        cached = self._tag_id_cache.get(name)
+        if cached is not None:
+            when, value = cached
+            if time.monotonic() - when <= self._cache_ttl:
+                return value
         resp = await self._client.get("/api/tags/", params={"name__iexact": name})
         resp.raise_for_status()
         results = resp.json().get("results", [])
-        return next((t["id"] for t in results if t["name"] == name), None)
+        tag_id = next((t["id"] for t in results if t["name"] == name), None)
+        self._tag_id_cache[name] = (time.monotonic(), tag_id)
+        return tag_id
 
     async def _get_custom_field_ids(self) -> dict[str, int]:
+        if self._custom_field_ids_cache is not None:
+            when, value = self._custom_field_ids_cache
+            if time.monotonic() - when <= self._cache_ttl:
+                return value
         resp = await self._client.get("/api/custom_fields/", params={"page_size": 100})
         resp.raise_for_status()
-        return {f["name"]: f["id"] for f in resp.json().get("results", [])}
+        mapping = {f["name"]: f["id"] for f in resp.json().get("results", [])}
+        self._custom_field_ids_cache = (time.monotonic(), mapping)
+        return mapping

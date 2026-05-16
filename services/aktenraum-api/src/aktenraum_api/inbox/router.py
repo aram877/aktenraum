@@ -11,6 +11,7 @@ from ..db.models import User
 from ..db.session import get_session
 from ..paperless_gw import (
     PaperlessAuthError,
+    PaperlessConflictError,
     PaperlessGateway,
     PaperlessNotFoundError,
 )
@@ -88,6 +89,8 @@ async def approve_inbox(
         raise _not_found(doc_id) from e
     except PaperlessAuthError as e:
         raise _bad_gateway() from e
+    except PaperlessConflictError as e:
+        raise _conflict(doc_id) from e
 
 
 @router.post("/{doc_id}/reject", response_model=InboxDetail)
@@ -102,6 +105,8 @@ async def reject_inbox(
         raise _not_found(doc_id) from e
     except PaperlessAuthError as e:
         raise _bad_gateway() from e
+    except PaperlessConflictError as e:
+        raise _conflict(doc_id) from e
 
 
 @router.get("/{doc_id}/preview")
@@ -151,4 +156,13 @@ def _bad_gateway() -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_502_BAD_GATEWAY,
         detail="Paperless rejected the API token",
+    )
+
+
+def _conflict(doc_id: int) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=(
+            f"Document {doc_id} was modified concurrently. Refresh and try again."
+        ),
     )

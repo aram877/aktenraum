@@ -99,7 +99,7 @@ Wähle den document_type anhand dieser Definitionen — nimm immer den spezifisc
 - Behördenbrief: Amtliche Schreiben ohne Bescheidcharakter — Informationsschreiben, Antragsbestätigungen, Einwohnermeldebescheinigung (Bestätigung des Wohnsitzes vom Bürgeramt). NICHT: Meldebescheinigung zur Sozialversicherung (siehe Sozialversicherungsmeldung).
 - Sozialversicherungsmeldung: Meldebescheinigung zur Sozialversicherung / Jahresmeldung zur Sozialversicherung / SV-Meldung / Meldung nach DEÜV — vom Arbeitgeber jährlich (oder bei Beschäftigungsende) ausgestellt. Typisch: Beitragszeitraum, Brutto-Arbeitsentgelt, beitragspflichtiges Entgelt, Sozialversicherungsnummer (RV-Nr.), Betriebsnummer. NICHT verwechseln mit: Gehaltsabrechnung (monatlich), Lohnsteuerbescheinigung (→ Steuer), oder Einwohnermeldebescheinigung (→ Behördenbrief).
 - Kfz: Fahrzeugschein, Fahrzeugbrief, Zulassungsbescheinigung, TÜV-/HU-Bericht, Kfz-Steuer. NICHT: Bußgeldbescheid (eigener Typ).
-- Bussgeldbescheid: Bußgeld- oder Verwarngeldbescheid (auch Anhörungsbogen) wegen Verkehrsverstoß. Typische Inhalte: Tatzeit/Tatort, Kennzeichen, Tatbestand, Bußgeld/Verwarngeld, Punkte in Flensburg, Einspruchsfrist. Aliasnamen: Verwarnung, Verkehrsbescheid. NICHT verwechseln mit: Kfz-Dokumenten (Zulassung, TÜV), Steuerbescheid → Bescheid.
+- Bußgeldbescheid: Bußgeld- oder Verwarngeldbescheid (auch Anhörungsbogen) wegen Verkehrsverstoß. Typische Inhalte: Tatzeit/Tatort, Kennzeichen, Tatbestand, Bußgeld/Verwarngeld, Punkte in Flensburg, Einspruchsfrist. Aliasnamen: Verwarnung, Verkehrsbescheid. NICHT verwechseln mit: Kfz-Dokumenten (Zulassung, TÜV), Steuerbescheid → Bescheid.
 - Arztbrief: längere ärztliche Berichte, Befundbriefe, Laborbefunde, Überweisungen, Rezepte, Krankenhausentlassungsberichte, Impfnachweise. NICHT: kurze Arbeitsunfähigkeitsbescheinigung → Krankschreibung.
 - Krankschreibung: Arbeitsunfähigkeitsbescheinigung (AU-Bescheinigung, "gelber Schein") — kurzes Formular mit Zeitraum, das dem Arbeitgeber vorgelegt wird. Typische Inhalte: AU-Zeitraum von/bis, Erst- oder Folgebescheinigung, Arzt/Praxis, ggf. ICD-10-Code. Aliasnamen: AU-Bescheinigung, Arbeitsunfähigkeitsbescheinigung, gelber Schein. NICHT verwechseln mit: Arztbrief (ausführlicher Bericht), Rezept.
 - Garantie: Garantieurkunden, Gewährleistungsnachweise, Garantiezertifikate für Geräte oder Produkte
@@ -131,7 +131,7 @@ Weitere Regeln:
   • Behördenbrief: "{Behörde} – {Stichwort} {Datum}" — z.B. "Bürgeramt München – Meldebescheinigung 2024"
   • Sozialversicherungsmeldung: "SV-Meldung {Arbeitgeber} {Jahr}" — z.B. "SV-Meldung Acme GmbH 2024"
   • Kfz: "{Dokumenttitel} {Kennzeichen oder Marke}" — z.B. "Zulassungsbescheinigung K-AB-123" oder "TÜV-Bericht VW Golf"
-  • Bussgeldbescheid: "Bußgeldbescheid {Kennzeichen oder Behörde} {Datum}" — z.B. "Bußgeldbescheid K-AB-123 März 2024"
+  • Bußgeldbescheid: "Bußgeldbescheid {Kennzeichen oder Behörde} {Datum}" — z.B. "Bußgeldbescheid K-AB-123 März 2024"
   • Arztbrief: "Arztbrief {Facharzt/Praxis} {Datum}" — z.B. "Arztbrief Dr. Müller März 2024"
   • Krankschreibung: "Krankschreibung {Arzt} {Zeitraum}" — z.B. "Krankschreibung Dr. Müller 12.–19.03.2024"
   • Garantie: "Garantie {Produkt} {Marke}" — z.B. "Garantie Waschmaschine Bosch"
@@ -371,15 +371,24 @@ async def _build_history_hint(paperless: PaperlessClient, text: str) -> str:
 def _route_lifecycle_tags(extraction: DocumentExtraction, settings: Settings) -> list[str]:
     """Decide which lifecycle/auxiliary tags to apply based on confidence routing.
 
-    Returns the tag names to add. When confidence ≥ AUTO_APPROVE_CONFIDENCE
-    (any document type) the doc goes straight to `ai-approved` and we add
-    the auxiliary marker `ai-auto-approved` so the UI can render an
-    "auto-genehmigt" badge — the marker persists through propagation because
-    the propagator only strips `ai-approved`. Otherwise the doc lands in
-    `ai-pending`; if confidence is below LOW_CONFIDENCE_THRESHOLD we
-    additionally tag `ai-low-confidence` so the user can prioritise it.
+    Auto-approve requires BOTH:
+      * confidence ≥ AUTO_APPROVE_CONFIDENCE
+      * document_type ∈ AUTO_APPROVE_TYPES (non-empty list)
+
+    The type allowlist is the load-bearing gate: confidence alone can be
+    influenced by prompt injection in OCR text, but document_type is enum-
+    validated and the user opts in to which types may auto-approve. An empty
+    list (the default) disables auto-approve entirely. Auto-approved docs
+    also receive `ai-auto-approved` so the UI can render an "auto-genehmigt"
+    badge — the marker persists through propagation because the propagator
+    only strips `ai-approved`. Otherwise the doc lands in `ai-pending`; if
+    confidence is below LOW_CONFIDENCE_THRESHOLD we additionally tag
+    `ai-low-confidence` so the user can prioritise it.
     """
-    if extraction.confidence >= settings.auto_approve_confidence:
+    type_allowed = bool(settings.auto_approve_types) and (
+        extraction.document_type.value in settings.auto_approve_types
+    )
+    if type_allowed and extraction.confidence >= settings.auto_approve_confidence:
         return ["ai-approved", "ai-auto-approved"]
     tags = ["ai-pending"]
     if extraction.confidence < settings.low_confidence_threshold:

@@ -147,20 +147,54 @@ export type BulkApproveResult = {
   failed: { id: number; message: string }[];
 };
 
+// Max parallel approve POSTs we'll send. Each approve = 3 round trips
+// against Paperless (read tags + verify + PATCH), so 50 inbox docs at
+// unbounded concurrency = 150 simultaneous requests, easily enough to
+// saturate Paperless's gunicorn workers and trip 409s from concurrent
+// PATCHes. Four is the empirical sweet spot — high enough to feel
+// instant for 10-20 docs, low enough that Paperless never queues.
+const _BULK_APPROVE_CONCURRENCY = 4;
+
+async function _runWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let cursor = 0;
+  async function pump(): Promise<void> {
+    while (cursor < items.length) {
+      const idx = cursor++;
+      const item = items[idx];
+      if (item === undefined) continue;
+      results[idx] = await worker(item);
+    }
+  }
+  const lanes = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    pump,
+  );
+  await Promise.all(lanes);
+  return results;
+}
+
 export function useBulkApprove() {
   const qc = useQueryClient();
   return useMutation<BulkApproveResult, AxiosError, number[]>({
     mutationFn: async (ids) => {
-      const tasks = ids.map(async (id) => {
-        try {
-          await approveInbox(id);
-          return { id, ok: true as const };
-        } catch (err) {
-          const message = (err as AxiosError | Error)?.message ?? "Fehler";
-          return { id, ok: false as const, message };
-        }
-      });
-      const results = await Promise.all(tasks);
+      const results = await _runWithConcurrency(
+        ids,
+        _BULK_APPROVE_CONCURRENCY,
+        async (id) => {
+          try {
+            await approveInbox(id);
+            return { id, ok: true as const };
+          } catch (err) {
+            const message = (err as AxiosError | Error)?.message ?? "Fehler";
+            return { id, ok: false as const, message };
+          }
+        },
+      );
       const succeeded: number[] = [];
       const failed: { id: number; message: string }[] = [];
       for (const r of results) {

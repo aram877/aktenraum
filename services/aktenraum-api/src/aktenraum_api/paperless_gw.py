@@ -46,8 +46,11 @@ class PaperlessGateway:
         self._correspondents_cache: tuple[float, dict[str, int]] | None = None
         self._document_types_cache: tuple[float, dict[str, int]] | None = None
         self._tags_cache: tuple[float, dict[str, int]] | None = None
-        # Custom-field-id resolver caches; populated lazily on first PATCH.
-        self._custom_field_ids: dict[str, int] | None = None
+        # Custom-field-id resolver cache. TTL'd like the entity caches so a
+        # `scripts/bootstrap-paperless.sh` run during a live container picks
+        # up new fields within `ttl_seconds` (previously cached forever and
+        # required a container restart to see new fields).
+        self._custom_field_ids_cache: tuple[float, dict[str, int]] | None = None
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -86,7 +89,11 @@ class PaperlessGateway:
         return resp.json()
 
     async def patch_document_custom_fields(
-        self, doc_id: int, name_to_value: dict[str, Any]
+        self,
+        doc_id: int,
+        name_to_value: dict[str, Any],
+        *,
+        prefetched_doc: dict | None = None,
     ) -> dict[str, Any]:
         """Patch the named ai_* custom fields on a document.
 
@@ -94,6 +101,11 @@ class PaperlessGateway:
         upsert — so we read the current array, merge the requested updates by
         field id, and write the merged array back. Without this, patching a
         single field would wipe the other eleven.
+
+        Callers that already hold a fresh doc dict (e.g. inbox approve flow
+        that just listed the queue, library edit that just rendered the
+        detail page) can pass `prefetched_doc` to skip the merge-read. The
+        gateway will trust the passed dict's `custom_fields` array verbatim.
 
         Runs aktenraum-core normalisers (date, monetary, string-trunc) at the
         boundary so a user typing German dates / monetary into the SPA cannot
@@ -106,8 +118,16 @@ class PaperlessGateway:
         field_ids = await self._get_custom_field_ids()
 
         update_by_id: dict[int, Any] = {}
+        retried = False
         for name, value in normalised.items():
             fid = field_ids.get(name)
+            if fid is None and not retried:
+                # Field might have been added since the cache was populated
+                # (operator just ran bootstrap). Refresh once before warning.
+                self._custom_field_ids_cache = None
+                field_ids = await self._get_custom_field_ids()
+                retried = True
+                fid = field_ids.get(name)
             if fid is None:
                 log.warning("paperless_unknown_custom_field", name=name)
                 continue
@@ -115,7 +135,7 @@ class PaperlessGateway:
         if not update_by_id:
             return normalised
 
-        existing = await self.get_document(doc_id)
+        existing = prefetched_doc if prefetched_doc is not None else await self.get_document(doc_id)
         merged = _merge_custom_fields(
             existing.get("custom_fields") or [], update_by_id
         )
@@ -139,37 +159,65 @@ class PaperlessGateway:
     async def swap_lifecycle_tag(
         self, doc_id: int, *, remove: list[str], add: list[str]
     ) -> list[int]:
-        """Replace tags on a document by name.
+        """Replace tags on a document by name with TOCTOU protection.
 
-        Reads the current tag list, plans the swap via `_plan_tag_swap`, sends
-        one PATCH with the resulting `tags` array. No-ops when the swap would
-        produce an unchanged list (idempotent re-approve / re-reject).
+        Paperless's `tags` PATCH is full-array replace, so a naive read-plan-
+        write loses concurrent updates. Two simultaneous approve calls would
+        both read `[ai-pending]`, both write `[ai-approved]`, and silently
+        clobber any tag added between the read and the write (e.g. the
+        propagator racing the approve to add `ai-propagated`).
+
+        Mitigation: after the PATCH succeeds, re-read the doc and verify the
+        result matches our plan. If a concurrent writer interleaved (current
+        tags ≠ our planned new_ids minus our own contribution), we replay the
+        swap against the fresh state. Two retries max — if the third attempt
+        still races, raise so the caller can decide (HTTP 409 in the route).
+
+        No-ops when the swap is unnecessary (idempotent re-approve / re-reject).
         Returns the resulting tag-id list.
         """
-        doc = await self.get_document(doc_id)
-        current_ids: list[int] = list(doc.get("tags") or [])
-        name_to_id = await self.list_tags()
-        new_ids = _plan_tag_swap(
-            current_ids=current_ids, name_to_id=name_to_id, remove=remove, add=add
-        )
-        if new_ids == current_ids:
-            return current_ids
-        resp = await self._client.patch(
-            f"/api/documents/{doc_id}/", json={"tags": new_ids}
-        )
-        if resp.status_code == 404:
-            raise PaperlessNotFoundError(doc_id)
-        if resp.status_code in (401, 403):
-            raise PaperlessAuthError(resp.status_code)
-        if resp.status_code >= 400:
-            log.error(
-                "paperless_patch_rejected",
-                doc_id=doc_id,
-                status=resp.status_code,
-                body=resp.text,
+        for attempt in range(3):
+            doc = await self.get_document(doc_id)
+            current_ids: list[int] = list(doc.get("tags") or [])
+            name_to_id = await self.list_tags()
+            new_ids = _plan_tag_swap(
+                current_ids=current_ids,
+                name_to_id=name_to_id,
+                remove=remove,
+                add=add,
             )
-        resp.raise_for_status()
-        return new_ids
+            if new_ids == current_ids:
+                return current_ids
+            resp = await self._client.patch(
+                f"/api/documents/{doc_id}/", json={"tags": new_ids}
+            )
+            if resp.status_code == 404:
+                raise PaperlessNotFoundError(doc_id)
+            if resp.status_code in (401, 403):
+                raise PaperlessAuthError(resp.status_code)
+            if resp.status_code >= 400:
+                log.error(
+                    "paperless_patch_rejected",
+                    doc_id=doc_id,
+                    status=resp.status_code,
+                    body=resp.text,
+                )
+            resp.raise_for_status()
+
+            # Verify nobody raced us. Read back; if the server-side state is
+            # what we planned, we're done. Otherwise replay on the fresh state.
+            verify = await self.get_document(doc_id)
+            verified_ids = list(verify.get("tags") or [])
+            if set(verified_ids) == set(new_ids):
+                return new_ids
+            log.warning(
+                "lifecycle_tag_swap_raced",
+                doc_id=doc_id,
+                attempt=attempt + 1,
+                planned=new_ids,
+                observed=verified_ids,
+            )
+        raise PaperlessConflictError(doc_id)
 
     async def stream_preview(self, doc_id: int) -> AsyncIterator[bytes]:
         """Stream the inline PDF preview for `doc_id`.
@@ -286,18 +334,22 @@ class PaperlessGateway:
         return resp
 
     async def _get_custom_field_ids(self) -> dict[str, int]:
-        if self._custom_field_ids is not None:
-            return self._custom_field_ids
+        cached = self._custom_field_ids_cache
+        if cached is not None:
+            when, value = cached
+            if time.monotonic() - when <= self._ttl_seconds:
+                return value
         resp = await self._client.get(
             "/api/custom_fields/", params={"page_size": 100}
         )
         if resp.status_code in (401, 403):
             raise PaperlessAuthError(resp.status_code)
         resp.raise_for_status()
-        self._custom_field_ids = {
+        mapping = {
             f["name"]: f["id"] for f in resp.json().get("results", [])
         }
-        return self._custom_field_ids
+        self._custom_field_ids_cache = (time.monotonic(), mapping)
+        return mapping
 
     async def search_documents(self, params: dict[str, Any], *, page_size: int = 100) -> dict:
         """Hit `/api/documents/?...`. Returns the raw paperless payload.
@@ -340,6 +392,16 @@ class PaperlessAuthError(RuntimeError):
 class PaperlessNotFoundError(RuntimeError):
     def __init__(self, doc_id: int) -> None:
         super().__init__(f"Paperless document {doc_id} not found")
+        self.doc_id = doc_id
+
+
+class PaperlessConflictError(RuntimeError):
+    """Raised when a concurrent writer kept losing our `tags` PATCH."""
+
+    def __init__(self, doc_id: int) -> None:
+        super().__init__(
+            f"Paperless document {doc_id} kept changing under us — concurrent writer"
+        )
         self.doc_id = doc_id
 
 

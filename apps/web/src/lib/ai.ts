@@ -147,7 +147,27 @@ export function streamAsk(
         signal: controller.signal,
       });
       if (!resp.ok || !resp.body) {
-        const detail = `${resp.status} ${resp.statusText}`;
+        // Read the error body so the user sees the actual reason ("Paperless
+        // rejected the API token", validation messages, etc.) instead of a
+        // bare "502 Bad Gateway". FastAPI emits {detail: "..."} on errors.
+        let detail = `${resp.status} ${resp.statusText}`;
+        try {
+          const body = await resp.text();
+          if (body) {
+            try {
+              const parsed = JSON.parse(body) as { detail?: unknown };
+              if (typeof parsed.detail === "string" && parsed.detail.trim()) {
+                detail = parsed.detail;
+              } else if (body.trim().length <= 500) {
+                detail = body.trim();
+              }
+            } catch {
+              if (body.trim().length <= 500) detail = body.trim();
+            }
+          }
+        } catch {
+          // Network error reading the body — fall through with status text.
+        }
         handlers.onError?.(detail);
         return;
       }

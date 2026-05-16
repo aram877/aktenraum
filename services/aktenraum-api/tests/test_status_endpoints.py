@@ -6,12 +6,29 @@
 
 from __future__ import annotations
 
+import importlib
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from httpx import AsyncClient
 
 from aktenraum_api.ai.deps import get_paperless_gateway
 from aktenraum_api.paperless_gw import PaperlessAuthError, PaperlessNotFoundError
+
+# The `documents/__init__.py` re-exports the APIRouter under the same name as
+# the submodule, so `import aktenraum_api.documents.router` actually resolves
+# to the APIRouter. `importlib` gives us the real module object whose
+# `_in_flight_cache` we need to reset between tests.
+_router_module = importlib.import_module("aktenraum_api.documents.router")
+
+
+@pytest.fixture(autouse=True)
+def _reset_in_flight_cache():
+    """The /in-flight endpoint memoises its result for 15s at module scope.
+    Without this reset, the first test's count leaks into later tests."""
+    _router_module._in_flight_cache = None
+    yield
+    _router_module._in_flight_cache = None
 
 TAG_IDS = {
     "ai-pending": 1,

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import time
+
 import httpx
 import structlog
 from aktenraum_core.paperless import LIFECYCLE_TAGS
@@ -18,6 +21,7 @@ from ..inbox import schemas as inbox_schemas
 from ..inbox import service as inbox_service
 from ..paperless_gw import (
     PaperlessAuthError,
+    PaperlessConflictError,
     PaperlessGateway,
     PaperlessNotFoundError,
 )
@@ -30,6 +34,27 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 # ai-low-confidence and ai-auto-approved flags. After this PATCH the
 # document looks "fresh" to the auto-tagger and gets re-enqueued.
 _REPROCESS_REMOVE = list(LIFECYCLE_TAGS) + ["ai-low-confidence", "ai-auto-approved"]
+
+# Upload content-type allowlist. Paperless can OCR PDFs, images, and Office
+# docs; we restrict the inputs to defend against a malicious user (or
+# attacker via CSRF) shovelling executables or huge archives into the
+# consume queue. Unknown / missing content-type is rejected so the caller
+# must announce what they're uploading.
+_UPLOAD_ALLOWED_CONTENT_TYPES = frozenset(
+    {
+        "application/pdf",
+        "image/png",
+        "image/jpeg",
+        "image/tiff",
+        "image/webp",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.oasis.opendocument.text",
+        "text/plain",
+    }
+)
 
 # Tag names the SPA renders as status badges, including ai-pending so the
 # upload-progress poller can distinguish "landed in inbox" from "still
@@ -44,6 +69,15 @@ _BADGE_TAG_NAMES = frozenset(LIFECYCLE_TAGS) | {"ai-low-confidence", "ai-auto-ap
 # (about to propagate), or no AI tag at all (just landed / poller hasn't
 # enqueued yet). Those are the rows the Nav badge counts.
 _IN_FLIGHT_TAGS = frozenset({"ai-pending", "ai-approved"})
+
+# Module-level cache for /in-flight count. The Nav badge polls this on
+# every open browser tab every 30s; without a cache, 100 SPAs hit
+# Paperless's expensive `tags__id__in` list endpoint 200×/min for what
+# is effectively a constant integer over short windows. 15s TTL lets
+# the badge feel live without crushing Paperless.
+_IN_FLIGHT_CACHE_TTL = 15.0
+_in_flight_cache: tuple[float, int] | None = None
+_in_flight_cache_lock = asyncio.Lock()
 
 
 class DocumentStatus(BaseModel):
@@ -105,6 +139,7 @@ async def upload_documents(
     title: str | None = Form(None),
     _user: User = Depends(get_current_user),
     gateway: PaperlessGateway = Depends(get_paperless_gateway),
+    settings: Settings = Depends(get_settings),
 ) -> UploadResponse:
     """Upload one or many documents into Paperless via the gateway.
 
@@ -114,10 +149,28 @@ async def upload_documents(
     """
     if not files:
         raise HTTPException(status_code=400, detail="No files supplied")
+    if len(files) > settings.upload_max_files_per_request:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=(
+                f"Too many files in one upload "
+                f"(max {settings.upload_max_files_per_request})."
+            ),
+        )
 
     results: list[UploadResult] = []
     for upload in files:
         try:
+            content_type = (upload.content_type or "").lower().strip()
+            if content_type not in _UPLOAD_ALLOWED_CONTENT_TYPES:
+                results.append(
+                    UploadResult(
+                        filename=upload.filename or "(unknown)",
+                        status="error",
+                        detail=f"Unsupported content-type: {content_type or 'unknown'}",
+                    )
+                )
+                continue
             content = await upload.read()
             if not content:
                 results.append(
@@ -125,6 +178,18 @@ async def upload_documents(
                         filename=upload.filename or "(unknown)",
                         status="error",
                         detail="Empty file",
+                    )
+                )
+                continue
+            if len(content) > settings.upload_max_file_bytes:
+                results.append(
+                    UploadResult(
+                        filename=upload.filename or "(unknown)",
+                        status="error",
+                        detail=(
+                            f"File too large "
+                            f"(> {settings.upload_max_file_bytes} bytes)"
+                        ),
                     )
                 )
                 continue
@@ -191,6 +256,14 @@ async def reprocess(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Paperless rejected the API token",
+        ) from e
+    except PaperlessConflictError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Document {doc_id} was modified concurrently. "
+                "Refresh and try again."
+            ),
         ) from e
 
     notified = await _ping_auto_tagger(settings, doc_id)
@@ -318,24 +391,39 @@ async def in_flight_count(
     lifecycle tag at all are intentionally excluded — they could be legacy
     pre-AI uploads, and counting them would make the badge always >0 on
     older installs.
+
+    Result is memoised for `_IN_FLIGHT_CACHE_TTL` seconds at the module
+    level so N concurrent SPAs share one round trip to Paperless.
     """
-    try:
-        tags = await gateway.list_tags()
-        flight_ids = [tags[name] for name in _IN_FLIGHT_TAGS if name in tags]
-        if not flight_ids:
-            return InFlightCount(count=0)
-        # Paperless's tags__id__in is comma-separated list — returns docs that
-        # carry ANY of the listed tag ids.
-        payload = await gateway.search_documents(
-            {"tags__id__in": ",".join(str(i) for i in flight_ids)},
-            page_size=1,
-        )
-    except PaperlessAuthError as e:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Paperless rejected the API token",
-        ) from e
-    return InFlightCount(count=int(payload.get("count", 0)))
+    global _in_flight_cache
+    now = time.monotonic()
+    cached = _in_flight_cache
+    if cached is not None and now - cached[0] <= _IN_FLIGHT_CACHE_TTL:
+        return InFlightCount(count=cached[1])
+    async with _in_flight_cache_lock:
+        cached = _in_flight_cache
+        if cached is not None and time.monotonic() - cached[0] <= _IN_FLIGHT_CACHE_TTL:
+            return InFlightCount(count=cached[1])
+        try:
+            tags = await gateway.list_tags()
+            flight_ids = [tags[name] for name in _IN_FLIGHT_TAGS if name in tags]
+            if not flight_ids:
+                _in_flight_cache = (time.monotonic(), 0)
+                return InFlightCount(count=0)
+            # Paperless's tags__id__in is comma-separated — docs carrying ANY
+            # of the listed tag ids.
+            payload = await gateway.search_documents(
+                {"tags__id__in": ",".join(str(i) for i in flight_ids)},
+                page_size=1,
+            )
+        except PaperlessAuthError as e:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Paperless rejected the API token",
+            ) from e
+        count = int(payload.get("count", 0))
+        _in_flight_cache = (time.monotonic(), count)
+        return InFlightCount(count=count)
 
 
 @router.get("/task/{task_id}", response_model=TaskStatus)
@@ -409,13 +497,18 @@ def _extract_doc_id(task_row: dict) -> int | None:
     """Pull the resulting Paperless doc id from a task row.
 
     Paperless's `related_document` is the canonical field but isn't always
-    populated (older versions, FAILURE rows). Falls back to parsing the
-    `result` string ("Success. New document id 19 created") so the SPA gets
-    a usable id even on older Paperless.
+    populated (older versions). Falls back to parsing the `result` string
+    ("Success. New document id 19 created"), but only on SUCCESS rows —
+    FAILURE results sometimes mention a different doc id ("Failed because
+    document id 7 was a duplicate") and parsing them blindly would point
+    the upload poller at the wrong doc.
     """
     related = task_row.get("related_document")
     if isinstance(related, int):
         return related
+    status = str(task_row.get("status") or "").upper()
+    if status != "SUCCESS":
+        return None
     result = task_row.get("result") or ""
     import re
 

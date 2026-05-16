@@ -107,13 +107,22 @@ async def process_approved_document(
         new_tag_set.add(propagated_id)
         new_tag_set.update(suggested_tag_ids)
 
-        await paperless.patch_document_native_fields(
-            doc_id,
-            correspondent=correspondent_id,
-            document_type=document_type_id,
-            created_date=created_date,
-            tags=sorted(new_tag_set),
-            title=ai_title,
+        # Shield the lifecycle-flipping PATCH from task cancellation
+        # (SIGTERM during a graceful shutdown). A partial cancellation
+        # between sending and acknowledging would leave the doc with
+        # `ai-approved` cleared but `ai-propagated` not added — the doc
+        # would re-enter the AI pipeline on next boot and could double-
+        # apply suggested tags. shield() guarantees the PATCH either
+        # completes or never starts.
+        await asyncio.shield(
+            paperless.patch_document_native_fields(
+                doc_id,
+                correspondent=correspondent_id,
+                document_type=document_type_id,
+                created_date=created_date,
+                tags=sorted(new_tag_set),
+                title=ai_title,
+            )
         )
 
         # Successful propagation clears any prior failure message. Propagation

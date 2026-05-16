@@ -11,6 +11,7 @@ restart, network blip).
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 from typing import TYPE_CHECKING
 
@@ -38,7 +39,7 @@ async def trigger_extraction(request: web.Request) -> web.Response:
     expected_secret = request.app[_SECRET_KEY]
     if expected_secret:
         provided = request.headers.get("X-Aktenraum-Secret", "")
-        if provided != expected_secret:
+        if not hmac.compare_digest(provided, expected_secret):
             return web.json_response({"error": "unauthorized"}, status=401)
 
     try:
@@ -55,7 +56,17 @@ async def trigger_extraction(request: web.Request) -> web.Response:
         )
 
     queue: asyncio.Queue[int] = request.app[_QUEUE_KEY]
-    queue.put_nowait(doc_id)
+    try:
+        queue.put_nowait(doc_id)
+    except asyncio.QueueFull:
+        log.warning(
+            "webhook_queue_full",
+            doc_id=doc_id,
+            qsize=queue.qsize(),
+        )
+        return web.json_response(
+            {"error": "queue full, retry shortly"}, status=503
+        )
     log.info("webhook_enqueued", doc_id=doc_id, queue_size=queue.qsize())
     return web.json_response({"queued": doc_id}, status=202)
 

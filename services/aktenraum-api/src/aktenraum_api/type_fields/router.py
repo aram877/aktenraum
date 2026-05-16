@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 from dataclasses import asdict
 
 from aktenraum_core.models import TYPE_FIELD_SCHEMA
@@ -25,7 +26,7 @@ def _require_user_or_secret(
 ) -> None:
     """Allow JWT-authenticated users OR the shared webhook secret (for auto-tagger)."""
     if x_aktenraum_secret is not None and settings.webhook_secret:
-        if x_aktenraum_secret == settings.webhook_secret:
+        if hmac.compare_digest(x_aktenraum_secret, settings.webhook_secret):
             return
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid secret")
     # Fall through to JWT check via cookie

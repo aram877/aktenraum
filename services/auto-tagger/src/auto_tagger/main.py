@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import signal
 
 import structlog
 from aktenraum_core.paperless import LIFECYCLE_TAGS, PaperlessClient
@@ -245,9 +246,44 @@ async def run() -> None:
         if indexing_queue is not None and indexer_deps is not None:
             loops.append(_indexer_worker(indexing_queue, indexer_deps, state))
 
+        # Install SIGTERM/SIGINT handlers that flip a shutdown Event the
+        # gather watches. Without this, asyncio.gather propagates the
+        # cancellation across all loops simultaneously and the propagator
+        # can be cut mid-PATCH. The propagator's PATCH is shielded
+        # internally; here we just give every loop a chance to finish
+        # the current iteration before we tear the gather down.
+        shutdown = asyncio.Event()
+        loop = asyncio.get_running_loop()
+
+        def _request_shutdown() -> None:
+            log.info("shutdown_signal_received")
+            shutdown.set()
+
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            try:
+                loop.add_signal_handler(sig, _request_shutdown)
+            except NotImplementedError:
+                # Windows asyncio doesn't support add_signal_handler; the
+                # default KeyboardInterrupt path applies. Tauri spawns docker
+                # so the host signal still works.
+                pass
+
+        gather_task = asyncio.gather(*loops, return_exceptions=True)
+        wait_shutdown = asyncio.create_task(shutdown.wait())
         try:
-            await asyncio.gather(*loops)
+            done, _pending = await asyncio.wait(
+                [gather_task, wait_shutdown],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if wait_shutdown in done:
+                log.info("draining_loops")
+                gather_task.cancel()
+                try:
+                    await gather_task
+                except asyncio.CancelledError:
+                    pass
         finally:
+            wait_shutdown.cancel()
             if vector_store is not None:
                 await vector_store.aclose()
 

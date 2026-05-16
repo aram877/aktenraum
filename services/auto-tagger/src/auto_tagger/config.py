@@ -38,21 +38,17 @@ class Settings(BaseSettings):
     enable_propagation: bool = Field(True)
 
     # Confidence-based routing.
-    #   AUTO_APPROVE_CONFIDENCE: minimum confidence (any document type) to
-    #     skip the human review queue and tag a doc `ai-approved` directly.
-    #     The propagation loop then writes native fields automatically. We
-    #     also tag `ai-auto-approved` so the UI can mark these docs as
-    #     "auto-genehmigt" permanently. Default 0.90.
-    #   AUTO_APPROVE_TYPES: deprecated. Kept as a parsed env so existing
-    #     deployments don't error on startup, but no longer consulted by
-    #     `_route_lifecycle_tags`. Will be removed in a future release.
+    #   AUTO_APPROVE_CONFIDENCE: minimum confidence to skip review and tag
+    #     `ai-approved` directly. Default 0.90.
+    #   AUTO_APPROVE_TYPES: hard allowlist on top of the confidence threshold.
+    #     Both must be satisfied for a doc to auto-approve. Empty list disables
+    #     auto-approve entirely — that's the secure default. Without this gate
+    #     a prompt-injected PDF could emit confidence=0.99 and slip past review.
+    #     Comma-separated env value: `AUTO_APPROVE_TYPES=Rechnung,Kontoauszug`.
     #   LOW_CONFIDENCE_THRESHOLD: extractions below this confidence are tagged
     #     ai-low-confidence in addition to ai-pending so the user can
     #     prioritise them in the review queue.
     auto_approve_confidence: float = Field(0.90, ge=0.0, le=1.0)
-    # NoDecode disables pydantic-settings's default JSON parsing so a plain
-    # comma-separated env value is parsed by the validator below. Currently
-    # unused at runtime — kept to avoid breaking deployments that still set it.
     auto_approve_types: Annotated[list[str], NoDecode] = Field(default_factory=list)
     low_confidence_threshold: float = Field(0.6, ge=0.0, le=1.0)
 

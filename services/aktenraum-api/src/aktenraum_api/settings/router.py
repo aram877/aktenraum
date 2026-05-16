@@ -14,6 +14,8 @@ localhost.
 
 from __future__ import annotations
 
+import hmac
+
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -79,9 +81,12 @@ async def get_active_llm_model_internal(
     """Auto-tagger reads the active model from here before each
     extraction. Authless by design (in-network only); if
     WEBHOOK_SECRET is configured, the header must match."""
-    if settings.webhook_secret and x_aktenraum_secret != settings.webhook_secret:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Bad secret"
-        )
+    if settings.webhook_secret:
+        if x_aktenraum_secret is None or not hmac.compare_digest(
+            x_aktenraum_secret, settings.webhook_secret
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Bad secret"
+            )
     quality = await service.get_active_quality(session)
     return _to_response(quality)

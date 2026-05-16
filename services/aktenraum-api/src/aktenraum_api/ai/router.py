@@ -423,16 +423,34 @@ async def _stream_answer_events(
             structural_filter=search_filter,
         )
 
-    # Step 3b — pick which docs make it into the prompt. With RAG, the
-    # reranker has already picked the top-N most relevant chunks; we
-    # use those docs as candidates (deduped by doc_id, preserving rank
-    # order). Without RAG, fall back to the structural retrieval order.
-    rag_doc_ids = _ranked_unique_doc_ids(rag_chunks)
-    if rag_doc_ids:
-        prompt_results = _reorder_or_fetch(results, rag_doc_ids, gateway)
-        prompt_results = await prompt_results
-    else:
-        prompt_results = results[:_ANSWER_CONTEXT_SIZE]
+    # Step 3b — pick which docs make it into the prompt.
+    #
+    # Structural results (from Paperless with date/type/correspondent
+    # filters) are always the primary candidates — they have date-range
+    # precision that RAG cannot replicate (Qdrant payload filters don't
+    # support date ranges). A query like "August 2025 Gehaltsabrechnung"
+    # returns exactly that doc from Paperless; RAG may rank other months
+    # higher by semantic similarity and would silently replace the right doc.
+    #
+    # RAG's role here is enrichment: its chunks attach as "Relevante
+    # Auszüge" to whichever candidate docs they belong to. RAG can also
+    # surface docs the structural filter missed (semantic-only hits); those
+    # fill any remaining slots.
+    prompt_results: list[DocumentSummary] = list(results[:_ANSWER_CONTEXT_SIZE])
+    if rag_chunks:
+        structural_ids = {r.id for r in prompt_results}
+        remaining = _ANSWER_CONTEXT_SIZE - len(prompt_results)
+        for doc_id in _ranked_unique_doc_ids(rag_chunks):
+            if remaining <= 0:
+                break
+            if doc_id not in structural_ids:
+                try:
+                    doc = await gateway.get_document(doc_id)
+                    prompt_results.append(_doc_to_summary(doc))
+                    structural_ids.add(doc_id)
+                    remaining -= 1
+                except Exception:
+                    log.warning("rag_doc_summary_fetch_failed", doc_id=doc_id)
 
     # Step 3c — streamed prose. Accumulate so the terminal `final` event
     # can carry the full text for archival, and so post-hoc citation

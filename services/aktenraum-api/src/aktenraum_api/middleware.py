@@ -118,6 +118,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):  # type: ignore[override]
         response: Response = await call_next(request)
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
-        response.headers.setdefault("X-Frame-Options", "DENY")
+        # Preview and download endpoints are intentionally served in iframes by
+        # the SPA — skip X-Frame-Options so the browser doesn't block them.
+        if not request.url.path.endswith(("/preview", "/download")):
+            response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Referrer-Policy", "no-referrer")
         return response

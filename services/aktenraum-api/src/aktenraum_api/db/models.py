@@ -51,6 +51,9 @@ class AppSettings(Base):
     # quality name (not the model tag) so we can swap the underlying
     # models later without a migration.
     llm_quality: Mapped[str] = mapped_column(String(16), nullable=False, default="high")
+    # Quality tier for the answer/Q&A step (/api/ai/answer). Defaults to
+    # "high" so the answer model is the more capable one out of the box.
+    answer_llm_quality: Mapped[str] = mapped_column(String(16), nullable=False, default="high")
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

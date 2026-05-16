@@ -85,11 +85,13 @@ async def _build_backend(
             anthropic_model=model,
         )
     if backend == "ollama":
-        # Runtime model name wins over OLLAMA_MODEL env. The answer step
-        # still honours OLLAMA_ANSWER_MODEL if explicitly set — that env
-        # is the "deployer pin" path; the DB is the "user choice" path.
+        # OLLAMA_ANSWER_MODEL env is the deployer-pin path (backwards compat).
+        # Otherwise the answer step reads its own quality from the DB so
+        # the user can pick tagger and answer models independently.
         if role == "answer" and settings.ollama_answer_model:
             model = settings.ollama_answer_model
+        elif role == "answer":
+            model = await settings_service.get_active_answer_model(session)
         else:
             model = await settings_service.get_active_model(session)
         return create_backend(

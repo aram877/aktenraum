@@ -51,6 +51,25 @@ async def update_llm_settings(
     return _to_response(row.llm_quality)
 
 
+@router.get("/answer-llm", response_model=LLMSettings)
+async def get_answer_llm_settings(
+    _user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> LLMSettings:
+    quality = await service.get_active_answer_quality(session)
+    return _to_response(quality)
+
+
+@router.patch("/answer-llm", response_model=LLMSettings)
+async def update_answer_llm_settings(
+    body: LLMSettingsUpdate,
+    _user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> LLMSettings:
+    row = await service.set_active_answer_quality(session, body.quality)
+    return _to_response(row.answer_llm_quality)
+
+
 @router.get("/active-llm-model", response_model=LLMSettings)
 async def get_active_llm_model_internal(
     session: AsyncSession = Depends(get_session),

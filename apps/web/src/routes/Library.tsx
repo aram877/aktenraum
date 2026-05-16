@@ -133,6 +133,12 @@ export function Library({ search }: { search: Search }) {
 
   const tab = search.tab ?? "archive";
 
+  // Pending-review count for the tab badge. Same query the Nav uses
+  // (pageSize:1, just to read .total), so TanStack Query dedups and the
+  // two badges stay in sync without an extra round trip.
+  const inboxStats = useInboxList({ pageSize: 1 });
+  const reviewCount = inboxStats.data?.total ?? null;
+
   // ----- Bulk reprocess (archive tab only) -----
   const bulkReprocess = useBulkReprocess();
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -205,9 +211,17 @@ export function Library({ search }: { search: Search }) {
         <nav className="flex gap-1">
           <button
             onClick={() => navigate({ to: "/library", search: { tab: "review" } })}
-            className={tabCls("review")}
+            className={`${tabCls("review")} inline-flex items-center gap-1.5`}
           >
-            Zur Prüfung
+            <span>Zur Prüfung</span>
+            {reviewCount !== null && reviewCount > 0 && (
+              <span
+                title="Dokumente zur Prüfung"
+                className="inline-flex min-w-[1.25rem] justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-semibold text-white"
+              >
+                {reviewCount}
+              </span>
+            )}
           </button>
           <button
             onClick={() =>

@@ -13,6 +13,10 @@ from __future__ import annotations
 import json
 from datetime import date
 
+from aktenraum_core.models import DocumentType
+
+from .prompt_modules import field_labels_for, module_for, parse_document_type
+
 
 def build_answer_messages(question: str, *, candidates: list[dict]) -> list[dict]:
     """Return [system, user] messages for the answer LLM call.
@@ -25,15 +29,15 @@ def build_answer_messages(question: str, *, candidates: list[dict]) -> list[dict
           "ai_reference_numbers": str|None,
         }
     """
-    system = _system_prompt()
-    user = _user_prompt(question, candidates)
+    system = _system_prompt(candidates=candidates)
+    user = _user_prompt(question, candidates, json_mode=True)
     return [
         {"role": "system", "content": system},
         {"role": "user", "content": user},
     ]
 
 
-def _system_prompt() -> str:
+def _system_prompt(*, candidates: list[dict]) -> str:
     parts: list[str] = []
     parts.append(
         "Du bist ein Assistent für ein persönliches Dokumenten-System. "
@@ -59,35 +63,20 @@ def _system_prompt() -> str:
     )
     parts.append(f"- Heute ist {date.today().isoformat()}.")
     parts.append("")
-    parts.append("Feld-Hinweise (wichtig — nutze diese Felder direkt!):")
-    parts.append(
-        "- Fragen nach Ausstellungsdatum / 'wann ausgestellt' → Feld 'Ausstellung'."
-    )
-    parts.append(
-        "- Geldbeträge stehen in den typspezifischen Feldern (z. B. "
-        "Rechnung-Gesamtbetrag, Mahnung-Forderungsbetrag, Steuer-Erstattung). "
-        "Wenn keines passt, verwende die Textauszüge weiter unten."
-    )
-    parts.append(
-        "- Wenn ein passendes Feld bereits einen Wert hat, IST das die Antwort. "
-        "Sage NICHT 'keine Information', wenn das Feld gefüllt ist."
-    )
+    parts.extend(_assembled_field_hints(candidates))
     return "\n".join(parts)
 
 
-def _user_prompt(question: str, candidates: list[dict]) -> str:
+def _user_prompt(
+    question: str,
+    candidates: list[dict],
+    *,
+    json_mode: bool,
+) -> str:
     parts: list[str] = []
     parts.append("Beispiele wie du Felder verwendest:")
-    parts.append(
-        "  Frage: 'Wann wurde mein Pass ausgestellt?'"
-        "  Dokument hat Ausstellung: 2024-05-12"
-        '  → {"answer_de": "Dein Pass wurde am 12.05.2024 ausgestellt.", "cited_ids": [<id>]}'
-    )
-    parts.append(
-        "  Frage: 'Was hat die Stromrechnung gekostet?'"
-        "  Auszug nennt einen Gesamtbetrag von 149,99 €"
-        '  → {"answer_de": "Die Stromrechnung betrug 149,99 €.", "cited_ids": [<id>]}'
-    )
+    for example in _assembled_examples(candidates, json_mode=json_mode):
+        parts.append(example)
     parts.append("")
     parts.append(f"Frage: {question}")
     parts.append("")
@@ -103,6 +92,105 @@ def _user_prompt(question: str, candidates: list[dict]) -> str:
         '{"answer_de": "...", "cited_ids": [...]}.'
     )
     return "\n".join(parts)
+
+
+def _candidate_doc_types(candidates: list[dict]) -> list[DocumentType]:
+    """Distinct DocumentType values from candidates, ordered by first appearance.
+
+    Unknown / null types are dropped silently. Order matters for prompt-cache
+    stability so we walk `candidates` in input order rather than sorting.
+    """
+    seen: set[DocumentType] = set()
+    out: list[DocumentType] = []
+    for c in candidates:
+        dt = parse_document_type(c.get("document_type"))
+        if dt is None or dt in seen:
+            continue
+        seen.add(dt)
+        out.append(dt)
+    return out
+
+
+def _assembled_field_hints(candidates: list[dict]) -> list[str]:
+    """Per-doc-type "Feld-Hinweise" block based on candidates.
+
+    Always emits a header so the section is greppable. Falls back to a
+    generic one-liner when no candidate matches a known module (empty
+    list / all `Sonstiges` / all unknown types).
+    """
+    lines: list[str] = ["Feld-Hinweise (wichtig — nutze diese Felder direkt!):"]
+    matched = False
+    for dt in _candidate_doc_types(candidates):
+        mod = module_for(dt)
+        labels = field_labels_for(dt)
+        if not mod.answer_hint and not labels:
+            continue
+        matched = True
+        label_part = f" Felder: {', '.join(labels)}." if labels else ""
+        hint_part = f" {mod.answer_hint}" if mod.answer_hint else ""
+        lines.append(f"- {dt.value}-Dokumente —{label_part}{hint_part}".rstrip())
+    if not matched:
+        lines.append(
+            "- Nutze die typenspezifischen Felder, wenn welche gefüllt sind. "
+            "Wenn ein passendes Feld einen Wert hat, IST das die Antwort."
+        )
+    lines.append(
+        "- Wenn ein passendes Feld bereits einen Wert hat, IST das die Antwort. "
+        "Sage NICHT 'keine Information', wenn das Feld gefüllt ist."
+    )
+    return lines
+
+
+def _assembled_examples(candidates: list[dict], *, json_mode: bool) -> list[str]:
+    """Per-doc-type worked examples, one per distinct type present.
+
+    The module examples target the streaming `[Quelle: N]` syntax. When
+    `json_mode=True` (the non-streaming /answer endpoint) the same content
+    is wrapped in the JSON envelope so the LLM sees the expected output
+    shape for that path. Falls back to one generic citation-format example
+    so the LLM always has at least one Beispiel to follow.
+    """
+    raw: list[str] = []
+    for dt in _candidate_doc_types(candidates):
+        example = module_for(dt).answer_example
+        if example:
+            raw.append(example)
+    if not raw:
+        raw.append(
+            "Frage: 'Wann wurde mein Pass ausgestellt?'\n"
+            "Dokument hat Ausstellung: 2024-05-12\n"
+            "→ 'Dein Pass wurde am 12.05.2024 ausgestellt. [Quelle: 17]'"
+        )
+    if not json_mode:
+        return raw
+    return [_to_json_envelope(example) for example in raw]
+
+
+def _to_json_envelope(streaming_example: str) -> str:
+    """Convert a streaming `[Quelle: N]` example into the JSON-envelope form.
+
+    Reuses the streaming module text as the source of truth so the two
+    paths never drift. The conversion is deliberately textual rather
+    than parsing-based — the examples are small fixed strings and the
+    regex would not be more readable than a single .replace pass.
+    """
+    import re as _re
+
+    # Replace the trailing `→ '… [Quelle: N]'` arrow line with the JSON form.
+    def _swap(match: _re.Match[str]) -> str:
+        prose = match.group(1).strip()
+        cited = match.group(2)
+        prose_clean = _re.sub(r"\s*\[Quelle:\s*\d+\s*\]\s*", "", prose).strip()
+        return (
+            f'→ {{"answer_de": "{prose_clean}", "cited_ids": [{cited}]}}'
+        )
+
+    return _re.sub(
+        r"→\s*'(.+?\[Quelle:\s*(\d+)\s*\])'",
+        _swap,
+        streaming_example,
+        flags=_re.DOTALL,
+    )
 
 
 def _render_candidate(c: dict, *, chunks: list[str] | None = None) -> str:
@@ -190,7 +278,10 @@ def build_streaming_answer_messages(
     deployment without Qdrant still works.
     """
     return [
-        {"role": "system", "content": _streaming_system_prompt()},
+        {
+            "role": "system",
+            "content": _streaming_system_prompt(candidates=candidates),
+        },
         {
             "role": "user",
             "content": _streaming_user_prompt(
@@ -200,7 +291,7 @@ def build_streaming_answer_messages(
     ]
 
 
-def _streaming_system_prompt() -> str:
+def _streaming_system_prompt(*, candidates: list[dict]) -> str:
     parts: list[str] = []
     parts.append(
         "Du bist ein Assistent für ein persönliches Dokumenten-System. "
@@ -226,19 +317,7 @@ def _streaming_system_prompt() -> str:
     )
     parts.append(f"- Heute ist {date.today().isoformat()}.")
     parts.append("")
-    parts.append("Feld-Hinweise (wichtig — nutze diese Felder direkt!):")
-    parts.append("- 'wann ausgestellt' → Feld 'Ausstellung'.")
-    parts.append(
-        "- 'wieviel' / 'kosten' / 'ausgegeben' / 'verdient' / 'Gehalt' / 'Netto' → "
-        "Geldbeträge stehen in den typspezifischen Feldern "
-        "(Rechnung-Gesamtbetrag, Mahnung-Forderungsbetrag, "
-        "Gehaltsabrechnung-Nettogehalt / Bruttogehalt etc.) "
-        "und in den Textauszügen."
-    )
-    parts.append(
-        "- Wenn ein passendes Feld bereits einen Wert hat, IST das die Antwort. "
-        "Sage NICHT 'keine Information', wenn das Feld gefüllt ist."
-    )
+    parts.extend(_assembled_field_hints(candidates))
     parts.append(
         "- Wenn nach dem Gesamtbetrag über mehrere Dokumente gefragt wird "
         "('wie viel habe ich bei X ausgegeben', 'Gesamtausgaben'), "
@@ -246,6 +325,18 @@ def _streaming_system_prompt() -> str:
         "Liste auch die Einzelbeträge auf."
     )
     return "\n".join(parts)
+
+
+# Citation-format examples kept static across calls — they teach the inline
+# `[Quelle: N]` syntax and the cross-doc aggregation shape; both are
+# orthogonal to per-type field guidance. Per-type examples are appended on
+# top via `_assembled_examples`.
+_STATIC_AGGREGATION_EXAMPLE = (
+    "Frage: 'Wie viel habe ich bei Wizz Air ausgegeben?'\n"
+    "3 Dokumente mit Gesamtbetrag: EUR676.50, EUR55.00, EUR45.00\n"
+    "→ 'Du hast insgesamt 776,50 € bei Wizz Air ausgegeben "
+    "(676,50 € + 55,00 € + 45,00 €). [Quelle: 109, 132, 133]'"
+)
 
 
 def _streaming_user_prompt(
@@ -256,27 +347,9 @@ def _streaming_user_prompt(
 ) -> str:
     parts: list[str] = []
     parts.append("Beispiele für korrektes Format:")
-    parts.append(
-        "  Frage: 'Wann wurde mein Pass ausgestellt?'\n"
-        "  Dokument hat Ausstellung: 2024-05-12\n"
-        "  → 'Dein Pass wurde am 12.05.2024 ausgestellt. [Quelle: 17]'"
-    )
-    parts.append(
-        "  Frage: 'Was hat die Stromrechnung gekostet?'\n"
-        "  Auszug nennt einen Gesamtbetrag von 149,99 €\n"
-        "  → 'Die Stromrechnung betrug 149,99 €. [Quelle: 23]'"
-    )
-    parts.append(
-        "  Frage: 'Wie viel habe ich bei Wizz Air ausgegeben?'\n"
-        "  3 Dokumente mit Gesamtbetrag: EUR676.50, EUR55.00, EUR45.00\n"
-        "  → 'Du hast insgesamt 776,50 € bei Wizz Air ausgegeben "
-        "(676,50 € + 55,00 € + 45,00 €). [Quelle: 109, 132, 133]'"
-    )
-    parts.append(
-        "  Frage: 'Wie viel habe ich im August 2025 verdient?'\n"
-        "  Dokument hat Typenspezifische Felder: Bruttogehalt: EUR4820.00, Nettogehalt: EUR3144.16\n"
-        "  → 'Im August 2025 hast du brutto 4.820,00 € und netto 3.144,16 € verdient. [Quelle: 126]'"
-    )
+    for example in _assembled_examples(candidates, json_mode=False):
+        parts.append(example)
+    parts.append(_STATIC_AGGREGATION_EXAMPLE)
     parts.append("")
     parts.append(f"Frage: {question}")
     parts.append("")

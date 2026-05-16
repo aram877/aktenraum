@@ -20,6 +20,9 @@ from __future__ import annotations
 
 from datetime import date
 
+from .intent import detect_intents, doc_types_for_intents
+from .prompt_modules import module_for
+
 # Order matches DocumentType so the prompt enumerates every enum value. The
 # auto-tagger keeps a richer set of definitions for classification; we keep a
 # tighter version here because the search task only needs disambiguation, not
@@ -116,14 +119,18 @@ def build_messages(
     `tags` is the live tag vocabulary (cap 200); pass `None` (or empty) to
     omit the section entirely.
     """
-    system = _build_system_prompt(correspondents=correspondents, tags=tags or [])
+    system = _build_system_prompt(
+        query=query, correspondents=correspondents, tags=tags or []
+    )
     return [
         {"role": "system", "content": system},
         {"role": "user", "content": query},
     ]
 
 
-def _build_system_prompt(*, correspondents: list[str], tags: list[str]) -> str:
+def _build_system_prompt(
+    *, query: str, correspondents: list[str], tags: list[str]
+) -> str:
     parts: list[str] = []
     parts.append(
         "Du bist ein Suchassistent für ein deutsches Dokumentenmanagementsystem. "
@@ -171,7 +178,36 @@ def _build_system_prompt(*, correspondents: list[str], tags: list[str]) -> str:
     for q, f in _FEW_SHOT_EXAMPLES:
         parts.append(f"Beispiel: Anfrage='{q}' → {_format_filter_example(f)}")
 
+    # Intent-driven extras: when the user's question carries a doc-type
+    # hint (e.g. "verdient" → Gehaltsabrechnung), append the modules'
+    # typed few-shots so the LLM sees a concrete mapping for the shape
+    # at hand. Falls through to the static set when no intent fires.
+    extras = _intent_examples(query)
+    for q, f in extras:
+        parts.append(f"Beispiel: Anfrage='{q}' → {_format_filter_example(f)}")
+
     return "\n".join(parts)
+
+
+def _intent_examples(query: str) -> list[tuple[str, dict]]:
+    """Few-shots harvested from every module the question's intents imply.
+
+    Dedupes by question text so a query that triggers two intents both
+    pointing at the same module doesn't double up. Order follows
+    `INTENT_DOC_TYPES` iteration order for prompt-cache stability.
+    """
+    intents = detect_intents(query)
+    if not intents:
+        return []
+    out: list[tuple[str, dict]] = []
+    seen: set[str] = set()
+    for dt in doc_types_for_intents(intents):
+        for question, filter_dict in module_for(dt).filter_examples:
+            if question in seen:
+                continue
+            seen.add(question)
+            out.append((question, filter_dict))
+    return out
 
 
 def _format_filter_example(f: dict) -> str:

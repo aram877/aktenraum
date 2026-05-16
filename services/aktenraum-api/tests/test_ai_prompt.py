@@ -101,3 +101,36 @@ def test_prompt_includes_lebenslauf_few_shot():
     assert "Mein Lebenslauf" in text
     # The exemplar's filter must contain the tag so the LLM sees the mapping.
     assert '"tags": ["Lebenslauf"]' in text
+
+
+def test_salary_query_injects_gehaltsabrechnung_few_shot():
+    """`detect_intents` should fire SALARY on 'verdient'; the module's
+    extra few-shot must reach the system prompt so the LLM sees a typed
+    mapping for the salary shape."""
+    text = _system_text(
+        build_messages("Wie viel habe ich im März 2025 verdient?", correspondents=[])
+    )
+    # Static few-shot (always present) + module-injected example.
+    assert text.count("Gehaltsabrechnung") >= 2
+    # The module example uses a single-month date range; the static one
+    # uses a full-year range. Both should appear.
+    assert "2025-03-01" in text and "2025-03-31" in text
+
+
+def test_kfz_query_injects_hu_few_shot():
+    """ID_DOCUMENT intent maps to Ausweis + Kfz; the Kfz module ships
+    a TÜV-question example."""
+    text = _system_text(
+        build_messages("Wann ist die nächste TÜV?", correspondents=[])
+    )
+    # The Kfz module's example pulls a Kfz filter into the prompt.
+    assert '"document_type": "Kfz"' in text
+
+
+def test_neutral_question_falls_back_to_static_few_shots():
+    """Questions without an intent-detected keyword should not gain extra
+    examples beyond the static set. Stable prompt-cache hits for the
+    common "browse my docs" flow."""
+    neutral = _system_text(build_messages("Hallo Welt", correspondents=[]))
+    # Six static examples — no intent hits, so the count stays at exactly six.
+    assert neutral.count("Beispiel:") == 6

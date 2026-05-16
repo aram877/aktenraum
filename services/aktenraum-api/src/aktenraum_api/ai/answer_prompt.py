@@ -11,11 +11,67 @@ Pure function — no I/O.
 from __future__ import annotations
 
 import json
+import re
+from collections import defaultdict
 from datetime import date
 
 from aktenraum_core.models import DocumentType
 
 from .prompt_modules import field_labels_for, module_for, parse_document_type
+
+_EUR_VALUE_RE = re.compile(r"^EUR(-?\d+(?:\.\d{1,2})?)$")
+
+
+def _parse_eur(value: object) -> float | None:
+    """Parse 'EUR1234.56' → 1234.56. Returns None for non-monetary values."""
+    if not isinstance(value, str):
+        return None
+    m = _EUR_VALUE_RE.match(value.strip())
+    return float(m.group(1)) if m else None
+
+
+def _compute_type_aggregations(candidates: list[dict]) -> list[str]:
+    """Pre-compute sums of monetary type_specific_fields, grouped by doc type.
+
+    Activated when ≥2 candidates share the same document_type AND at least one
+    monetary field (EUR-prefixed). Returns formatted lines to inject before the
+    document list so the model reads a pre-computed total instead of having to
+    add up 12 salary figures itself.
+
+    Single-doc queries get nothing (aggregation would be redundant).
+    """
+    type_sums: dict[str, dict[str, tuple[str, float]]] = defaultdict(dict)
+    type_count: dict[str, int] = defaultdict(int)
+
+    for c in candidates:
+        dt = c.get("document_type") or ""
+        if not dt:
+            continue
+        type_count[dt] += 1
+        for f in (c.get("type_specific_fields") or []):
+            name = f.get("name") or ""
+            label = f.get("label") or name
+            amount = _parse_eur(f.get("value"))
+            if amount is None or not name:
+                continue
+            if name in type_sums[dt]:
+                prev_label, prev_total = type_sums[dt][name]
+                type_sums[dt][name] = (prev_label, prev_total + amount)
+            else:
+                type_sums[dt][name] = (label, amount)
+
+    lines: list[str] = []
+    for dt, sums in type_sums.items():
+        if type_count[dt] < 2 or not sums:
+            continue
+        n = type_count[dt]
+        lines.append(
+            f"Berechnete Summen — {n} {dt}-Dokumente"
+            " (WICHTIG: direkt als Antwort verwenden, nicht neu berechnen):"
+        )
+        for _name, (label, total) in sums.items():
+            lines.append(f"  {label}: EUR{total:.2f}")
+    return lines
 
 
 def build_answer_messages(question: str, *, candidates: list[dict]) -> list[dict]:
@@ -80,6 +136,11 @@ def _user_prompt(
     parts.append("")
     parts.append(f"Frage: {question}")
     parts.append("")
+    agg_lines = _compute_type_aggregations(candidates)
+    if agg_lines:
+        for line in agg_lines:
+            parts.append(line)
+        parts.append("")
     parts.append("Verfügbare Dokumente:")
     if not candidates:
         parts.append("(keine)")
@@ -353,6 +414,11 @@ def _streaming_user_prompt(
     parts.append("")
     parts.append(f"Frage: {question}")
     parts.append("")
+    agg_lines = _compute_type_aggregations(candidates)
+    if agg_lines:
+        for line in agg_lines:
+            parts.append(line)
+        parts.append("")
     parts.append("Verfügbare Dokumente:")
     if not candidates:
         parts.append("(keine)")

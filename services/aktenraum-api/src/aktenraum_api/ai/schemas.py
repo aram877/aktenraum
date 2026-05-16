@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import calendar
+import re
 from datetime import date
 
 from aktenraum_core.models import DocumentType
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+_ISO_DATE_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
 
 
 class SearchFilter(BaseModel):
@@ -21,6 +25,30 @@ class SearchFilter(BaseModel):
     date_to: date | None = None
     text: str | None = None
     tags: list[str] = Field(default_factory=list)
+
+    @field_validator("date_from", "date_to", mode="before")
+    @classmethod
+    def _clamp_date(cls, v: object) -> object:
+        """Clamp out-of-range days to the last valid day of the month.
+
+        Small models frequently emit "2026-02-29" for February even in
+        non-leap years (or "2023-11-31" for November). Rather than
+        failing with a validation error after three retries, we silently
+        correct the day so the rest of the filter is still usable.
+        """
+        if not isinstance(v, str):
+            return v
+        m = _ISO_DATE_RE.match(v)
+        if not m:
+            return v
+        year, month, day = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        try:
+            last_day = calendar.monthrange(year, month)[1]
+        except Exception:
+            return v
+        if day > last_day:
+            return date(year, month, last_day)
+        return v
 
     @model_validator(mode="after")
     def _strip_strings(self) -> SearchFilter:

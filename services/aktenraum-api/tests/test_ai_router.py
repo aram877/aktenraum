@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -9,6 +10,32 @@ from httpx import AsyncClient
 
 from aktenraum_api.ai.deps import get_llm_backend, get_paperless_gateway
 from aktenraum_api.ai.schemas import SearchFilter
+
+# --- Pure SearchFilter validator tests (no HTTP needed) ---
+
+
+def test_search_filter_clamps_feb_29_in_non_leap_year():
+    f = SearchFilter.model_validate({"date_to": "2026-02-29"})
+    assert f.date_to == date(2026, 2, 28)
+
+
+def test_search_filter_clamps_nov_31():
+    f = SearchFilter.model_validate({"date_to": "2025-11-31"})
+    assert f.date_to == date(2025, 11, 30)
+
+
+def test_search_filter_allows_feb_29_in_leap_year():
+    f = SearchFilter.model_validate({"date_from": "2024-02-29"})
+    assert f.date_from == date(2024, 2, 29)
+
+
+def test_search_filter_passes_valid_date_unchanged():
+    f = SearchFilter.model_validate({"date_from": "2026-02-01", "date_to": "2026-02-28"})
+    assert f.date_from == date(2026, 2, 1)
+    assert f.date_to == date(2026, 2, 28)
+
+
+# --- HTTP-level tests ---
 
 
 class _FakeBackend:

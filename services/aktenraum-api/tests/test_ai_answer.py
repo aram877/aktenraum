@@ -107,6 +107,80 @@ def test_answer_prompt_includes_type_specific_fields():
     assert "Abrechnungsmonat: 2024-09" in user
 
 
+def test_answer_prompt_aggregates_multi_doc_salary():
+    """Annual query: 2 payslips → pre-computed sums appear before the doc list."""
+    from aktenraum_api.ai.answer_prompt import _compute_type_aggregations
+
+    candidates = [
+        {
+            "id": 10,
+            "document_type": "Gehaltsabrechnung",
+            "type_specific_fields": [
+                {"name": "bruttogehalt", "label": "Bruttogehalt", "value": "EUR4200.00"},
+                {"name": "nettogehalt", "label": "Nettogehalt", "value": "EUR2700.00"},
+            ],
+        },
+        {
+            "id": 11,
+            "document_type": "Gehaltsabrechnung",
+            "type_specific_fields": [
+                {"name": "bruttogehalt", "label": "Bruttogehalt", "value": "EUR4200.00"},
+                {"name": "nettogehalt", "label": "Nettogehalt", "value": "EUR2700.00"},
+            ],
+        },
+    ]
+    lines = _compute_type_aggregations(candidates)
+    block = "\n".join(lines)
+    assert "Berechnete Summen" in block
+    assert "EUR8400.00" in block  # 4200 + 4200
+    assert "EUR5400.00" in block  # 2700 + 2700
+
+
+def test_answer_prompt_no_aggregation_for_single_doc():
+    from aktenraum_api.ai.answer_prompt import _compute_type_aggregations
+
+    candidates = [
+        {
+            "id": 10,
+            "document_type": "Gehaltsabrechnung",
+            "type_specific_fields": [
+                {"name": "bruttogehalt", "label": "Bruttogehalt", "value": "EUR4200.00"},
+            ],
+        }
+    ]
+    assert _compute_type_aggregations(candidates) == []
+
+
+def test_answer_prompt_aggregation_injected_into_streaming_prompt():
+    """The pre-computed sums block appears in the streaming user message."""
+    from aktenraum_api.ai.answer_prompt import build_streaming_answer_messages
+
+    candidates = [
+        {
+            "id": i,
+            "title": f"Gehaltsabrechnung {i}",
+            "correspondent": "Acme",
+            "document_type": "Gehaltsabrechnung",
+            "created": f"2023-{i:02d}-28",
+            "ai_summary_de": None,
+            "ai_issue_date": None,
+            "ai_reference_numbers": None,
+            "type_specific_fields": [
+                {"name": "bruttogehalt", "label": "Bruttogehalt", "value": "EUR4000.00"},
+                {"name": "nettogehalt", "label": "Nettogehalt", "value": "EUR2600.00"},
+            ],
+        }
+        for i in range(1, 4)  # 3 payslips
+    ]
+    msgs = build_streaming_answer_messages(
+        "Wie viel habe ich 2023 verdient?", candidates=candidates
+    )
+    user = msgs[1]["content"]
+    assert "Berechnete Summen" in user
+    assert "EUR12000.00" in user  # 3 × 4000
+    assert "EUR7800.00" in user   # 3 × 2600
+
+
 def test_answer_prompt_omits_type_section_when_empty():
     candidates = [
         {

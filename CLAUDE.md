@@ -15,6 +15,19 @@ Self-hosted personal DMS built on Paperless-ngx with an AI classification layer.
 
 ---
 
+## Skills for Claude (auto-invoked from `.claude/skills/<name>/SKILL.md`)
+
+Six project-specific skills capture the patterns and gotchas that recur in this repo. Each loads automatically when its trigger conditions match — e.g. editing `paperless_gw.py` auto-loads `paperless-api-integration`. When in doubt, invoke them explicitly with `/<skill-name>`.
+
+- **[`paperless-api-integration`](.claude/skills/paperless-api-integration/SKILL.md)** — every Paperless REST API gotcha (`?name__iexact=` not `?name=`, custom_fields full-array PATCH replace, monetary/date normalisers, 128-char string limits, longtext fields, `swap_lifecycle_tag` TOCTOU+retry, entity-cache TTL invalidation). Auto-loads when touching `PaperlessClient` or `PaperlessGateway`.
+- **[`llm-extraction-fallbacks`](.claude/skills/llm-extraction-fallbacks/SKILL.md)** — the small-LLM field-drop problem rooted in Pydantic defaults, the post-extraction synthesizer pattern (`_synthesize_*`), the OCR-regex heuristic for ref-numbers, and the prompt-tightening conventions. Auto-loads when editing `tagger.py`, `extraction.py`, or investigating "empty `ai_*` field" reports.
+- **[`aktenraum-commit-discipline`](.claude/skills/aktenraum-commit-discipline/SKILL.md)** — the project-specific commit rules (never commit before tests, never commit after a bug fix without user confirmation) plus the binding documentation cadence (session note + ADR + CLAUDE.md update in the same commit). Auto-loads before any commit/push.
+- **[`fastapi-route-pattern`](.claude/skills/fastapi-route-pattern/SKILL.md)** — the standard router/service/schemas layout, dependency-injection order, gateway-error → HTTP-status mapping (404/409/502), CSRF compatibility, the get-document-then-patch idiom. Auto-loads when editing any `aktenraum_api/*/router.py`.
+- **[`lifecycle-tag-state-machine`](.claude/skills/lifecycle-tag-state-machine/SKILL.md)** — the 8 lifecycle/auxiliary tags, valid transitions, who owns each, the `asyncio.shield()` requirement around lifecycle PATCHes, idempotency expectations. Auto-loads when editing `tagger.py`, `propagator.py`, `indexer.py`, `inbox/service.py`, or `swap_lifecycle_tag`.
+- **[`spa-data-fetching`](.claude/skills/spa-data-fetching/SKILL.md)** — TanStack Query conventions (query-key shape, invalidation rules, `staleTime` table, dedup-by-key for sharing data across components), TanStack Router lazy-route + `RouteSuspense` wrapper, SSE consumer pattern. Auto-loads when editing `apps/web/src/lib/*.ts`, `apps/web/src/routes/*.tsx`, or `router.tsx`.
+
+---
+
 ## Stack (10 services — all in `docker/docker-compose.yml`)
 
 | Service       | Image                               | Role                                                            | Port                                                 |

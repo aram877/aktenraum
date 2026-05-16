@@ -123,6 +123,22 @@ def _synthesize_summary_de(extraction: DocumentExtraction) -> str:
     return " ".join(sentences)
 
 
+def _synthesize_suggested_tags(extraction: DocumentExtraction) -> list[str]:
+    """Derive minimal fallback tags when the LLM returns [].
+
+    Medium and smaller models return [] for suggested_tags despite the "2–5
+    tags" instruction. Rich topic keywords require the document content, which
+    we no longer have at fallback time, so we produce structural tags instead
+    (document type + issue year). These are still useful search anchors —
+    always better than blank.
+    """
+    tags: list[str] = [extraction.document_type.value]
+    issue = (extraction.key_dates.issue or "").strip()
+    if len(issue) >= 4 and issue[:4].isdigit():
+        tags.append(issue[:4])
+    return tags
+
+
 # German reference-number patterns the heuristic extractor looks for in OCR
 # text. Each entry: label (just for logging), and a regex that captures the
 # value to the right of the label. The value pattern is intentionally
@@ -617,6 +633,16 @@ async def process_document(
                 count=len(harvested_refs),
                 values=harvested_refs,
             )
+
+    # suggested_tags fallback: medium/small models return [] despite the
+    # "2–5 tags" instruction. No content-based heuristic can recover rich
+    # topic keywords without the OCR text, so we synthesize structural tags
+    # (document type + year) as a minimal but always-non-empty search anchor.
+    # The LLM's value always wins when non-empty.
+    if not extraction.suggested_tags:
+        synthesized_tags = _synthesize_suggested_tags(extraction)
+        extraction = extraction.model_copy(update={"suggested_tags": synthesized_tags})
+        logger.info("suggested_tags_synthesized", tags=synthesized_tags)
 
     # summary_de fallback: same drop-the-schema-field problem as ai_title
     # and confidence_reason. Pydantic accepts default="" silently, so empty

@@ -74,6 +74,108 @@ def _synthesize_ai_title(extraction: DocumentExtraction) -> str:
         parts.append(date_part)
     return " · ".join(parts)
 
+
+def _synthesize_summary_de(extraction: DocumentExtraction) -> str:
+    """Build a deterministic German summary when the LLM dropped `summary_de`.
+
+    Small local models (≤8B) routinely emit `""` for summary_de despite the
+    "exactly 3 sentences" prompt rule. Pydantic accepts the empty string
+    because `summary_de` has `default=""`, so without a fallback the field
+    lands blank in Paperless. Mirrors the existing `_synthesize_ai_title` /
+    `_fallback_confidence_reason` pattern.
+
+    Strategy: build short, factual German sentences out of the fields we
+    know are present. Result is never empty (document_type is required on
+    DocumentExtraction). Quality is modest by design — the goal is "non-
+    empty, not wrong" so the SPA always has something to show. A larger
+    model's natural-language summary wins whenever the LLM emits one.
+    """
+    doc_type = extraction.document_type.value
+    correspondent = (extraction.correspondent or "").strip()
+    title = (extraction.ai_title or "").strip()
+    date_de = _format_issue_date_de(extraction.key_dates.issue)
+
+    sentences: list[str] = []
+
+    # Sentence 1: type + sender + date — the core identification line.
+    if correspondent and date_de:
+        sentences.append(f"{doc_type} von {correspondent} vom {date_de}.")
+    elif correspondent:
+        sentences.append(f"{doc_type} von {correspondent}.")
+    elif date_de:
+        sentences.append(f"{doc_type} vom {date_de}.")
+    else:
+        sentences.append(f"{doc_type}.")
+
+    # Sentence 2: surface the AI title when it carries info beyond sentence 1.
+    if title and title.lower() not in sentences[0].lower():
+        sentences.append(f"Betreff: {title}.")
+
+    # Sentence 3: prefer reference numbers (concrete, actionable) over tags.
+    refs = [r for r in extraction.reference_numbers if r and r.strip()][:3]
+    if refs:
+        sentences.append(f"Aktenzeichen: {', '.join(refs)}.")
+    else:
+        tags = [t for t in extraction.suggested_tags if t and t.strip()][:3]
+        if tags:
+            sentences.append(f"Themen: {', '.join(tags)}.")
+
+    return " ".join(sentences)
+
+
+# German reference-number patterns the heuristic extractor looks for in OCR
+# text. Each entry: label (just for logging), and a regex that captures the
+# value to the right of the label. The value pattern is intentionally
+# narrow — only alphanumeric runs with /, -, ., _ separators — so OCR noise
+# ("Adresse: …") doesn't get harvested. Bounded to 32 chars to defeat
+# pathological lines.
+_REFERENCE_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("aktenzeichen", r"Aktenzeichen[:\s]+([A-Z0-9][A-Z0-9\-./_]{2,31})"),
+    ("az", r"\bAz\.?[:\s]+([A-Z0-9][A-Z0-9\-./_]{2,31})"),
+    ("rechnungsnr", r"Rechnungs(?:-?Nr\.?|nummer)[:\s]+([A-Z0-9][A-Z0-9\-./_]{2,31})"),
+    ("vertragsnr", r"Vertrags(?:-?Nr\.?|nummer)[:\s]+([A-Z0-9][A-Z0-9\-./_]{2,31})"),
+    ("kundennr", r"Kunden(?:-?Nr\.?|nummer)[:\s]+([A-Z0-9][A-Z0-9\-./_]{2,31})"),
+    ("vorgangsnr", r"Vorgangs?(?:-?Nr\.?|nummer)[:\s]+([A-Z0-9][A-Z0-9\-./_]{2,31})"),
+    ("bestellnr", r"Bestell(?:-?Nr\.?|nummer)[:\s]+([A-Z0-9][A-Z0-9\-./_]{2,31})"),
+    ("auftragsnr", r"Auftrags(?:-?Nr\.?|nummer)[:\s]+([A-Z0-9][A-Z0-9\-./_]{2,31})"),
+    ("policennr", r"Policen(?:-?Nr\.?|nummer)[:\s]+([A-Z0-9][A-Z0-9\-./_]{2,31})"),
+    ("steuernr", r"Steuer(?:-?Nr\.?|nummer)[:\s]+([0-9][0-9\-./_]{2,31})"),
+)
+
+
+def _extract_reference_numbers_from_text(text: str, *, limit: int = 5) -> list[str]:
+    """Fallback heuristic: pull common German reference numbers out of OCR text.
+
+    Triggered only when the LLM emits an empty `reference_numbers` list AND
+    the OCR contains one of `_REFERENCE_PATTERNS`. Returns the first `limit`
+    distinct matches in label-priority order (Aktenzeichen > Az. > Rechnungsnr.
+    > …). Case-insensitive on the label; case-preserving on the captured value.
+
+    Conservative on purpose: a too-greedy regex would harvest dates, phone
+    numbers, IBANs etc., creating noisy "Aktenzeichen" entries the user has
+    to clean up. Limit-32-char numeric/alpha runs after one of the explicit
+    German labels rules out almost all false positives.
+    """
+    if not text:
+        return []
+    import re
+
+    out: list[str] = []
+    seen_lc: set[str] = set()
+    for _label, pattern in _REFERENCE_PATTERNS:
+        for match in re.finditer(pattern, text, re.IGNORECASE):
+            value = match.group(1).strip(".,;:- ")
+            if not value:
+                continue
+            lc = value.lower()
+            if lc in seen_lc:
+                continue
+            seen_lc.add(lc)
+            out.append(value)
+            if len(out) >= limit:
+                return out
+    return out
+
 log = structlog.get_logger()
 
 SYSTEM_PROMPT = """\
@@ -142,7 +244,13 @@ Weitere Regeln:
   • Mitgliedschaft: "{Organisation} Mitgliedschaft {Jahr}" — z.B. "ADAC Mitgliedschaft 2024"
   • Sonstiges: kurze inhaltliche Beschreibung — z.B. "Lebenslauf Max Mustermann" oder "Foto Reisepass"
 - Geldbeträge gehören NICHT in das generische Schema. Werte zu Beträgen, Gebühren, Bruttosummen, Nettosummen, Rückerstattungen, Forderungen, Prämien, Beiträgen etc. werden im typspezifischen Schritt (Pass 2) erfasst, falls der Dokumenttyp passende Felder vorsieht (z.B. Rechnung → gesamtbetrag, Mahnung → forderungsbetrag, Steuer → erstattung). Im hier vorliegenden Schritt KEINEN Geldbetrag ausgeben.
-- summary_de muss genau 3 Sätze auf Deutsch enthalten
+- summary_de: PFLICHTFELD, NIE leer. Genau 3 Sätze auf Deutsch:
+  • Satz 1 — was es ist und von wem (z.B. "Rechnung der Stadtwerke München vom März 2024.").
+  • Satz 2 — worum es konkret geht (Betrag, Vertragsdetails, Ergebnis des Bescheids, Inhalt des Schreibens).
+  • Satz 3 — relevante Fristen, Aktenzeichen, Zusatzinformationen oder eine kurze inhaltliche Einordnung.
+  Auch bei kurzen oder fragmentierten Dokumenten NIE leer lassen. Wenn Details fehlen, fasse zusammen was lesbar war, statt ein leeres Feld zurückzugeben.
+- reference_numbers: Liste der im Dokument vorkommenden Geschäftsnummern (Aktenzeichen, Rechnungsnr., Vertragsnr., Kundennr., Vorgangsnr., Bestellnr., Auftragsnr., Policennr., Steuernr.). Suche aktiv im OCR-Text nach Labels wie "Az.:", "Aktenzeichen:", "Rechnungs-Nr.:" und nimm den dahinter stehenden Wert auf (z.B. "K-2024/00123"). Leere Liste NUR wenn das Dokument nachweislich keine solche Nummer enthält.
+- suggested_tags: 2–5 deutsche Schlagwörter, die das Dokument für die spätere Suche brauchbar machen. Nimm konkrete inhaltliche Begriffe (Produkt, Vorgangsart, Themengebiet, Marke) — KEINE Wiederholung von document_type oder correspondent. Beispiele: Für eine KFZ-Rechnung über eine Reifenwechsel-Werkstatt → ["Reifen", "Werkstatt", "Saisonservice"]. Für einen Mietvertrag über eine WG-Wohnung → ["Miete", "WG", "Wohnung"]. Leere Liste nur wenn wirklich kein verwertbares Schlagwort ableitbar ist.
 - confidence gibt an, wie sicher du dir bei der Extraktion bist (0.0 = unsicher, 1.0 = sehr sicher)
 - confidence_reason: PFLICHTFELD wenn confidence gesetzt ist. Gib einen kurzen deutschen Satz (max. ~20 Wörter) zurück, der ehrlich begründet, was diesen konkreten Konfidenzwert getrieben hat. Nenne den Hauptgrund — was war eindeutig, was war zweifelhaft? Beispiele:
   • hoch (0.9+): "Klarer Briefkopf, Rechnungsnummer und Betrag sauber lesbar."
@@ -490,6 +598,35 @@ async def process_document(
             reason=synthesized_reason,
             confidence=extraction.confidence,
         )
+
+    # reference_numbers heuristic: when the LLM drops the field but the OCR
+    # text obviously contains one of the labelled German patterns
+    # ("Aktenzeichen: …", "Rechnungsnr. …", …), harvest the most prominent
+    # value. Triggered ONLY on empty list — the LLM's choices win whenever
+    # it bothered to emit any. Operates on full `content` (not the truncated
+    # `text` fed to the LLM) so a reference number on the last page of a
+    # long doc still surfaces.
+    if not extraction.reference_numbers:
+        harvested_refs = _extract_reference_numbers_from_text(content)
+        if harvested_refs:
+            extraction = extraction.model_copy(
+                update={"reference_numbers": harvested_refs}
+            )
+            logger.info(
+                "reference_numbers_harvested",
+                count=len(harvested_refs),
+                values=harvested_refs,
+            )
+
+    # summary_de fallback: same drop-the-schema-field problem as ai_title
+    # and confidence_reason. Pydantic accepts default="" silently, so empty
+    # summaries flow straight to Paperless. Synthesize a short, factual
+    # German line from the structured fields — never natural-language-good
+    # but never empty either. The LLM's value wins when non-empty.
+    if not (extraction.summary_de or "").strip():
+        synthesized_summary = _synthesize_summary_de(extraction)
+        extraction = extraction.model_copy(update={"summary_de": synthesized_summary})
+        logger.info("summary_de_synthesized", chars=len(synthesized_summary))
 
     try:
         await paperless.patch_document_ai_fields(doc_id, extraction, backend.name, backend.model)

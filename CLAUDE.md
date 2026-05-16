@@ -4,7 +4,8 @@ Self-hosted personal DMS built on Paperless-ngx with an AI classification layer.
 
 **Deep-dive docs for humans** (skim before changing anything load-bearing — they describe the *why* this guide takes for granted):
 
-- [`docs/architecture.md`](docs/architecture.md) — services, data flow, lifecycle, RAG pipeline
+- [`docs/workflow.md`](docs/workflow.md) — plain-English "follow one document through the system" walkthrough; start here if you're new
+- [`docs/architecture.md`](docs/architecture.md) — services, data flow, lifecycle, RAG pipeline (the reference; workflow.md is the friendly version)
 - [`docs/development.md`](docs/development.md) — start/build/test/debug, common tasks
 - [`docs/document-types.md`](docs/document-types.md) — the 26 doc types + disambiguation + per-type fields
 - [`docs/configuration.md`](docs/configuration.md) — every env var, organised by file
@@ -373,6 +374,7 @@ Use `/opsx:apply` skill to implement tasks from an approved change.
 | `COOKIE_SECURE` defaults to `True`                                                                          | Localhost dev sets `COOKIE_SECURE=false` in `docker/aktenraum-api.env` to allow login over plain http://localhost:8080; production HTTPS deploys leave it unset                                  |
 | `swap_lifecycle_tag` can raise `PaperlessConflictError` (HTTP 409) under heavy concurrency                  | Three-attempt verify-and-retry built in; if the third attempt still races, the SPA surfaces a "refresh and try again" message                                                                   |
 | nginx `client_max_body_size 500m` caps total multipart upload size                                          | Per-file limit (`upload_max_file_bytes`, 25 MB default) and file-count limit (`upload_max_files_per_request`, 20) enforced server-side; MIME content-type allowlist rejects unknown formats     |
+| Small LLMs (≤8B) drop `summary_de`, `reference_numbers`, `suggested_tags` despite the prompt rule           | Tagger has post-extraction fallbacks: `_synthesize_summary_de` (deterministic German summary from struct fields) + `_extract_reference_numbers_from_text` (regex sweep over OCR for Aktenzeichen/Rechnungsnr./Vertragsnr./Kundennr./Vorgangsnr./Bestellnr./Auftragsnr./Policennr./Steuernr.). Logs `summary_de_synthesized` / `reference_numbers_harvested` when they fire. `suggested_tags` has no synthesis fallback — risk of fabricating useless tags is higher than benefit |
 
 ---
 

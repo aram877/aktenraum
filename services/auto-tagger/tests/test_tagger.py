@@ -13,6 +13,7 @@ from auto_tagger.tagger import (
     _route_lifecycle_tags,
     _split_csv,
     _synthesize_ai_title,
+    _synthesize_suggested_tags,
     _synthesize_summary_de,
     _truncate_text,
 )
@@ -428,6 +429,30 @@ class TestSynthesizeAiTitle:
     def test_strips_correspondent_whitespace(self):
         ex = self._ex(correspondent="  Acme GmbH  ")
         assert "Acme GmbH" in _synthesize_ai_title(ex)
+
+
+class TestSynthesizeSuggestedTags:
+    def test_type_always_included(self):
+        ex = DocumentExtraction(document_type=DocumentType.Rechnung)
+        assert "Rechnung" in _synthesize_suggested_tags(ex)
+
+    def test_year_added_when_issue_date_present(self):
+        ex = DocumentExtraction(
+            document_type=DocumentType.Vertrag,
+            key_dates=KeyDates(issue="2024-03-15"),
+        )
+        tags = _synthesize_suggested_tags(ex)
+        assert "Vertrag" in tags
+        assert "2024" in tags
+
+    def test_no_year_when_no_issue_date(self):
+        ex = DocumentExtraction(document_type=DocumentType.Sonstiges)
+        tags = _synthesize_suggested_tags(ex)
+        assert tags == ["Sonstiges"]
+
+    def test_never_empty(self):
+        ex = DocumentExtraction(document_type=DocumentType.Sonstiges)
+        assert len(_synthesize_suggested_tags(ex)) >= 1
 
 
 class TestTruncateText:

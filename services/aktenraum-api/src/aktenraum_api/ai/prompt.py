@@ -68,6 +68,14 @@ _FEW_SHOT_EXAMPLES: list[tuple[str, dict]] = [
         },
     ),
     (
+        "Wie viel habe ich in 2025 verdient?",
+        {
+            "document_type": "Gehaltsabrechnung",
+            "date_from": "2025-01-01",
+            "date_to": "2025-12-31",
+        },
+    ),
+    (
         "Rechnungen von Telekom",
         {"document_type": "Rechnung", "correspondent": "Telekom"},
     ),

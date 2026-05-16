@@ -57,7 +57,7 @@ _ANSWER_LLM_FAILED_DE = (
 # How many results to feed to the answer LLM. Personal-DMS scale; we want a
 # small enough context that the prompt stays cheap, large enough that we don't
 # miss the right document.
-_ANSWER_CONTEXT_SIZE = 5
+_ANSWER_CONTEXT_SIZE = 15
 
 # Tag names the SPA shows as a status badge. Includes ai-pending so a doc
 # returned by /find that's still in the inbox queue surfaces an "In Inbox"
@@ -309,8 +309,8 @@ async def _reorder_or_fetch(
     similarity vs. closed-enum payload match), so the two sets only
     partially overlap. Without this step a chunk-level retrieval hit
     would have no DocumentSummary for the SPA to render as a citation.
-    Capped at `_ANSWER_CONTEXT_SIZE` so the answer prompt never grows
-    unbounded.
+    Used only by the non-streaming /answer endpoint. Capped at
+    `_ANSWER_CONTEXT_SIZE` so the answer prompt never grows unbounded.
     """
     by_id = {r.id: r for r in structural_results}
     out: list[DocumentSummary] = []

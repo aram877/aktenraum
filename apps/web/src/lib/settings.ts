@@ -43,3 +43,33 @@ export function useUpdateLLMSettings() {
     },
   });
 }
+
+const ANSWER_SETTINGS_KEY = ["settings", "answer-llm"] as const;
+
+async function fetchAnswerLLMSettings(): Promise<LLMSettings> {
+  const { data } = await api.get<LLMSettings>("/settings/answer-llm");
+  return data;
+}
+
+async function patchAnswerLLMSettings(quality: LLMQuality): Promise<LLMSettings> {
+  const { data } = await api.patch<LLMSettings>("/settings/answer-llm", { quality });
+  return data;
+}
+
+export function useAnswerLLMSettings() {
+  return useQuery<LLMSettings, AxiosError>({
+    queryKey: ANSWER_SETTINGS_KEY,
+    queryFn: fetchAnswerLLMSettings,
+    staleTime: 30_000,
+  });
+}
+
+export function useUpdateAnswerLLMSettings() {
+  const qc = useQueryClient();
+  return useMutation<LLMSettings, AxiosError, LLMQuality>({
+    mutationFn: patchAnswerLLMSettings,
+    onSuccess: (data) => {
+      qc.setQueryData(ANSWER_SETTINGS_KEY, data);
+    },
+  });
+}

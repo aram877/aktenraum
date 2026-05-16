@@ -123,7 +123,82 @@ def test_answer_prompt_omits_type_section_when_empty():
     ]
     msgs = build_answer_messages("test", candidates=candidates)
     user = _user(msgs)
-    assert "Typenspezifische Felder" not in user
+    # `_render_candidate` uses a two-space indent on the section header
+    # when it actually emits one; the dynamic module example uses none.
+    # We must NOT see the indented form (candidate-render path) and we
+    # MAY see the no-indent form (module example demonstrating field
+    # use). This keeps the original guard — empty type_specific_fields
+    # produces no candidate-side section — without conflicting with the
+    # new modular example block.
+    assert "\n  Typenspezifische Felder:" not in user
+
+
+def test_answer_prompt_assembles_per_type_field_hints():
+    """The system message should reference the salary fields when at
+    least one Gehaltsabrechnung is in the candidate set — that's how
+    the prompt teaches the LLM to read Brutto/Nettogehalt."""
+    candidates = [
+        {
+            "id": 1,
+            "title": "Gehalt August 2025",
+            "correspondent": "Acme",
+            "document_type": "Gehaltsabrechnung",
+            "created": "2025-08-31",
+        }
+    ]
+    msgs = build_answer_messages("Wie viel habe ich verdient?", candidates=candidates)
+    system = _system(msgs)
+    assert "Gehaltsabrechnung-Dokumente" in system
+    # The schema's German label "Bruttogehalt" must surface so the model
+    # knows which typespecific field to read.
+    assert "Bruttogehalt" in system
+    assert "Nettogehalt" in system
+
+
+def test_answer_prompt_assembles_per_type_examples():
+    """The user message should include the salary example when a
+    Gehaltsabrechnung is in the candidates."""
+    candidates = [
+        {
+            "id": 1,
+            "title": "Gehalt August 2025",
+            "correspondent": "Acme",
+            "document_type": "Gehaltsabrechnung",
+            "created": "2025-08-31",
+        }
+    ]
+    msgs = build_answer_messages("Wie viel habe ich verdient?", candidates=candidates)
+    user = _user(msgs)
+    # The module's answer_example references brutto/netto figures.
+    assert "brutto" in user.lower()
+    assert "verdient" in user
+
+
+def test_answer_prompt_falls_back_when_no_known_doc_types():
+    """Empty candidates / unknown types should produce a generic field
+    hint so the system message is never rules-less."""
+    msgs = build_answer_messages("Hallo?", candidates=[])
+    system = _system(msgs)
+    assert "Nutze die typenspezifischen Felder" in system
+
+
+def test_answer_prompt_dedupes_field_hints_across_candidates():
+    """Two Gehaltsabrechnungen → one hint line, not two."""
+    candidates = [
+        {
+            "id": 1,
+            "title": "Gehalt Juli",
+            "document_type": "Gehaltsabrechnung",
+        },
+        {
+            "id": 2,
+            "title": "Gehalt August",
+            "document_type": "Gehaltsabrechnung",
+        },
+    ]
+    msgs = build_answer_messages("verdient", candidates=candidates)
+    system = _system(msgs)
+    assert system.count("Gehaltsabrechnung-Dokumente") == 1
 
 
 # ---- Router tests ----

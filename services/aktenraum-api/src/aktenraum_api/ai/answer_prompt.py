@@ -229,8 +229,10 @@ def _streaming_system_prompt() -> str:
     parts.append("Feld-Hinweise (wichtig — nutze diese Felder direkt!):")
     parts.append("- 'wann ausgestellt' → Feld 'Ausstellung'.")
     parts.append(
-        "- 'wieviel' / 'kosten' / 'ausgegeben' → Geldbeträge stehen in den typspezifischen "
-        "Feldern (Rechnung-Gesamtbetrag, Mahnung-Forderungsbetrag etc.) "
+        "- 'wieviel' / 'kosten' / 'ausgegeben' / 'verdient' / 'Gehalt' / 'Netto' → "
+        "Geldbeträge stehen in den typspezifischen Feldern "
+        "(Rechnung-Gesamtbetrag, Mahnung-Forderungsbetrag, "
+        "Gehaltsabrechnung-Nettogehalt / Bruttogehalt etc.) "
         "und in den Textauszügen."
     )
     parts.append(
@@ -269,6 +271,11 @@ def _streaming_user_prompt(
         "  3 Dokumente mit Gesamtbetrag: EUR676.50, EUR55.00, EUR45.00\n"
         "  → 'Du hast insgesamt 776,50 € bei Wizz Air ausgegeben "
         "(676,50 € + 55,00 € + 45,00 €). [Quelle: 109, 132, 133]'"
+    )
+    parts.append(
+        "  Frage: 'Wie viel habe ich im August 2025 verdient?'\n"
+        "  Dokument hat Typenspezifische Felder: Bruttogehalt: EUR4820.00, Nettogehalt: EUR3144.16\n"
+        "  → 'Im August 2025 hast du brutto 4.820,00 € und netto 3.144,16 € verdient. [Quelle: 126]'"
     )
     parts.append("")
     parts.append(f"Frage: {question}")

@@ -66,7 +66,7 @@ def _make_gateway(*, doc: dict | None = None):
 
     gw.get_document = AsyncMock(side_effect=_get)
     gw.patch_document_custom_fields = AsyncMock(
-        side_effect=lambda doc_id, kv: kv,
+        side_effect=lambda doc_id, kv, **_kw: kv,
     )
     return gw
 
@@ -183,8 +183,12 @@ async def test_patch_fields_calls_gateway_with_supplied_fields(client_factory):
 
     assert resp.status_code == 200
     gw.patch_document_custom_fields.assert_awaited_once()
-    args = gw.patch_document_custom_fields.await_args.args
-    assert args == (9, {"ai_correspondent": "Acme GmbH"})
+    call = gw.patch_document_custom_fields.await_args
+    assert call.args[0] == 9
+    assert call.args[1] == {"ai_correspondent": "Acme GmbH"}
+    # apply_field_update prefetches the doc once to avoid the gateway's
+    # internal merge-read — assert the dict is forwarded as `prefetched_doc`.
+    assert "prefetched_doc" in call.kwargs
 
 
 async def test_patch_fields_empty_body_is_noop(client_factory):

@@ -27,41 +27,53 @@ def _make_extraction(doc_type: str, confidence: float) -> DocumentExtraction:
 
 
 class TestRouteLifecycleTags:
+    # Auto-approve now requires BOTH high confidence AND the doc's type
+    # being in AUTO_APPROVE_TYPES. The legacy "confidence alone is enough"
+    # path was a CSRF-injectable vector (a malicious PDF could emit
+    # confidence=0.99 to skip review); the allowlist gate is the
+    # load-bearing defence and the user explicitly opts in.
+
     @pytest.mark.parametrize(
-        "doc_type,confidence,expected",
+        "doc_type,confidence,allowlist,expected",
         [
-            # Above threshold (any document type) → auto-approve + auxiliary marker.
-            ("Rechnung", 0.90, ["ai-approved", "ai-auto-approved"]),
-            ("Rechnung", 1.0, ["ai-approved", "ai-auto-approved"]),
-            ("Vertrag", 0.95, ["ai-approved", "ai-auto-approved"]),
-            ("Versicherung", 0.99, ["ai-approved", "ai-auto-approved"]),
-            ("Sonstiges", 1.0, ["ai-approved", "ai-auto-approved"]),
-            # Below auto-approve threshold (and above low-confidence) → pending only.
-            ("Rechnung", 0.89, ["ai-pending"]),
-            ("Vertrag", 0.70, ["ai-pending"]),
+            # Confidence above threshold AND type in allowlist → auto-approve.
+            ("Rechnung", 0.90, "Rechnung", ["ai-approved", "ai-auto-approved"]),
+            ("Rechnung", 1.0, "Rechnung,Kontoauszug", ["ai-approved", "ai-auto-approved"]),
+            ("Vertrag", 0.95, "Vertrag", ["ai-approved", "ai-auto-approved"]),
+            ("Versicherung", 0.99, "Versicherung", ["ai-approved", "ai-auto-approved"]),
+            # Confidence above threshold but type NOT in allowlist → pending.
+            ("Rechnung", 0.99, "Kontoauszug", ["ai-pending"]),
+            ("Sonstiges", 1.0, "Rechnung", ["ai-pending"]),
+            # Empty allowlist → never auto-approves even at confidence 1.0.
+            ("Rechnung", 1.0, "", ["ai-pending"]),
+            # Below auto-approve threshold even with type in allowlist → pending.
+            ("Rechnung", 0.89, "Rechnung", ["ai-pending"]),
+            ("Vertrag", 0.70, "Vertrag", ["ai-pending"]),
             # Below low-confidence threshold → pending + flag.
-            ("Rechnung", 0.50, ["ai-pending", "ai-low-confidence"]),
-            ("Sonstiges", 0.30, ["ai-pending", "ai-low-confidence"]),
-            ("Vertrag", 0.10, ["ai-pending", "ai-low-confidence"]),
+            ("Rechnung", 0.50, "Rechnung", ["ai-pending", "ai-low-confidence"]),
+            ("Sonstiges", 0.30, "", ["ai-pending", "ai-low-confidence"]),
+            ("Vertrag", 0.10, "Vertrag", ["ai-pending", "ai-low-confidence"]),
         ],
     )
-    def test_routing_matrix(self, make_settings, doc_type, confidence, expected):
-        settings = make_settings()
+    def test_routing_matrix(
+        self, make_settings, doc_type, confidence, allowlist, expected
+    ):
+        settings = make_settings(AUTO_APPROVE_TYPES=allowlist)
         extraction = _make_extraction(doc_type, confidence)
         assert _route_lifecycle_tags(extraction, settings) == expected
 
-    def test_type_allowlist_is_ignored(self, make_settings):
-        # Legacy setting is parsed but no longer consulted — every doc type
-        # qualifies for auto-approve once confidence crosses the threshold.
+    def test_empty_allowlist_blocks_auto_approve(self, make_settings):
+        # Default install: AUTO_APPROVE_TYPES unset means no type can
+        # auto-approve. Pure confidence-only auto-approve is disabled.
         settings = make_settings(AUTO_APPROVE_TYPES="")
         extraction = _make_extraction("Vertrag", 1.0)
-        assert _route_lifecycle_tags(extraction, settings) == [
-            "ai-approved",
-            "ai-auto-approved",
-        ]
+        assert _route_lifecycle_tags(extraction, settings) == ["ai-pending"]
 
     def test_threshold_at_exact_boundary_auto_approves(self, make_settings):
-        settings = make_settings(AUTO_APPROVE_CONFIDENCE="0.90")
+        settings = make_settings(
+            AUTO_APPROVE_CONFIDENCE="0.90",
+            AUTO_APPROVE_TYPES="Rechnung",
+        )
         extraction = _make_extraction("Rechnung", 0.90)
         assert _route_lifecycle_tags(extraction, settings) == [
             "ai-approved",
@@ -69,9 +81,12 @@ class TestRouteLifecycleTags:
         ]
 
     def test_low_confidence_flag_skipped_when_auto_approving(self, make_settings):
-        # Defensive: auto-approve always wins; low_confidence flag is review-queue
-        # signal, irrelevant once the doc skips review entirely.
-        settings = make_settings(LOW_CONFIDENCE_THRESHOLD="0.99")
+        # Defensive: when both gates pass, low_confidence flag is dropped —
+        # the doc skips review entirely and the flag is review-queue signal.
+        settings = make_settings(
+            LOW_CONFIDENCE_THRESHOLD="0.99",
+            AUTO_APPROVE_TYPES="Rechnung",
+        )
         extraction = _make_extraction("Rechnung", 0.96)
         assert _route_lifecycle_tags(extraction, settings) == [
             "ai-approved",

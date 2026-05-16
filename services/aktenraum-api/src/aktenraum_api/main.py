@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -16,6 +17,7 @@ from .documents import router as documents_router
 from .health import router as health_router
 from .inbox import router as inbox_router
 from .library import router as library_router
+from .middleware import CSRFMiddleware, SecurityHeadersMiddleware
 from .paperless_gw import PaperlessGateway
 from .settings import router as settings_router
 from .type_fields import router as type_fields_router
@@ -58,11 +60,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         # RAG retrieval deps (Phase 1.8): only constructed when
         # QDRANT_URL is set. Built once at startup so the bge-reranker
-        # 600 MB load doesn't repeat per request. The reranker is
-        # lazy-loaded internally — its model isn't pulled into memory
-        # until the first /ask request actually uses it. None when
-        # disabled; the deps function in ai/deps.py returns None and
-        # the answer endpoint falls back to its structural path.
+        # 600 MB load doesn't repeat per request. We also kick off the
+        # reranker model load *in the background* during lifespan so the
+        # first /ask doesn't pay the ~5min HuggingFace-download cliff
+        # inside a request handler. Lifespan returns immediately; the
+        # download proceeds while the API starts serving — concurrent
+        # /ask calls during the warmup window still wait on the same
+        # asyncio.Lock inside the reranker, but they no longer block
+        # other handlers' event-loop slots.
         if settings.qdrant_url:
             vector_store = QdrantVectorStore(
                 url=settings.qdrant_url,
@@ -70,6 +75,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
             try:
                 await vector_store.ensure_collection()
+                reranker = LocalReranker(model_name=settings.reranker_model)
                 app.state.rag_vector_store = vector_store
                 app.state.retrieval_deps = RetrievalDeps(
                     embedder=OllamaEmbedder(
@@ -77,9 +83,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         model=settings.embedding_model,
                     ),
                     vector_store=vector_store,
-                    reranker=LocalReranker(
-                        model_name=settings.reranker_model
-                    ),
+                    reranker=reranker,
+                )
+
+                async def _warm_reranker() -> None:
+                    try:
+                        await reranker._ensure_loaded()  # noqa: SLF001
+                        structlog.get_logger().info("reranker_prewarm_complete")
+                    except Exception as exc:  # noqa: BLE001
+                        structlog.get_logger().warning(
+                            "reranker_prewarm_failed", error=str(exc)
+                        )
+
+                app.state._reranker_warmup_task = asyncio.create_task(
+                    _warm_reranker()
                 )
             except Exception:
                 # Don't crash the API on Qdrant unreachable at boot —
@@ -97,6 +114,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         rag_store = getattr(app.state, "rag_vector_store", None)
         if rag_store is not None:
             await rag_store.aclose()
+        warmup = getattr(app.state, "_reranker_warmup_task", None)
+        if warmup is not None and not warmup.done():
+            warmup.cancel()
+            try:
+                await warmup
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
         await engine.dispose()
 
     app = FastAPI(
@@ -108,6 +132,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = settings
+    app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(CSRFMiddleware)
     app.include_router(health_router, prefix="/api")
     app.include_router(auth_router, prefix="/api")
     app.include_router(ai_router, prefix="/api")

@@ -68,11 +68,18 @@ async def get_detail(
 
 
 async def apply_field_update(
-    gateway: PaperlessGateway, doc_id: int, update: InboxFieldUpdate
+    gateway: PaperlessGateway,
+    doc_id: int,
+    update: InboxFieldUpdate,
 ) -> InboxDetail:
     populated = update.populated()
     if populated:
-        await gateway.patch_document_custom_fields(doc_id, populated)
+        # Fetch once and reuse for the merge-read inside
+        # patch_document_custom_fields. Saves one GET on every field edit.
+        doc = await gateway.get_document(doc_id)
+        await gateway.patch_document_custom_fields(
+            doc_id, populated, prefetched_doc=doc
+        )
     return await get_detail(gateway, doc_id)
 
 
@@ -82,7 +89,10 @@ async def approve(
     update: InboxFieldUpdate | None = None,
 ) -> InboxDetail:
     if update is not None and update.populated():
-        await gateway.patch_document_custom_fields(doc_id, update.populated())
+        doc = await gateway.get_document(doc_id)
+        await gateway.patch_document_custom_fields(
+            doc_id, update.populated(), prefetched_doc=doc
+        )
     await gateway.swap_lifecycle_tag(
         doc_id,
         remove=[PENDING_TAG, LOW_CONFIDENCE_TAG],

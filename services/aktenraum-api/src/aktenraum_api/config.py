@@ -25,9 +25,11 @@ class Settings(BaseSettings):
     # Auth cookie
     cookie_name: str = Field("aktenraum_session")
     cookie_secure: bool = Field(
-        False,
+        True,
         description=(
-            "Set true behind HTTPS so the browser refuses to send the cookie over plain HTTP."
+            "Browser refuses to send the cookie over plain HTTP when true. "
+            "Default true for safety; the localhost dev compose explicitly "
+            "sets false in aktenraum-api.env so login works over http://."
         ),
     )
 
@@ -56,6 +58,21 @@ class Settings(BaseSettings):
     )
     correspondent_list_ttl_seconds: int = Field(
         300, ge=1, description="Per-process correspondent cache TTL"
+    )
+
+    # Upload limits — applied per file in /api/documents/upload before
+    # forwarding to Paperless. nginx's client_max_body_size caps the total
+    # multipart payload at 100 MB by default; these limits clip each part
+    # individually so one user can't upload 50 × 50 MB files in one go.
+    upload_max_file_bytes: int = Field(
+        25 * 1024 * 1024,
+        ge=1,
+        description="Per-file size cap in bytes (default 25 MB).",
+    )
+    upload_max_files_per_request: int = Field(
+        20,
+        ge=1,
+        description="Maximum number of files accepted in one upload call.",
     )
 
     # Reprocess: aktenraum-api → auto-tagger webhook

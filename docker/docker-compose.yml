@@ -15,10 +15,10 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
-      - ~/aktenraum/data:/usr/src/paperless/data
-      - ~/aktenraum/media:/usr/src/paperless/media
-      - ~/aktenraum/export:/usr/src/paperless/export
-      - ~/aktenraum/consume:/usr/src/paperless/consume
+      - ${AKTENRAUM_DATA_DIR:-${HOME}/aktenraum}/data:/usr/src/paperless/data
+      - ${AKTENRAUM_DATA_DIR:-${HOME}/aktenraum}/media:/usr/src/paperless/media
+      - ${AKTENRAUM_DATA_DIR:-${HOME}/aktenraum}/export:/usr/src/paperless/export
+      - ${AKTENRAUM_DATA_DIR:-${HOME}/aktenraum}/consume:/usr/src/paperless/consume
       - ./paperless-scripts:/usr/src/paperless/scripts:ro
     env_file:
       - path: .env
@@ -38,7 +38,7 @@ services:
     image: postgres:15
     restart: unless-stopped
     volumes:
-      - ~/aktenraum/pgdata:/var/lib/postgresql/data
+      - ${AKTENRAUM_DATA_DIR:-${HOME}/aktenraum}/pgdata:/var/lib/postgresql/data
       # Init scripts run only on a fresh data dir; existing installs need to
       # `CREATE DATABASE aktenraum` once by hand (see docs/runbooks/operations.md).
       - ./postgres-init:/docker-entrypoint-initdb.d:ro
@@ -87,7 +87,7 @@ services:
     image: qdrant/qdrant:v1.17.1
     restart: unless-stopped
     volumes:
-      - ~/aktenraum/qdrant:/qdrant/storage
+      - ${AKTENRAUM_DATA_DIR:-${HOME}/aktenraum}/qdrant:/qdrant/storage
     ports:
       - "127.0.0.1:${AKTENRAUM_QDRANT_PORT:-6333}:6333"
     expose:
@@ -188,10 +188,10 @@ services:
       - path: backup.env
         required: false
     volumes:
-      - ~/aktenraum/data:/backup/data:ro
-      - ~/aktenraum/media:/backup/media:ro
-      - ~/aktenraum/export:/backup/export:ro
-      - ~/aktenraum/backup/restic-repo:/repo
+      - ${AKTENRAUM_DATA_DIR:-${HOME}/aktenraum}/data:/backup/data:ro
+      - ${AKTENRAUM_DATA_DIR:-${HOME}/aktenraum}/media:/backup/media:ro
+      - ${AKTENRAUM_DATA_DIR:-${HOME}/aktenraum}/export:/backup/export:ro
+      - ${AKTENRAUM_DATA_DIR:-${HOME}/aktenraum}/backup/restic-repo:/repo
     networks:
       - internal
 

@@ -76,7 +76,9 @@ def _make_fake_gateway(
         return docs[doc_id]
 
     gateway.get_document = AsyncMock(side_effect=_get_doc)
-    gateway.patch_document_custom_fields = AsyncMock(side_effect=lambda doc_id, kv: kv)
+    gateway.patch_document_custom_fields = AsyncMock(
+        side_effect=lambda doc_id, kv, **_kw: kv
+    )
     gateway.swap_lifecycle_tag = AsyncMock(return_value=[])
 
     async def _stream(doc_id):
@@ -282,9 +284,12 @@ async def test_approve_swaps_tags_and_optionally_patches(client_factory):
             )
 
     assert resp.status_code == 200
-    fake_gateway.patch_document_custom_fields.assert_awaited_once_with(
-        1, {"ai_correspondent": "Telekom"}
-    )
+    # approve now passes prefetched_doc so the gateway can skip its merge-read.
+    fake_gateway.patch_document_custom_fields.assert_awaited_once()
+    call = fake_gateway.patch_document_custom_fields.await_args
+    assert call.args[0] == 1
+    assert call.args[1] == {"ai_correspondent": "Telekom"}
+    assert "prefetched_doc" in call.kwargs
     fake_gateway.swap_lifecycle_tag.assert_awaited_once_with(
         1,
         remove=["ai-pending", "ai-low-confidence"],

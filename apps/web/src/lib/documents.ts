@@ -159,16 +159,18 @@ async function fetchProcessingState(): Promise<ProcessingState> {
 }
 
 export function useProcessingState() {
-  // Poll every 2s — fast enough that the spinner appears within one
+  // Poll every 5s — fast enough that the spinner appears within one
   // refresh tick of the auto-tagger starting on a new doc, slow enough
-  // that the request count is negligible. The query is keyed on a
-  // single tuple so the SPA shares one poll across every consumer.
+  // that we don't hammer the auto-tagger from 100 open browsers (was
+  // 2s, which translated to ~30 req/min/tab on a multi-page session).
+  // staleTime matches the interval so background re-renders don't kick
+  // off extra fetches.
   return useQuery<ProcessingState, AxiosError>({
     queryKey: ["documents", "processing"],
     queryFn: fetchProcessingState,
-    refetchInterval: 2000,
+    refetchInterval: 5000,
     refetchOnWindowFocus: true,
-    staleTime: 0,
+    staleTime: 4000,
   });
 }
 

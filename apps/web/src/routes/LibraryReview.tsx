@@ -337,7 +337,14 @@ export function LibraryReview({ id }: { id: number }) {
                   </p>
                   <TypeSpecificFieldsSection
                     docId={detail.data.id}
-                    documentType={detail.data.ai_document_type}
+                    // Drive the section's schema lookup from the form's
+                    // live dropdown selection so changing the document
+                    // type swaps the type-specific fields immediately —
+                    // not only after the user hits Save. Falls back to
+                    // the persisted value when the form hasn't diverged.
+                    documentType={
+                      form.ai_document_type || detail.data.ai_document_type
+                    }
                   />
                 </div>
               </div>

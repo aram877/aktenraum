@@ -196,8 +196,11 @@ async def answer(
     citations = _resolve_citations(answer_out.cited_ids, results)
     # If the model wrote a real answer but cited nothing, fall back to the
     # retrieved candidates so the user always has a doc to verify against —
-    # the prose is only useful with a source.
-    if not citations:
+    # the prose is only useful with a source. EXCEPT when the prose itself
+    # is a denial ("Ich konnte das in den Dokumenten nicht finden"): then
+    # back-filling would render that denial above a list of source cards,
+    # which looks like a UI bug ("you said no docs, but here they are").
+    if not citations and not _is_denial_answer(answer_text):
         citations = results[:_ANSWER_CONTEXT_SIZE]
     return AnswerResponse(
         question=body.question,
@@ -258,6 +261,21 @@ async def answer_stream(
 # Inline citation marker the streaming prompt asks the model to use:
 # "Dein Pass läuft am 12.05.2030 ab. [Quelle: 17]". Captures the bare id.
 _CITATION_MARKER_RE = re.compile(r"\[Quelle:\s*(\d+)\s*\]", re.IGNORECASE)
+
+# Patterns the answer LLM uses when it cannot answer from the retrieved set —
+# baked into both `_system_prompt` and `_streaming_system_prompt` as the
+# "if you don't know, say this" template, plus the common variations small
+# models drift into. When the prose IS the denial, we must NOT back-fill
+# citations from the retrieved candidates: doing so renders a "not found"
+# message above a list of doc cards, which is exactly the failure mode the
+# user reported (model denies, SPA still shows sources, looks like a bug).
+_DENIAL_RE = re.compile(
+    r"in den (bereitgestellten )?dokumenten nicht (finden|enthalten)"
+    r"|nicht in den (bereitgestellten )?dokumenten"
+    r"|keine passenden dokumente"
+    r"|keines der dokumente (enthält|nennt|beantwortet)",
+    re.IGNORECASE,
+)
 
 # Max number of chunks per doc rendered into the prompt. The reranker
 # returns up to `rag_rerank_top_k` (5) chunks total across all docs, so
@@ -494,10 +512,13 @@ async def _stream_answer_events(
         if doc.id not in structural_ids:
             citation_pool.append(doc)
     citations = _resolve_citations(cited_ids, citation_pool)
-    if not citations:
+    if not citations and not _is_denial_answer(answer_text):
         # Prefer the RAG-promoted set when available — those are the
         # docs the answer actually drew from. Fall back to structural
         # top-N when RAG was off.
+        # NB: skipped when the prose IS a denial — see the JSON /answer
+        # path for the rationale (citations under "nicht gefunden" look
+        # like a UI bug to the user).
         citations = (
             prompt_results[:_ANSWER_CONTEXT_SIZE]
             if prompt_results
@@ -567,6 +588,31 @@ def _is_degenerate_answer(text: str) -> bool:
     if not text:
         return True
     return text.lower().strip(" .:") in _DEGENERATE_ANSWER_TOKENS
+
+
+# A pure-denial answer is short: "Ich konnte das in den Dokumenten nicht
+# finden." (~50 chars). Capping length protects partial answers like "Ich
+# habe X nicht gefunden, aber [Quelle: 12] nennt Y." from being misread as
+# denials — those carry useful content AND a citation marker; the cap keeps
+# them out of this branch entirely.
+_DENIAL_MAX_LEN = 200
+
+
+def _is_denial_answer(text: str) -> bool:
+    """True when the prose is the model's "I couldn't find that" template.
+
+    The streaming and JSON prompts both bake an explicit denial sentence
+    ("Ich konnte das in den Dokumenten nicht finden."); small models drift
+    into close variants. When the model picks that template, the SPA should
+    show the denial alone — back-filling source cards under it is what
+    produces the "you said no docs but listed them anyway" failure mode.
+    """
+    if not text:
+        return False
+    stripped = text.strip()
+    if len(stripped) > _DENIAL_MAX_LEN:
+        return False
+    return bool(_DENIAL_RE.search(stripped))
 
 
 async def _broaden_for_answer(

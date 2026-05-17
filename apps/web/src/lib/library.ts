@@ -13,6 +13,9 @@ export type LibraryItem = {
   lifecycle_tags: string[];
   tags: string[];
   ai_error_message: string | null;
+  // True only on rows the server pinned because the auto-tagger is
+  // actively working on them. SPA uses this to render a spinner.
+  is_processing: boolean;
 };
 
 export type LibraryList = {

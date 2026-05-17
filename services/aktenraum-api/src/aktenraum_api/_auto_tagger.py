@@ -1,20 +1,23 @@
-"""Thin best-effort HTTP client for the auto-tagger's /trigger/* webhooks.
+"""Thin best-effort HTTP client for the auto-tagger's internal endpoints.
 
-Two callers today:
+Three callers today:
   - `documents/router.py::reprocess` fires /trigger/extract after clearing
     lifecycle tags so re-extraction starts immediately instead of waiting
     on the 30s poll.
   - `inbox/service.py::approve` fires /trigger/propagate after the
     lifecycle-tag swap so propagation runs in <1s rather than up to 30s.
+  - `library/service.py::list_library` reads /processing on page=1 to pin
+    actively-processed docs to the top of the library archive.
 
-Both are non-critical: the auto-tagger's safety-net poller still picks
-up the work if the ping fails. We log warnings on failure and never
-raise — the calling request must succeed regardless.
+All three are non-critical: the auto-tagger's safety-net poller still
+picks up the work if the trigger ping fails, and the library falls back
+to plain natural-sort if /processing is unreachable. We log warnings on
+failure and never raise — the calling request must succeed regardless.
 """
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 import httpx
 import structlog
@@ -75,3 +78,41 @@ async def ping_auto_tagger(
             error=str(e),
         )
         return False
+
+
+async def fetch_processing_state(
+    settings: Settings,
+    *,
+    timeout: float = 2.0,
+) -> dict[str, Any] | None:
+    """GET the auto-tagger's `/processing` endpoint.
+
+    Returns the parsed body `{"processing": [ids], "slots": {…}}` on
+    success, or `None` on any error (URL unset, timeout, 4xx/5xx,
+    network failure). Best-effort by design — the library page-1
+    pinning behaviour silently degrades to plain natural-sort when
+    this returns None.
+
+    Short 2-second timeout because the library list endpoint awaits
+    this inline before returning rows; a slow auto-tagger must not
+    stall the SPA's archive load.
+    """
+    if not settings.auto_tagger_url:
+        return None
+    headers: dict[str, str] = {}
+    if settings.webhook_secret:
+        headers["X-Aktenraum-Secret"] = settings.webhook_secret
+    url = f"{settings.auto_tagger_url.rstrip('/')}/processing"
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code >= 400:
+                log.info(
+                    "auto_tagger_processing_unexpected_status",
+                    status=resp.status_code,
+                )
+                return None
+            return resp.json()
+    except Exception as e:
+        log.info("auto_tagger_processing_unreachable", error=str(e))
+        return None

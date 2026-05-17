@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Nav } from "../components/Nav";
 import { ProcessingBadge } from "../components/ProcessingBadge";
+import type { LibraryOrdering } from "../router";
 import type { LibraryItem, LibraryQuery, TagFacet } from "../lib/library";
 import { DOC_TYPES, useLibrary, useTagFacet } from "../lib/library";
 import {
@@ -24,6 +25,7 @@ type Search = {
   text?: string;
   tags?: string[];
   page?: number;
+  ordering?: LibraryOrdering;
 };
 
 type LocalForm = {
@@ -87,14 +89,15 @@ export function Library({ search }: { search: Search }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form]);
 
+  const ordering = search.ordering ?? "-created";
   const query = useMemo<LibraryQuery>(
     () => ({
       ...search,
       page: search.page ?? 1,
       page_size: DEFAULT_PAGE_SIZE,
-      ordering: "-created",
+      ordering,
     }),
-    [search],
+    [search, ordering],
   );
   const list = useLibrary(query);
   const processing = useProcessingState();
@@ -306,6 +309,35 @@ export function Library({ search }: { search: Search }) {
                     className={inputCls}
                   />
                 </Field>
+                <Field label="Sortierung">
+                  <select
+                    value={ordering}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      void navigate({
+                        to: "/library",
+                        search: {
+                          ...search,
+                          // Drop the param when the user picks the
+                          // default so the URL stays clean.
+                          ordering:
+                            next === "-created"
+                              ? undefined
+                              : (next as LibraryOrdering),
+                          page: undefined,
+                        },
+                      });
+                    }}
+                    className={inputCls}
+                  >
+                    <option value="-created">Erstellt (neueste zuerst)</option>
+                    <option value="created">Erstellt (älteste zuerst)</option>
+                    <option value="-modified">Geändert (neueste zuerst)</option>
+                    <option value="modified">Geändert (älteste zuerst)</option>
+                    <option value="title">Titel (A → Z)</option>
+                    <option value="-title">Titel (Z → A)</option>
+                  </select>
+                </Field>
                 <button
                   type="button"
                   onClick={onResetFilters}
@@ -444,7 +476,16 @@ export function Library({ search }: { search: Search }) {
                           onTagClick={toggleTag}
                           checked={effectiveSelected.has(row.id)}
                           onToggle={() => toggleOne(row.id)}
-                          inFlight={isInFlight(row.id, processing.data)}
+                          // Two complementary signals for "worker is on
+                          // this doc right now": the server's pin flag
+                          // (authoritative, always set on prepended
+                          // rows) and the SPA-polled /processing state
+                          // (catches natural-sort rows whose worker
+                          // started after the page-1 fetch).
+                          inFlight={
+                            row.is_processing ||
+                            isInFlight(row.id, processing.data)
+                          }
                           onClick={() =>
                             navigate({
                               to: "/library/$id",

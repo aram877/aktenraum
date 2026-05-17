@@ -23,8 +23,10 @@ async def upsert(
     gateway: PaperlessGateway,
     doc_id: int,
     raw_fields: dict[str, str | None],
+    doc_type_str: str | None = None,
 ) -> DocumentTypeFields:
-    doc_type_str = await _infer_document_type(gateway, doc_id)
+    if doc_type_str is None:
+        doc_type_str = await _infer_document_type(gateway, doc_id)
 
     doc_type = _parse_doc_type(doc_type_str)
     schema_fields = TYPE_FIELD_SCHEMA.get(doc_type, []) if doc_type else []
@@ -49,6 +51,10 @@ async def upsert(
         session.add(row)
     else:
         merged = dict(row.fields or {})
+        # Drop fields from the previous type when the type has changed so
+        # stale keys don't accumulate across type switches.
+        if doc_type_str and row.document_type and row.document_type != doc_type_str:
+            merged = {k: v for k, v in merged.items() if k in field_type_map}
         merged.update(normalised)
         row.fields = merged
         if doc_type_str:

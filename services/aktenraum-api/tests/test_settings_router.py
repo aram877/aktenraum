@@ -43,7 +43,7 @@ async def test_patch_to_medium_persists(client_factory):
             assert resp.status_code == 200
             assert resp.json() == {
                 "quality": "medium",
-                "ollama_model": "qwen2.5vl:7b",
+                "ollama_model": "gemma4:e4b",
             }
             # Second GET reflects the persisted choice.
             resp = await c.get("/api/settings/llm")

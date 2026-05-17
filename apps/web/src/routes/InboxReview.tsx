@@ -337,15 +337,12 @@ export function InboxReview({ id }: { id: number }) {
                   </div>
                   <TypeSpecificFieldsSection
                     docId={detail.data.id}
-                    // Drive the section's schema lookup from the form's
-                    // live dropdown selection so changing the document
-                    // type swaps the type-specific fields immediately —
-                    // not only after the user hits Save / Approve. Falls
-                    // back to the persisted value when the form hasn't
-                    // diverged.
                     documentType={
-                      form.ai_document_type || detail.data.ai_document_type
+                      form.ai_document_type !== detail.data.ai_document_type
+                        ? form.ai_document_type
+                        : null
                     }
+                    fallbackDocumentType={detail.data.ai_document_type}
                   />
                 </div>
               </div>

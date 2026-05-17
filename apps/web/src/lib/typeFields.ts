@@ -40,10 +40,11 @@ async function fetchTypeFields(docId: number): Promise<TypeFieldsResponse> {
 async function patchTypeFields(
   docId: number,
   fields: Record<string, string | null>,
+  documentType?: string,
 ): Promise<TypeFieldsResponse> {
   const { data } = await api.patch<TypeFieldsResponse>(
     `/documents/${docId}/type-fields`,
-    { fields },
+    { fields, document_type: documentType ?? null },
   );
   return data;
 }
@@ -74,8 +75,13 @@ export function useTypeFields(docId: number | null) {
 export function usePatchTypeFields(docId: number) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (fields: Record<string, string | null>) =>
-      patchTypeFields(docId, fields),
+    mutationFn: ({
+      fields,
+      documentType,
+    }: {
+      fields: Record<string, string | null>;
+      documentType?: string;
+    }) => patchTypeFields(docId, fields, documentType),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [...TYPE_FIELDS_KEY, docId] });
     },

@@ -14,7 +14,7 @@ Quality = Literal["high", "medium"]
 # Ordered for UI rendering: highest first.
 QUALITY_TO_MODEL: dict[str, str] = {
     "high": "gemma4:26b",
-    "medium": "qwen2.5vl:7b",
+    "medium": "gemma4:e4b",
 }
 
 QUALITIES: tuple[str, ...] = tuple(QUALITY_TO_MODEL.keys())

@@ -10,3 +10,4 @@ class TypeFieldsResponse(BaseModel):
 
 class TypeFieldsPatch(BaseModel):
     fields: dict[str, str | None]
+    document_type: str | None = None

@@ -51,17 +51,30 @@ function FieldInput({
 export function TypeSpecificFieldsSection({
   docId,
   documentType,
+  fallbackDocumentType,
 }: {
   docId: number;
+  // Explicit user override: set when the dropdown was changed but not yet saved.
+  // Null/undefined means "no explicit change — use DB or Paperless value".
   documentType: string | null | undefined;
+  // Paperless-persisted type — last resort when there's no override and no DB row yet.
+  fallbackDocumentType?: string | null;
 }) {
   const schemaQuery = useDocumentTypeSchema();
   const typeFieldsQuery = useTypeFields(docId);
   const patch = usePatchTypeFields(docId);
 
   const schema = schemaQuery.data;
+
+  // Priority: explicit dropdown change > our DB's saved type > Paperless value.
+  // This ensures previously saved type-specific fields stay visible even when the
+  // main form's ai_document_type hasn't been saved to Paperless yet.
+  const dbDocumentType = typeFieldsQuery.data?.document_type ?? null;
+  const effectiveDocumentType =
+    documentType || dbDocumentType || fallbackDocumentType || null;
+
   const fields: FieldDef[] =
-    documentType && schema ? (schema[documentType] ?? []) : [];
+    effectiveDocumentType && schema ? (schema[effectiveDocumentType] ?? []) : [];
 
   const savedValues = useMemo<Record<string, string>>(() => {
     if (!typeFieldsQuery.data?.fields) return {};
@@ -70,7 +83,9 @@ export function TypeSpecificFieldsSection({
 
   const [form, setForm] = useState<Record<string, string>>({});
 
-  // Sync form when saved values load or doc changes
+  // Sync form when saved values reload or the doc changes.
+  // Not driven by documentType: handleSave already filters payload to current fields,
+  // so stale keys from a previous type don't need to be purged eagerly here.
   useEffect(() => {
     setForm(savedValues);
   }, [savedValues, docId]);
@@ -81,7 +96,7 @@ export function TypeSpecificFieldsSection({
     );
   }, [form, savedValues, fields]);
 
-  if (!documentType || fields.length === 0) return null;
+  if (!effectiveDocumentType || fields.length === 0) return null;
 
   function handleSave() {
     const payload: Record<string, string | null> = {};
@@ -89,7 +104,7 @@ export function TypeSpecificFieldsSection({
       const v = (form[f.name] ?? "").trim();
       payload[f.name] = v || null;
     }
-    patch.mutate(payload);
+    patch.mutate({ fields: payload, documentType: effectiveDocumentType ?? undefined });
   }
 
   function handleReset() {

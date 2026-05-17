@@ -74,7 +74,7 @@ async def patch_type_fields(
     session: AsyncSession = Depends(get_session),
     gateway: PaperlessGateway = Depends(get_paperless_gateway),
 ) -> TypeFieldsResponse:
-    doc_type_str = await service._infer_document_type(gateway, doc_id)
+    doc_type_str = body.document_type or await service._infer_document_type(gateway, doc_id)
     unknown = service.validate_field_names(doc_type_str, body.fields)
     if unknown:
         raise HTTPException(
@@ -82,5 +82,5 @@ async def patch_type_fields(
             detail=f"Unknown fields for type '{doc_type_str}': {unknown}",
         )
 
-    row = await service.upsert(session, gateway, doc_id, body.fields)
+    row = await service.upsert(session, gateway, doc_id, body.fields, doc_type_str=doc_type_str)
     return TypeFieldsResponse(document_type=row.document_type, fields=row.fields or {})

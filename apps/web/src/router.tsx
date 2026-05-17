@@ -133,7 +133,32 @@ type LibrarySearch = {
   text?: string;
   tags?: string[];
   page?: number;
+  ordering?: LibraryOrdering;
 };
+
+// Closed set mirroring the backend `_ALLOWED_ORDERING` allowlist in
+// services/aktenraum-api/src/aktenraum_api/library/router.py. Validated
+// in URL parsing so a typo never bypasses the backend's 422 check.
+export type LibraryOrdering =
+  | "-created"
+  | "created"
+  | "-modified"
+  | "modified"
+  | "title"
+  | "-title";
+
+const LIBRARY_ORDERINGS: readonly LibraryOrdering[] = [
+  "-created",
+  "created",
+  "-modified",
+  "modified",
+  "title",
+  "-title",
+];
+
+function isLibraryOrdering(value: unknown): value is LibraryOrdering {
+  return typeof value === "string" && (LIBRARY_ORDERINGS as readonly string[]).includes(value);
+}
 
 const libraryRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -177,6 +202,11 @@ const libraryRoute = createRoute({
     out.date_to = str("date_to");
     out.text = str("text");
     out.page = num("page");
+    // Ordering is a closed enum; unknown values silently fall back to
+    // undefined (which downstream means "use the default").
+    if (isLibraryOrdering(search["ordering"])) {
+      out.ordering = search["ordering"];
+    }
     return out;
   },
   component: function LibraryWrapper() {

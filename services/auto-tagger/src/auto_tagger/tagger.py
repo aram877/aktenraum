@@ -492,8 +492,16 @@ async def _build_history_hint(paperless: PaperlessClient, text: str) -> str:
     return _format_history_hint(history, text)
 
 
-def _route_lifecycle_tags(extraction: DocumentExtraction, settings: Settings) -> list[str]:
+def _route_lifecycle_tags(
+    extraction: DocumentExtraction, settings: Settings
+) -> tuple[list[str], str]:
     """Decide which lifecycle/auxiliary tags to apply based on confidence routing.
+
+    Returns (tags, reason). `reason` is a closed-enum string explaining why
+    the auto-approve gate did or didn't fire — purely for observability,
+    surfaced via the `routing_decision` log line so an operator can grep
+    `docker compose logs auto-tagger | grep routing_decision` and instantly
+    see why a doc didn't auto-approve.
 
     Auto-approve requires BOTH:
       * confidence ≥ AUTO_APPROVE_CONFIDENCE
@@ -508,12 +516,29 @@ def _route_lifecycle_tags(extraction: DocumentExtraction, settings: Settings) ->
     only strips `ai-approved`. Otherwise the doc lands in `ai-pending`; if
     confidence is below LOW_CONFIDENCE_THRESHOLD we additionally tag
     `ai-low-confidence` so the user can prioritise it.
+
+    Reason values (closed enum, do not break compatibility with grep
+    queries in runbooks):
+      * "auto_approved"               — both gates passed
+      * "allowlist_empty"             — AUTO_APPROVE_TYPES is empty (default)
+      * "type_not_in_allowlist"       — type gate non-empty but doc type missing
+      * "confidence_below_threshold"  — type allowed, confidence too low
     """
-    type_allowed = bool(settings.auto_approve_types) and (
-        extraction.document_type.value in settings.auto_approve_types
-    )
-    if type_allowed and extraction.confidence >= settings.auto_approve_confidence:
-        return ["ai-approved", "ai-auto-approved"]
+    if not settings.auto_approve_types:
+        return _pending(extraction, settings), "allowlist_empty"
+    if extraction.document_type.value not in settings.auto_approve_types:
+        return _pending(extraction, settings), "type_not_in_allowlist"
+    if extraction.confidence < settings.auto_approve_confidence:
+        return _pending(extraction, settings), "confidence_below_threshold"
+    return ["ai-approved", "ai-auto-approved"], "auto_approved"
+
+
+def _pending(
+    extraction: DocumentExtraction, settings: Settings
+) -> list[str]:
+    """Tag set when auto-approve didn't fire. Adds ai-low-confidence
+    whenever the extraction's confidence is below LOW_CONFIDENCE_THRESHOLD,
+    independent of which gate blocked the auto-approve path."""
     tags = ["ai-pending"]
     if extraction.confidence < settings.low_confidence_threshold:
         tags.append("ai-low-confidence")
@@ -656,9 +681,15 @@ async def process_document(
 
     try:
         await paperless.patch_document_ai_fields(doc_id, extraction, backend.name, backend.model)
-        lifecycle_tags = _route_lifecycle_tags(extraction, settings)
+        lifecycle_tags, routing_reason = _route_lifecycle_tags(extraction, settings)
         await _apply_tags(paperless, doc, lifecycle_tags)
-        logger.info("routing_decision", tags=lifecycle_tags, confidence=extraction.confidence)
+        logger.info(
+            "routing_decision",
+            tags=lifecycle_tags,
+            confidence=extraction.confidence,
+            document_type=extraction.document_type.value,
+            reason=routing_reason,
+        )
     except Exception as exc:
         # Without an ai-error tag here the doc has no lifecycle tag and would be
         # re-processed forever on every poll cycle.

@@ -30,6 +30,12 @@ class LibraryItem(BaseModel):
     # ai-propagation-error / ai-index-error). Lets the SPA show a tooltip on
     # the status badge with the actual reason instead of a bare "Fehler".
     ai_error_message: str | None = None
+    # True ONLY on rows the page-1 prepend logic projected from the
+    # auto-tagger's /processing endpoint. Lets the SPA render the
+    # ProcessingBadge spinner on rows the worker is actively handling so
+    # the user doesn't have to paginate to find them. Natural-sort rows
+    # are always False.
+    is_processing: bool = False
 
 
 class LibraryList(BaseModel):

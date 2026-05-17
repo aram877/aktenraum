@@ -5,7 +5,8 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from ..ai.deps import get_paperless_gateway
-from ..auth.deps import get_current_user
+from ..auth.deps import get_current_user, get_settings
+from ..config import Settings
 from ..db.models import User
 from ..paperless_gw import PaperlessAuthError, PaperlessGateway
 from . import service
@@ -46,6 +47,7 @@ async def list_library(
     ordering: str = Query("-created"),
     _user: User = Depends(get_current_user),
     gateway: PaperlessGateway = Depends(get_paperless_gateway),
+    settings: Settings = Depends(get_settings),
 ) -> LibraryList:
     if ordering not in _ALLOWED_ORDERING:
         raise HTTPException(
@@ -64,6 +66,7 @@ async def list_library(
             page=page,
             page_size=page_size,
             ordering=ordering,
+            settings=settings,
         )
     except PaperlessAuthError as e:
         raise HTTPException(

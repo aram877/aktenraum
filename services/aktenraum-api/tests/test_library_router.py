@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
-from httpx import AsyncClient
+import respx
+from httpx import AsyncClient, Response
 
 from aktenraum_api.ai.deps import get_paperless_gateway
 
@@ -66,12 +67,18 @@ def _make_gateway(*, documents: list[dict], correspondents=None, document_types=
     return gw
 
 
-async def _logged_in(client_factory):
-    return await client_factory(
-        BOOTSTRAP_USERNAME="admin",
-        BOOTSTRAP_PASSWORD="topsecret",
-        PAPERLESS_API_TOKEN="dummy",
-    )
+async def _logged_in(client_factory, **overrides):
+    # Default AUTO_TAGGER_URL="" so legacy library tests don't burn 2s
+    # on each request waiting for the now-baked-in /processing fetch to
+    # time out. Pin-specific tests pass AUTO_TAGGER_URL explicitly.
+    base = {
+        "BOOTSTRAP_USERNAME": "admin",
+        "BOOTSTRAP_PASSWORD": "topsecret",
+        "PAPERLESS_API_TOKEN": "dummy",
+        "AUTO_TAGGER_URL": "",
+    }
+    base.update(overrides)
+    return await client_factory(**base)
 
 
 async def _login(c: AsyncClient) -> None:
@@ -330,3 +337,183 @@ async def test_library_pagination_defaults(client_factory):
     sent = gateway.search_documents.await_args
     assert sent.args[0]["page"] == 3
     assert sent.kwargs["page_size"] == 10
+
+
+# ---- in-flight pin (library-ux-improvements) ----
+
+
+def _gateway_with_pinnable_doc(pinned_id: int, *, pinned_title: str = "Wird verarbeitet"):
+    """Library natural-sort returns doc 10 + 11; gateway.get_document(pinned_id)
+    is wired to return a synthetic doc carrying ai-pending or ai-approved tags."""
+    natural = [
+        _doc(10, title="Older A", correspondent=12, document_type=5),
+        _doc(11, title="Older B", correspondent=12, document_type=5),
+    ]
+    gw = _make_gateway(
+        documents=natural,
+        correspondents={"Telekom": 12},
+        document_types={"Rechnung": 5},
+    )
+
+    pinned_doc = _doc(
+        pinned_id,
+        title=pinned_title,
+        correspondent=12,
+        document_type=5,
+    )
+    gw.get_document = AsyncMock(return_value=pinned_doc)
+    return gw
+
+
+@respx.mock
+async def test_library_page1_pins_in_flight_doc(client_factory):
+    """Doc id 42 is in the extraction slot. It should appear as row 1 of
+    page 1 with is_processing=True, ahead of the natural-sort rows."""
+    app, _settings, transport = await _logged_in(
+        client_factory, AUTO_TAGGER_URL="http://auto-tagger.test:8001"
+    )
+    gw = _gateway_with_pinnable_doc(42)
+    app.dependency_overrides[get_paperless_gateway] = lambda: gw
+
+    respx.get("http://auto-tagger.test:8001/processing").mock(
+        return_value=Response(
+            200,
+            json={
+                "processing": [42],
+                "slots": {"extraction": 42, "propagation": None, "indexer": None},
+            },
+        )
+    )
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.get("/api/library/")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 2  # Paperless natural count, NOT inflated by the pin
+    ids = [r["id"] for r in body["results"]]
+    assert ids == [42, 10, 11]
+    assert body["results"][0]["is_processing"] is True
+    assert body["results"][1]["is_processing"] is False
+    assert body["results"][2]["is_processing"] is False
+
+
+@respx.mock
+async def test_library_page1_dedupes_pinned_doc_against_natural_sort(client_factory):
+    """If the in-flight doc id is ALSO in the natural-sort page, it must
+    appear exactly once — as the pinned row, not duplicated below."""
+    app, _settings, transport = await _logged_in(
+        client_factory, AUTO_TAGGER_URL="http://auto-tagger.test:8001"
+    )
+    # Natural-sort returns the same id 11 the auto-tagger is processing.
+    gw = _gateway_with_pinnable_doc(11)
+    app.dependency_overrides[get_paperless_gateway] = lambda: gw
+
+    respx.get("http://auto-tagger.test:8001/processing").mock(
+        return_value=Response(
+            200,
+            json={
+                "processing": [11],
+                "slots": {"extraction": None, "propagation": 11, "indexer": None},
+            },
+        )
+    )
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.get("/api/library/")
+
+    assert resp.status_code == 200
+    ids = [r["id"] for r in resp.json()["results"]]
+    # 11 is pinned to the top; the natural-sort row for 11 is removed
+    # so it doesn't appear twice. 10 follows.
+    assert ids == [11, 10]
+
+
+@respx.mock
+async def test_library_page2_no_pin_no_processing_call(client_factory):
+    """Page 2+ behaviour is unchanged — no /processing fetch, no pinned
+    rows. Verifies via respx that the GET was never made."""
+    app, _settings, transport = await _logged_in(
+        client_factory, AUTO_TAGGER_URL="http://auto-tagger.test:8001"
+    )
+    gw = _make_gateway(
+        documents=[_doc(20, title="Page 2 row")],
+        correspondents={"Telekom": 12},
+        document_types={"Rechnung": 5},
+    )
+    app.dependency_overrides[get_paperless_gateway] = lambda: gw
+
+    processing = respx.get("http://auto-tagger.test:8001/processing").mock(
+        return_value=Response(
+            200,
+            json={"processing": [99], "slots": {"extraction": 99}},
+        )
+    )
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.get("/api/library/?page=2")
+
+    assert resp.status_code == 200
+    ids = [r["id"] for r in resp.json()["results"]]
+    assert ids == [20]
+    assert not processing.called
+
+
+@respx.mock
+async def test_library_page1_falls_back_when_auto_tagger_unreachable(client_factory):
+    """A 5xx from /processing must NOT fail the library request — it
+    falls back to plain natural-sort with no pinned rows."""
+    app, _settings, transport = await _logged_in(
+        client_factory, AUTO_TAGGER_URL="http://auto-tagger.test:8001"
+    )
+    gw = _make_gateway(
+        documents=[
+            _doc(10, title="Older A"),
+            _doc(11, title="Older B"),
+        ],
+    )
+    app.dependency_overrides[get_paperless_gateway] = lambda: gw
+
+    respx.get("http://auto-tagger.test:8001/processing").mock(
+        return_value=Response(503)
+    )
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.get("/api/library/")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    ids = [r["id"] for r in body["results"]]
+    assert ids == [10, 11]
+    assert all(row["is_processing"] is False for row in body["results"])
+
+
+async def test_library_page1_with_empty_auto_tagger_url_skips_processing_call(
+    client_factory,
+):
+    """When AUTO_TAGGER_URL is empty (the test default), no /processing
+    fetch happens and is_processing stays False on every row. Asserted
+    without respx — if the code accidentally tried to make the call,
+    it would hit the real network."""
+    app, _settings, transport = await _logged_in(client_factory)
+    gw = _make_gateway(
+        documents=[_doc(10, title="Older A")],
+    )
+    app.dependency_overrides[get_paperless_gateway] = lambda: gw
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.get("/api/library/")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["results"][0]["is_processing"] is False

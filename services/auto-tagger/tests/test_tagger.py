@@ -168,40 +168,78 @@ class TestRouteLifecycleTags:
     # load-bearing defence and the user explicitly opts in.
 
     @pytest.mark.parametrize(
-        "doc_type,confidence,allowlist,expected",
+        "doc_type,confidence,allowlist,expected_tags,expected_reason",
         [
             # Confidence above threshold AND type in allowlist → auto-approve.
-            ("Rechnung", 0.90, "Rechnung", ["ai-approved", "ai-auto-approved"]),
-            ("Rechnung", 1.0, "Rechnung,Kontoauszug", ["ai-approved", "ai-auto-approved"]),
-            ("Vertrag", 0.95, "Vertrag", ["ai-approved", "ai-auto-approved"]),
-            ("Versicherung", 0.99, "Versicherung", ["ai-approved", "ai-auto-approved"]),
-            # Confidence above threshold but type NOT in allowlist → pending.
-            ("Rechnung", 0.99, "Kontoauszug", ["ai-pending"]),
-            ("Sonstiges", 1.0, "Rechnung", ["ai-pending"]),
+            ("Rechnung", 0.90, "Rechnung", ["ai-approved", "ai-auto-approved"], "auto_approved"),
+            (
+                "Rechnung",
+                1.0,
+                "Rechnung,Kontoauszug",
+                ["ai-approved", "ai-auto-approved"],
+                "auto_approved",
+            ),
+            ("Vertrag", 0.95, "Vertrag", ["ai-approved", "ai-auto-approved"], "auto_approved"),
+            (
+                "Versicherung",
+                0.99,
+                "Versicherung",
+                ["ai-approved", "ai-auto-approved"],
+                "auto_approved",
+            ),
+            # Confidence above threshold but type NOT in allowlist → pending,
+            # reason names the type gate so the user can grep the log and see
+            # exactly which gate blocked the doc.
+            ("Rechnung", 0.99, "Kontoauszug", ["ai-pending"], "type_not_in_allowlist"),
+            ("Sonstiges", 1.0, "Rechnung", ["ai-pending"], "type_not_in_allowlist"),
             # Empty allowlist → never auto-approves even at confidence 1.0.
-            ("Rechnung", 1.0, "", ["ai-pending"]),
+            ("Rechnung", 1.0, "", ["ai-pending"], "allowlist_empty"),
             # Below auto-approve threshold even with type in allowlist → pending.
-            ("Rechnung", 0.89, "Rechnung", ["ai-pending"]),
-            ("Vertrag", 0.70, "Vertrag", ["ai-pending"]),
+            ("Rechnung", 0.89, "Rechnung", ["ai-pending"], "confidence_below_threshold"),
+            ("Vertrag", 0.70, "Vertrag", ["ai-pending"], "confidence_below_threshold"),
             # Below low-confidence threshold → pending + flag.
-            ("Rechnung", 0.50, "Rechnung", ["ai-pending", "ai-low-confidence"]),
-            ("Sonstiges", 0.30, "", ["ai-pending", "ai-low-confidence"]),
-            ("Vertrag", 0.10, "Vertrag", ["ai-pending", "ai-low-confidence"]),
+            # Reason still names whichever gate blocked auto-approve;
+            # ai-low-confidence is orthogonal review-queue signal.
+            (
+                "Rechnung",
+                0.50,
+                "Rechnung",
+                ["ai-pending", "ai-low-confidence"],
+                "confidence_below_threshold",
+            ),
+            ("Sonstiges", 0.30, "", ["ai-pending", "ai-low-confidence"], "allowlist_empty"),
+            (
+                "Vertrag",
+                0.10,
+                "Vertrag",
+                ["ai-pending", "ai-low-confidence"],
+                "confidence_below_threshold",
+            ),
         ],
     )
     def test_routing_matrix(
-        self, make_settings, doc_type, confidence, allowlist, expected
+        self,
+        make_settings,
+        doc_type,
+        confidence,
+        allowlist,
+        expected_tags,
+        expected_reason,
     ):
         settings = make_settings(AUTO_APPROVE_TYPES=allowlist)
         extraction = _make_extraction(doc_type, confidence)
-        assert _route_lifecycle_tags(extraction, settings) == expected
+        tags, reason = _route_lifecycle_tags(extraction, settings)
+        assert tags == expected_tags
+        assert reason == expected_reason
 
     def test_empty_allowlist_blocks_auto_approve(self, make_settings):
         # Default install: AUTO_APPROVE_TYPES unset means no type can
         # auto-approve. Pure confidence-only auto-approve is disabled.
         settings = make_settings(AUTO_APPROVE_TYPES="")
         extraction = _make_extraction("Vertrag", 1.0)
-        assert _route_lifecycle_tags(extraction, settings) == ["ai-pending"]
+        tags, reason = _route_lifecycle_tags(extraction, settings)
+        assert tags == ["ai-pending"]
+        assert reason == "allowlist_empty"
 
     def test_threshold_at_exact_boundary_auto_approves(self, make_settings):
         settings = make_settings(
@@ -209,10 +247,9 @@ class TestRouteLifecycleTags:
             AUTO_APPROVE_TYPES="Rechnung",
         )
         extraction = _make_extraction("Rechnung", 0.90)
-        assert _route_lifecycle_tags(extraction, settings) == [
-            "ai-approved",
-            "ai-auto-approved",
-        ]
+        tags, reason = _route_lifecycle_tags(extraction, settings)
+        assert tags == ["ai-approved", "ai-auto-approved"]
+        assert reason == "auto_approved"
 
     def test_low_confidence_flag_skipped_when_auto_approving(self, make_settings):
         # Defensive: when both gates pass, low_confidence flag is dropped —
@@ -222,10 +259,9 @@ class TestRouteLifecycleTags:
             AUTO_APPROVE_TYPES="Rechnung",
         )
         extraction = _make_extraction("Rechnung", 0.96)
-        assert _route_lifecycle_tags(extraction, settings) == [
-            "ai-approved",
-            "ai-auto-approved",
-        ]
+        tags, reason = _route_lifecycle_tags(extraction, settings)
+        assert tags == ["ai-approved", "ai-auto-approved"]
+        assert reason == "auto_approved"
 
 
 class TestSplitCsv:
@@ -405,10 +441,7 @@ class TestSynthesizeAiTitle:
         return DocumentExtraction(**defaults)
 
     def test_full_title(self):
-        assert (
-            _synthesize_ai_title(self._ex())
-            == "Gehaltsabrechnung · Acme GmbH · November 2024"
-        )
+        assert _synthesize_ai_title(self._ex()) == "Gehaltsabrechnung · Acme GmbH · November 2024"
 
     def test_drops_missing_correspondent(self):
         assert (
@@ -418,8 +451,7 @@ class TestSynthesizeAiTitle:
 
     def test_drops_missing_date(self):
         assert (
-            _synthesize_ai_title(self._ex(key_dates=KeyDates()))
-            == "Gehaltsabrechnung · Acme GmbH"
+            _synthesize_ai_title(self._ex(key_dates=KeyDates())) == "Gehaltsabrechnung · Acme GmbH"
         )
 
     def test_doc_type_only_when_everything_else_missing(self):

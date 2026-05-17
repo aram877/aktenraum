@@ -6,7 +6,9 @@ from typing import Any
 
 from aktenraum_core.paperless import LIFECYCLE_TAGS
 
-from ..paperless_gw import PaperlessGateway
+from .._auto_tagger import fetch_processing_state
+from ..config import Settings
+from ..paperless_gw import PaperlessAuthError, PaperlessGateway, PaperlessNotFoundError
 from .schemas import LibraryItem, LibraryList, TagFacet, TagFacetList
 
 # Lifecycle tags we surface as badges. Excludes ai-pending (filtered out
@@ -48,6 +50,7 @@ async def list_library(
     page: int,
     page_size: int,
     ordering: str,
+    settings: Settings | None = None,
 ) -> LibraryList:
     correspondents = await gateway.list_correspondents()
     document_types = await gateway.list_document_types()
@@ -109,9 +112,94 @@ async def list_library(
         for doc in raw_results
     ]
 
+    # Page-1 prepend: pin docs the auto-tagger is *actively* working on
+    # (extraction / propagation / indexer slots) to the top so the user
+    # doesn't have to paginate to find a freshly-uploaded doc. Best-
+    # effort: when the auto-tagger is unreachable we silently fall back
+    # to the natural-sort page.
+    if page == 1 and settings is not None and settings.auto_tagger_url:
+        in_flight_ids = await _fetch_in_flight_ids(settings)
+        if in_flight_ids:
+            pinned_rows: list[LibraryItem] = []
+            for doc_id in in_flight_ids:
+                row = await _project_in_flight_row(
+                    gateway,
+                    doc_id,
+                    correspondent_by_id=correspondent_by_id,
+                    document_type_by_id=document_type_by_id,
+                    tag_name_by_id=tag_name_by_id,
+                    field_id_to_name=field_id_to_name,
+                )
+                if row is not None:
+                    pinned_rows.append(row)
+            if pinned_rows:
+                pinned_id_set = {r.id for r in pinned_rows}
+                items = pinned_rows + [
+                    item for item in items if item.id not in pinned_id_set
+                ]
+
     return LibraryList(
         results=items, total=total_native, page=page, page_size=page_size
     )
+
+
+async def _fetch_in_flight_ids(settings: Settings) -> list[int]:
+    """Return the doc ids the auto-tagger is actively processing right now.
+
+    Dedup-preserves order so the pin layout is stable across requests
+    (extraction first, then propagation, then indexer per ProcessingState
+    snapshot shape). Empty list when the auto-tagger is unreachable, idle,
+    or mis-configured.
+    """
+    body = await fetch_processing_state(settings)
+    if not body:
+        return []
+    raw = body.get("processing") or []
+    seen: set[int] = set()
+    ordered: list[int] = []
+    for raw_id in raw:
+        try:
+            doc_id = int(raw_id)
+        except (TypeError, ValueError):
+            continue
+        if doc_id in seen:
+            continue
+        seen.add(doc_id)
+        ordered.append(doc_id)
+    return ordered
+
+
+async def _project_in_flight_row(
+    gateway: PaperlessGateway,
+    doc_id: int,
+    *,
+    correspondent_by_id: dict[int, str],
+    document_type_by_id: dict[int, str],
+    tag_name_by_id: dict[int, str],
+    field_id_to_name: dict[int, str],
+) -> LibraryItem | None:
+    """Fetch a single doc by id and project to a pinned LibraryItem.
+
+    Returns None when the doc cannot be projected (404 because it was
+    deleted between /processing reporting it and us reading it; auth
+    error; any other gateway exception). Pinning is best-effort and a
+    missing row simply means the user sees the natural-sort page-1 with
+    one fewer pin.
+    """
+    try:
+        doc = await gateway.get_document(doc_id)
+    except (PaperlessNotFoundError, PaperlessAuthError):
+        return None
+    except Exception:
+        return None
+    item = _project(
+        doc,
+        correspondent_by_id=correspondent_by_id,
+        document_type_by_id=document_type_by_id,
+        tag_name_by_id=tag_name_by_id,
+        field_id_to_name=field_id_to_name,
+    )
+    return item.model_copy(update={"is_processing": True})
 
 
 async def list_tag_facet(gateway: PaperlessGateway) -> TagFacetList:

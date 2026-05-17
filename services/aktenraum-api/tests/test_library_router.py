@@ -30,6 +30,7 @@ TAG_IDS = {
     "ai-error": 6,
     "ai-low-confidence": 7,
     "ai-auto-approved": 8,
+    "ai-duplicate": 9,
     "sonstiges": 99,
 }
 
@@ -517,3 +518,36 @@ async def test_library_page1_with_empty_auto_tagger_url_skips_processing_call(
     assert resp.status_code == 200
     body = resp.json()
     assert body["results"][0]["is_processing"] is False
+
+
+async def test_library_surfaces_ai_duplicate_in_lifecycle_tags(client_factory):
+    """ai-duplicate is an aux tag the propagator applies when a doc
+    matches another on key fields. It MUST surface as a lifecycle badge
+    so the SPA can render the "Duplikat" pill, but it MUST NOT be
+    classified as internal — the user explicitly filters Library by
+    `?tags=ai-duplicate` to find candidates to resolve."""
+    app, _settings, transport = await _logged_in(client_factory)
+    docs = [
+        _doc(
+            10,
+            title="Telekom Rechnung A",
+            tags=[TAG_IDS["ai-propagated"], TAG_IDS["ai-duplicate"]],
+            correspondent=12,
+            document_type=5,
+        ),
+    ]
+    gateway = _make_gateway(
+        documents=docs,
+        correspondents={"Telekom": 12},
+        document_types={"Rechnung": 5},
+    )
+    app.dependency_overrides[get_paperless_gateway] = lambda: gateway
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.get("/api/library/")
+
+    assert resp.status_code == 200
+    row = resp.json()["results"][0]
+    assert set(row["lifecycle_tags"]) == {"ai-propagated", "ai-duplicate"}

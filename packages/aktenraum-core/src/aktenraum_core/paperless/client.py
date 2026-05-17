@@ -26,10 +26,17 @@ _DEFAULT_CACHE_TTL = 300.0
 # excludes documents carrying any of these from its unprocessed-doc query, and
 # the propagator filters by individual states (ai-approved, ai-propagated, …).
 #
-# `ai-auto-approved` is an auxiliary marker — NOT a lifecycle state. It lives
-# alongside `ai-approved` (and later `ai-propagated`) so the UI can show
-# "auto-genehmigt" forever. It's intentionally excluded from this tuple so the
-# poller's "no lifecycle tag" filter doesn't change behaviour.
+# Auxiliary tags (NOT lifecycle states, intentionally excluded from this tuple
+# so the poller's "no lifecycle tag" filter doesn't change behaviour):
+#   - `ai-auto-approved`: set alongside ai-approved when the routing gate
+#     fires; persists through propagation so the SPA can render the
+#     "auto-genehmigt" badge.
+#   - `ai-low-confidence`: review-queue priority flag; coexists with
+#     ai-pending when extraction confidence is below the threshold.
+#   - `ai-duplicate`: propagator-applied flag indicating the doc matched
+#     another propagated doc on correspondent + issue_date + (amount or
+#     reference number). Persists through every lifecycle state; the user
+#     filters Library by it to resolve duplicates via the Löschen flow.
 LIFECYCLE_TAGS = (
     "ai-pending",
     "ai-approved",
@@ -209,7 +216,11 @@ class PaperlessClient:
     # ------------------------------------------------------------------
 
     async def get_documents_with_tag(
-        self, tag_name: str, batch_size: int = 5, ordering: str = "modified"
+        self,
+        tag_name: str,
+        batch_size: int = 5,
+        ordering: str = "modified",
+        extra_params: dict[str, Any] | None = None,
     ) -> list[dict]:
         """Return documents tagged with `tag_name`. Empty list if tag missing.
 
@@ -217,14 +228,24 @@ class PaperlessClient:
         "-modified" newest-first, etc.). The list endpoint includes the full
         document including content and custom_fields, so callers do not need
         per-doc GETs to inspect those.
+
+        `extra_params` are merged into the Paperless query string after the
+        tag / ordering / page-size defaults. Lets callers narrow the scan
+        (e.g. duplicate detection passes `correspondent__id` to limit the
+        candidate set to one sender). User-supplied keys override the
+        defaults; pass None when no extra filter is wanted.
         """
         tag_id = await self._get_tag_id(tag_name)
         if tag_id is None:
             return []
-        resp = await self._client.get(
-            "/api/documents/",
-            params={"tags__id__all": tag_id, "ordering": ordering, "page_size": batch_size},
-        )
+        params: dict[str, Any] = {
+            "tags__id__all": tag_id,
+            "ordering": ordering,
+            "page_size": batch_size,
+        }
+        if extra_params:
+            params.update(extra_params)
+        resp = await self._client.get("/api/documents/", params=params)
         resp.raise_for_status()
         return resp.json().get("results", [])
 

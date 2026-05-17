@@ -3,9 +3,19 @@ import asyncio
 import structlog
 from aktenraum_core.paperless import LIFECYCLE_TAGS, PaperlessClient
 
+from .dedup import DocFields, find_duplicates
+
 log = structlog.get_logger()
 
 _LIFECYCLE_SET = set(LIFECYCLE_TAGS)
+
+# Cap on candidates scanned per duplicate-detection round. Heavy
+# correspondents (banks, monthly billing services) can accumulate
+# hundreds of propagated docs; capping at 200 keeps the Paperless GET
+# bounded and the in-process comparison loop fast. Default sort is
+# `-modified` so the most-recent docs are inside the cap — the case
+# we most care about for newly-arrived duplicates.
+_DUPLICATE_CANDIDATE_CAP = 200
 
 
 def _format_error(label: str, exc: BaseException) -> str:
@@ -38,6 +48,64 @@ def _split_suggested_tags(raw: str | None) -> list[str]:
             continue
         out.append(name)
     return out
+
+
+async def _find_duplicate_ids(
+    paperless: PaperlessClient,
+    new_doc_id: int,
+    correspondent_id: int,
+    ai_fields: dict,
+) -> list[int]:
+    """Fetch propagated docs for the same correspondent and feed them
+    plus the new doc's fields to the detector.
+
+    Pure orchestration: the matching rule lives in `dedup.find_duplicates`.
+    Returns an empty list when the correspondent has no other propagated
+    docs yet, when detection short-circuits on a missing anchor, or when
+    the new doc's id happens to be the only match returned (shouldn't
+    happen because the detector excludes self ids, but defence in depth).
+    """
+    candidates = await paperless.get_documents_with_tag(
+        "ai-propagated",
+        batch_size=_DUPLICATE_CANDIDATE_CAP,
+        ordering="-modified",
+        extra_params={"correspondent__id": correspondent_id},
+    )
+    if not candidates:
+        return []
+    field_name_by_id = await paperless.get_custom_field_name_by_id()
+    new_doc_fields = DocFields(
+        id=new_doc_id,
+        correspondent=ai_fields.get("ai_correspondent"),
+        issue_date=ai_fields.get("ai_issue_date"),
+        monetary_amount=ai_fields.get("ai_monetary_amount"),
+        reference_numbers=ai_fields.get("ai_reference_numbers"),
+    )
+    candidate_fields = [
+        _doc_to_fields(c, field_name_by_id) for c in candidates
+    ]
+    return find_duplicates(new_doc_fields, candidate_fields)
+
+
+def _doc_to_fields(doc: dict, field_name_by_id: dict[int, str]) -> DocFields:
+    """Project a Paperless document blob into the detector's DocFields."""
+    values: dict[str, str] = {}
+    for entry in doc.get("custom_fields") or []:
+        name = field_name_by_id.get(entry.get("field"))
+        if not name:
+            continue
+        value = entry.get("value")
+        if isinstance(value, str):
+            values[name] = value
+        elif value is not None:
+            values[name] = str(value)
+    return DocFields(
+        id=int(doc["id"]),
+        correspondent=values.get("ai_correspondent"),
+        issue_date=values.get("ai_issue_date"),
+        monetary_amount=values.get("ai_monetary_amount"),
+        reference_numbers=values.get("ai_reference_numbers"),
+    )
 
 
 async def process_approved_document(
@@ -101,11 +169,31 @@ async def process_approved_document(
 
         propagated_id = await paperless.get_or_create_tag("ai-propagated")
 
+        # Duplicate detection runs against the existing propagated
+        # corpus for the same correspondent. Done BEFORE the lifecycle
+        # PATCH so any matched id can be added to the same write set
+        # (one PATCH instead of two for the new doc). Best-effort: a
+        # detection failure must not break propagation.
+        duplicate_ids: list[int] = []
+        if correspondent_id is not None:
+            try:
+                duplicate_ids = await _find_duplicate_ids(
+                    paperless,
+                    doc_id,
+                    correspondent_id,
+                    ai_fields,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("duplicate_detection_failed", error=str(exc))
+
         new_tag_set = set(current_tags)
         if approved_id is not None:
             new_tag_set.discard(approved_id)
         new_tag_set.add(propagated_id)
         new_tag_set.update(suggested_tag_ids)
+        if duplicate_ids:
+            duplicate_tag_id = await paperless.get_or_create_tag("ai-duplicate")
+            new_tag_set.add(duplicate_tag_id)
 
         # Shield the lifecycle-flipping PATCH from task cancellation
         # (SIGTERM during a graceful shutdown). A partial cancellation
@@ -124,6 +212,26 @@ async def process_approved_document(
                 title=ai_title,
             )
         )
+
+        # Tag each matched counterpart with `ai-duplicate`. Per-id
+        # failures are swallowed: propagation itself already succeeded
+        # for the new doc, and the matched docs were already propagated
+        # (so they're not at risk). A future propagation of any other
+        # doc in this cluster will re-tag if needed.
+        for matched_id in duplicate_ids:
+            try:
+                await paperless.add_tag_to_document(matched_id, "ai-duplicate")
+                logger.info(
+                    "duplicate_detected",
+                    new_doc_id=doc_id,
+                    matched_id=matched_id,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "duplicate_tag_failed",
+                    matched_id=matched_id,
+                    error=str(exc),
+                )
 
         # Successful propagation clears any prior failure message. Propagation
         # only touches native fields, so we explicitly clear the custom field

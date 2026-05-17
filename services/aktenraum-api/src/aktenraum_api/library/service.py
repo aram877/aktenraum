@@ -13,10 +13,17 @@ from .schemas import LibraryItem, LibraryList, TagFacet, TagFacetList
 
 # Lifecycle tags we surface as badges. Excludes ai-pending (filtered out
 # entirely) and ai-low-confidence (an auxiliary that only matters for the
-# review queue). `ai-auto-approved` is auxiliary and persists through
-# propagation, so it joins the badge vocabulary so the SPA can render an
-# "Auto-genehmigt" pill.
-_BADGE_TAGS = (frozenset(LIFECYCLE_TAGS) - {"ai-pending"}) | {"ai-auto-approved"}
+# review queue). `ai-auto-approved` and `ai-duplicate` are auxiliary
+# markers that persist through propagation, so they join the badge
+# vocabulary so the SPA can render an "Auto-genehmigt" / "Duplikat"
+# pill. Intentional asymmetry below: ai-auto-approved is ALSO listed in
+# _INTERNAL_TAGS (the user never filters by it), but ai-duplicate is NOT
+# — the user explicitly wants to filter Library by `?tags=ai-duplicate`
+# to find candidates to resolve.
+_BADGE_TAGS = (
+    (frozenset(LIFECYCLE_TAGS) - {"ai-pending"})
+    | {"ai-auto-approved", "ai-duplicate"}
+)
 
 # Tags that must NEVER appear in the user-facing tag chip / facet vocabulary —
 # the lifecycle vocabulary plus the auxiliary low-confidence and

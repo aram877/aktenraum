@@ -285,11 +285,22 @@ class PaperlessGateway:
         return resp.text.strip().strip('"')
 
     async def delete_document(self, doc_id: int) -> None:
-        """Permanently delete a document from Paperless.
+        """Soft-delete a document via Paperless's `DELETE /api/documents/{id}/`.
 
-        Paperless does not soft-delete — once removed, the PDF, OCR, and all
-        custom-field values are gone. The propagator may still try to read
-        the doc on its next poll cycle; it will get a 404 and log it without
+        Paperless 2.x always soft-deletes: the doc moves to `/api/trash/`
+        and is recoverable for `PAPERLESS_EMPTY_TRASH_DELAY` days (default
+        30) via `POST /api/trash/ {documents:[id], action:"restore"}`.
+        After that window Paperless auto-empties the trash and the PDF,
+        OCR, and custom fields are gone for good.
+
+        Hard-delete is `empty_trash(doc_ids=[id])` — that's the call the
+        SPA's trashbin "Endgültig löschen" maps to. Hard-delete also
+        needs the Qdrant chunks purged via
+        `vector_store.delete_by_doc_id(id)` — this method does NOT do
+        that on its own because soft-delete should leave the search
+        corpus intact (restore must put the doc back exactly as it
+        was). The propagator may still try to read a soft-deleted doc
+        on its next poll cycle; it will get a 404 and log it without
         retrying, so this is safe to call mid-pipeline.
         """
         resp = await self._client.delete(f"/api/documents/{doc_id}/")
@@ -303,6 +314,90 @@ class PaperlessGateway:
                 doc_id=doc_id,
                 status=resp.status_code,
                 body=resp.text,
+            )
+        resp.raise_for_status()
+
+    async def list_trashed_documents(
+        self,
+        *,
+        page: int = 1,
+        page_size: int = 20,
+        ordering: str | None = None,
+    ) -> dict[str, Any]:
+        """List soft-deleted documents from Paperless's trash.
+
+        Returns the upstream JSON envelope verbatim: `{count, next,
+        previous, all, results}`. Each result row carries the same shape
+        as `/api/documents/` plus a `deleted_at` timestamp so the SPA
+        can render "noch N Tage" hints against the auto-purge window.
+        """
+        params: dict[str, Any] = {"page": page, "page_size": page_size}
+        if ordering:
+            params["ordering"] = ordering
+        resp = await self._client.get("/api/trash/", params=params)
+        if resp.status_code in (401, 403):
+            raise PaperlessAuthError(resp.status_code)
+        if resp.status_code >= 400:
+            log.error(
+                "paperless_trash_list_rejected",
+                status=resp.status_code,
+                body=resp.text[:300],
+            )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def restore_documents(self, doc_ids: list[int]) -> None:
+        """Restore one or more docs from trash via `POST /api/trash/`.
+
+        Paperless serialises trash mutations server-side; if a doc was
+        already auto-purged between the SPA reading the list and this
+        call landing, Paperless returns a 404-like payload and we raise
+        `PaperlessNotFoundError` so the router maps it to HTTP 404.
+        """
+        if not doc_ids:
+            return
+        resp = await self._client.post(
+            "/api/trash/",
+            json={"documents": doc_ids, "action": "restore"},
+        )
+        if resp.status_code == 404:
+            raise PaperlessNotFoundError(doc_ids[0] if len(doc_ids) == 1 else 0)
+        if resp.status_code in (401, 403):
+            raise PaperlessAuthError(resp.status_code)
+        if resp.status_code >= 400:
+            log.error(
+                "paperless_trash_restore_rejected",
+                doc_ids=doc_ids,
+                status=resp.status_code,
+                body=resp.text[:300],
+            )
+        resp.raise_for_status()
+
+    async def empty_trash(self, doc_ids: list[int] | None = None) -> None:
+        """Hard-delete docs from trash via `POST /api/trash/`.
+
+        `doc_ids=None` or `[]` empties the entire trash (Paperless's
+        contract). Pass a list to hard-delete specific ids — used by
+        the SPA's per-row "Endgültig löschen" action. Note that this
+        method does NOT purge Qdrant chunks; the trash service does
+        that after a successful Paperless response so the order is
+        deterministic.
+        """
+        payload: dict[str, Any] = {
+            "documents": doc_ids if doc_ids is not None else [],
+            "action": "empty",
+        }
+        resp = await self._client.post("/api/trash/", json=payload)
+        if resp.status_code == 404:
+            raise PaperlessNotFoundError(doc_ids[0] if doc_ids else 0)
+        if resp.status_code in (401, 403):
+            raise PaperlessAuthError(resp.status_code)
+        if resp.status_code >= 400:
+            log.error(
+                "paperless_trash_empty_rejected",
+                doc_ids=doc_ids,
+                status=resp.status_code,
+                body=resp.text[:300],
             )
         resp.raise_for_status()
 

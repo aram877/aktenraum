@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from aktenraum_core.llm import LLMBackend, create_backend
+from aktenraum_core.rag import QdrantVectorStore
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,6 +11,17 @@ from ..db.session import get_session
 from ..paperless_gw import PaperlessGateway
 from ..settings import service as settings_service
 from .retrieval import RetrievalDeps
+
+
+def get_vector_store_optional(request: Request) -> QdrantVectorStore | None:
+    """Return the per-process Qdrant vector store, or None when RAG is
+    disabled (`QDRANT_URL` unset, or Qdrant unreachable at boot).
+
+    Callers that need to mutate the index (e.g. the trash service's
+    hard-delete path) treat `None` as a no-op so RAG-off installs
+    continue to work without branching on every call site.
+    """
+    return getattr(request.app.state, "rag_vector_store", None)
 
 
 def get_retrieval_deps(request: Request) -> RetrievalDeps | None:

@@ -20,6 +20,7 @@ from .library import router as library_router
 from .middleware import CSRFMiddleware, SecurityHeadersMiddleware
 from .paperless_gw import PaperlessGateway
 from .settings import router as settings_router
+from .trash import router as trash_router
 from .type_fields import router as type_fields_router
 
 
@@ -140,6 +141,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(documents_router, prefix="/api")
     app.include_router(inbox_router, prefix="/api")
     app.include_router(library_router, prefix="/api")
+    app.include_router(trash_router, prefix="/api")
     app.include_router(type_fields_router, prefix="/api")
     app.include_router(settings_router, prefix="/api")
     return app

@@ -130,14 +130,14 @@ export function DocumentPreviewModal({
                 onClick={() => setConfirmingDelete(true)}
                 disabled={deleteDoc.isPending}
                 className="rounded-md border border-red-300 bg-red-50 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
-                title="Dokument unwiderruflich löschen"
+                title="In den Papierkorb verschieben (30 Tage wiederherstellbar)"
               >
                 Löschen
               </button>
             )}
             {showDelete && confirmingDelete && (
               <div className="flex items-center gap-1 rounded-md border border-red-300 bg-red-50 px-2 py-1 text-xs text-red-900">
-                <span>Wirklich löschen?</span>
+                <span>In den Papierkorb verschieben?</span>
                 <button
                   type="button"
                   onClick={() => setConfirmingDelete(false)}
@@ -152,7 +152,7 @@ export function DocumentPreviewModal({
                   disabled={deleteDoc.isPending}
                   className="rounded bg-red-600 px-2 py-0.5 font-medium text-white hover:bg-red-700 disabled:opacity-60"
                 >
-                  {deleteDoc.isPending ? "…" : "Ja, löschen"}
+                  {deleteDoc.isPending ? "…" : "Ja, in Papierkorb"}
                 </button>
               </div>
             )}

@@ -114,13 +114,57 @@ async def _extraction_poller(
         await asyncio.sleep(settings.poll_interval_seconds)
 
 
-async def _propagation_loop(
-    settings: Settings,
+async def _propagation_worker(
+    queue: asyncio.Queue[int],
     paperless: PaperlessClient,
     indexing_queue: asyncio.Queue[int] | None,
     state: ProcessingState,
 ) -> None:
-    log = structlog.get_logger().bind(loop="propagation")
+    """Single consumer for the propagation queue.
+
+    Webhook calls from aktenraum-api's approve endpoint and the
+    safety-net poller both enqueue here. Approvals reach `ai-propagated`
+    in well under a second instead of waiting on the 30s poll cycle.
+
+    Per-dequeue we re-fetch the doc and skip if it no longer carries
+    `ai-approved` — defends against the webhook/poller race when both
+    enqueue the same id, and also against a user un-approving in the
+    Paperless UI between trigger and dequeue.
+    """
+    log = structlog.get_logger().bind(loop="propagation_worker")
+    while True:
+        doc_id = await queue.get()
+        state.propagation = doc_id
+        try:
+            doc = await paperless.get_document(doc_id)
+            current_tag_names = await _doc_tag_names(paperless, doc)
+            if "ai-approved" not in current_tag_names:
+                log.info(
+                    "skip_not_approved",
+                    doc_id=doc_id,
+                    lifecycle_tags=sorted(current_tag_names),
+                )
+                continue
+            await process_approved_document(
+                doc, paperless, indexing_queue=indexing_queue
+            )
+        except Exception as exc:
+            log.exception("worker_error", doc_id=doc_id, error=str(exc))
+        finally:
+            state.propagation = None
+            queue.task_done()
+
+
+async def _propagation_poller(
+    queue: asyncio.Queue[int],
+    paperless: PaperlessClient,
+    settings: Settings,
+) -> None:
+    """Periodic safety-net scan for `ai-approved` docs the webhook missed
+    (auto-tagger restart between approve and the trigger call, network
+    blip, secret mismatch). Idempotent — duplicate enqueues are caught
+    in the worker's re-verify step."""
+    log = structlog.get_logger().bind(loop="propagation_poller")
     while True:
         try:
             docs = await paperless.get_documents_with_tag(
@@ -129,13 +173,7 @@ async def _propagation_loop(
             if docs:
                 log.info("poll_found_approved", count=len(docs))
                 for doc in docs:
-                    state.propagation = doc["id"]
-                    try:
-                        await process_approved_document(
-                            doc, paperless, indexing_queue=indexing_queue
-                        )
-                    finally:
-                        state.propagation = None
+                    queue.put_nowait(doc["id"])
             else:
                 log.debug("poll_no_approved")
         except Exception as exc:
@@ -194,6 +232,10 @@ async def run() -> None:
     # build_active_backend(settings), consulting aktenraum-api for the
     # runtime quality. No startup-time backend is needed.
     queue: asyncio.Queue[int] = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
+    # Propagation has its own queue so the webhook from aktenraum-api's
+    # approve endpoint can enqueue directly. The poller still scans for
+    # missed events and enqueues onto the same queue as a safety net.
+    propagation_queue: asyncio.Queue[int] = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
     state = ProcessingState()
 
     # RAG indexing is opt-in: when QDRANT_URL is empty we don't construct a
@@ -239,10 +281,17 @@ async def run() -> None:
         ]
         if settings.enable_propagation:
             loops.append(
-                _propagation_loop(settings, paperless, indexing_queue, state)
+                _propagation_worker(
+                    propagation_queue, paperless, indexing_queue, state
+                )
+            )
+            loops.append(
+                _propagation_poller(propagation_queue, paperless, settings)
             )
         if settings.enable_http_server:
-            loops.append(run_http_server(queue, settings, state))
+            loops.append(
+                run_http_server(queue, propagation_queue, settings, state)
+            )
         if indexing_queue is not None and indexer_deps is not None:
             loops.append(_indexer_worker(indexing_queue, indexer_deps, state))
 

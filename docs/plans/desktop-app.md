@@ -46,8 +46,8 @@ Concrete deliverables:
    - Detect Ollama is reachable.
    - `ollama pull qwen2.5:14b-instruct-q4_K_M` (chat).
    - `ollama pull bge-m3` (embeddings, when RAG ships).
-   - `ollama pull bge-reranker-v2-m3` (reranker, when RAG ships).
    - Stream pull progress as line-prefixed JSON for the desktop shell to parse.
+   - **Reranker (`bge-reranker-v2-m3`) is NOT pulled via Ollama** — Ollama doesn't host cross-encoder reranker models. The model is downloaded via `sentence-transformers` into the `aktenraum-hf-cache` Docker volume on first `aktenraum-api` startup; the cache survives `docker compose up -d --build` so the ~2.1 GB download happens exactly once per host (~80s on a fast connection). Lifespan in `aktenraum-api.main` runs the load as a background task (`_warm_reranker`) so the first `/ask` request after a fresh start is not blocked. No first-run script work needed for the reranker.
 
 4. **Health endpoints completed for every service.**
    - `aktenraum-api`: `/api/health` exists; extend with subchecks (`db_ok`, `paperless_ok`, `ollama_ok`).

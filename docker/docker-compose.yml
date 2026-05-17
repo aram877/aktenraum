@@ -1,7 +1,10 @@
 services:
 
   paperless:
-    image: ghcr.io/paperless-ngx/paperless-ngx:latest
+    # Pinned to the version actually deployed (verified via
+    # paperless.version.__version__ at change time). Bump deliberately,
+    # never by accident: floating :latest hid this behaviour for months.
+    image: ghcr.io/paperless-ngx/paperless-ngx:2.20.15@sha256:6c86cad803970ea782683a8e80e7403444c5bf3cf70de63b4d3c8e87500db92f
     restart: unless-stopped
     depends_on:
       postgres:
@@ -61,7 +64,10 @@ services:
       - internal
 
   gotenberg:
-    image: gotenberg/gotenberg:8
+    # Pinned to the patch version currently running (verified via the
+    # org.opencontainers.image.version label). Floating :8 silently
+    # tracks any 8.x release; this freezes it.
+    image: gotenberg/gotenberg:8.31.0@sha256:f0d86e8a1dbc7b33a5a65cb251d02bb271a48ffa989da3feb5ed7d954fe4d4b3
     restart: unless-stopped
     command:
       - gotenberg
@@ -71,7 +77,12 @@ services:
       - internal
 
   tika:
-    image: apache/tika:latest
+    # Pinned to the digest currently running. apache/tika's tag scheme
+    # (3.x.y vs YY.MM labels) is ambiguous enough that digest is the
+    # only reproducible pin; the tag prefix is documentation, not
+    # authoritative. NOTE: stay on apache/tika (not
+    # ghcr.io/paperless-ngx/tika — that one requires auth and 403s).
+    image: apache/tika:latest@sha256:2a565f1ea1290bdcb74a7d35957d16a989ed44ef98790dcdcc28121d728fa583
     restart: unless-stopped
     networks:
       - internal
@@ -143,6 +154,12 @@ services:
       # rebuild — the runner re-reads the file on every invocation.
       # Read-only so a buggy runner can never trash the cases.
       - ../evals:/app/evals:ro
+      # HuggingFace cache for the bge-reranker-v2-m3 model (~600 MB).
+      # Without this volume every `docker compose up -d --build
+      # aktenraum-api` re-pays the download. The Dockerfile runs as
+      # appuser whose $HOME is /home/appuser; HF_HOME below pins the
+      # location regardless of any future USER change.
+      - aktenraum-hf-cache:/home/appuser/.cache/huggingface
     depends_on:
       postgres:
         condition: service_healthy
@@ -157,6 +174,10 @@ services:
       # Built from PAPERLESS_DB* in .env so DB credentials live in one place.
       DATABASE_URL: postgresql+asyncpg://${PAPERLESS_DBUSER:-paperless}:${PAPERLESS_DBPASS}@postgres:5432/aktenraum
       QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+      # Pin sentence-transformers / huggingface_hub cache into the volume
+      # above so reranker downloads survive image rebuilds.
+      HF_HOME: /home/appuser/.cache/huggingface
+      HUGGINGFACE_HUB_CACHE: /home/appuser/.cache/huggingface/hub
     expose:
       - "8002"
     networks:
@@ -198,3 +219,10 @@ services:
 networks:
   internal:
     driver: bridge
+
+volumes:
+  # Survives `docker compose up -d --build aktenraum-api` so the
+  # bge-reranker-v2-m3 (~600 MB) is downloaded once, not on every
+  # rebuild. Lifespan warm-up in aktenraum_api.main pre-loads the
+  # model into RAM at startup; this volume keeps the bytes on disk.
+  aktenraum-hf-cache:

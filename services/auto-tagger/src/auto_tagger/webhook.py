@@ -1,11 +1,15 @@
 """HTTP listener so Paperless's post_consume_script can trigger extraction
-within seconds of a document landing, instead of waiting for the 30s poll.
+within seconds of a document landing, and so aktenraum-api's approve
+endpoint can trigger propagation immediately instead of waiting on the
+30s poll. The same listener also serves /processing for SPA spinners
+and /health for healthchecks.
 
-Design: the handler is a thin enqueueing layer. It validates the request, then
-puts a doc id on the same asyncio.Queue the polling loop uses. The extraction
-worker drains both sources uniformly. Polling stays on as a safety net for
+Design: each trigger handler is a thin enqueueing layer. It validates
+the request and puts a doc id onto the matching asyncio.Queue. The
+worker tasks (extraction_worker, propagation_worker) drain both sources
+— webhook and poller — uniformly. Polling stays on as a safety net for
 missed webhook events (paperless workflow not yet configured, container
-restart, network blip).
+restart, network blip, secret mismatch).
 """
 
 from __future__ import annotations
@@ -25,50 +29,94 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger()
 
-_QUEUE_KEY = web.AppKey("queue", asyncio.Queue)
+_EXTRACTION_QUEUE_KEY = web.AppKey("extraction_queue", asyncio.Queue)
+_PROPAGATION_QUEUE_KEY = web.AppKey("propagation_queue", asyncio.Queue)
 _SECRET_KEY = web.AppKey("secret", str)
 _STATE_KEY = web.AppKey("state", ProcessingState)
 
 
-async def trigger_extraction(request: web.Request) -> web.Response:
-    """POST /trigger/extract — body: {"document_id": <int>}.
-
-    Returns 202 once the id is enqueued. The actual processing happens in the
-    extraction worker; this endpoint never blocks on it.
-    """
+def _check_secret(request: web.Request) -> web.Response | None:
+    """Return a 401 response when WEBHOOK_SECRET is configured and the
+    request header is missing/wrong. Returns None to mean "ok, proceed"."""
     expected_secret = request.app[_SECRET_KEY]
-    if expected_secret:
-        provided = request.headers.get("X-Aktenraum-Secret", "")
-        if not hmac.compare_digest(provided, expected_secret):
-            return web.json_response({"error": "unauthorized"}, status=401)
+    if not expected_secret:
+        return None
+    provided = request.headers.get("X-Aktenraum-Secret", "")
+    if not hmac.compare_digest(provided, expected_secret):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    return None
 
+
+async def _parse_doc_id(request: web.Request) -> tuple[int | None, web.Response | None]:
+    """Parse `{"document_id": <int>}` from the request body. Returns
+    `(doc_id, None)` on success or `(None, error_response)` on failure."""
     try:
         body = await request.json()
     except json.JSONDecodeError:
-        return web.json_response({"error": "invalid json body"}, status=400)
+        return None, web.json_response({"error": "invalid json body"}, status=400)
 
     raw_id = body.get("document_id") if isinstance(body, dict) else None
     try:
         doc_id = int(raw_id)
     except (TypeError, ValueError):
-        return web.json_response(
+        return None, web.json_response(
             {"error": "document_id must be an integer"}, status=400
         )
+    return doc_id, None
 
-    queue: asyncio.Queue[int] = request.app[_QUEUE_KEY]
+
+def _enqueue_or_503(
+    queue: asyncio.Queue[int], doc_id: int, *, event: str
+) -> web.Response:
+    """Push onto the queue; return 202 on success, 503 if full."""
     try:
         queue.put_nowait(doc_id)
     except asyncio.QueueFull:
         log.warning(
-            "webhook_queue_full",
+            f"{event}_queue_full",
             doc_id=doc_id,
             qsize=queue.qsize(),
         )
         return web.json_response(
             {"error": "queue full, retry shortly"}, status=503
         )
-    log.info("webhook_enqueued", doc_id=doc_id, queue_size=queue.qsize())
+    log.info(event, doc_id=doc_id, queue_size=queue.qsize())
     return web.json_response({"queued": doc_id}, status=202)
+
+
+async def trigger_extraction(request: web.Request) -> web.Response:
+    """POST /trigger/extract — body: {"document_id": <int>}.
+
+    Returns 202 once the id is enqueued. The actual processing happens in
+    the extraction worker; this endpoint never blocks on it.
+    """
+    unauthorized = _check_secret(request)
+    if unauthorized is not None:
+        return unauthorized
+    doc_id, error = await _parse_doc_id(request)
+    if error is not None:
+        return error
+    assert doc_id is not None
+    queue: asyncio.Queue[int] = request.app[_EXTRACTION_QUEUE_KEY]
+    return _enqueue_or_503(queue, doc_id, event="extraction_webhook_enqueued")
+
+
+async def trigger_propagation(request: web.Request) -> web.Response:
+    """POST /trigger/propagate — body: {"document_id": <int>}.
+
+    Mirrors /trigger/extract. aktenraum-api's POST /api/inbox/{id}/approve
+    calls this after the lifecycle-tag swap so propagation runs
+    immediately instead of waiting on the 30s safety-net poller.
+    """
+    unauthorized = _check_secret(request)
+    if unauthorized is not None:
+        return unauthorized
+    doc_id, error = await _parse_doc_id(request)
+    if error is not None:
+        return error
+    assert doc_id is not None
+    queue: asyncio.Queue[int] = request.app[_PROPAGATION_QUEUE_KEY]
+    return _enqueue_or_503(queue, doc_id, event="propagation_webhook_enqueued")
 
 
 async def health(_: web.Request) -> web.Response:
@@ -94,28 +142,32 @@ async def processing(request: web.Request) -> web.Response:
 
 
 def make_app(
-    queue: asyncio.Queue[int],
+    extraction_queue: asyncio.Queue[int],
+    propagation_queue: asyncio.Queue[int],
     settings: Settings,
     state: ProcessingState,
 ) -> web.Application:
     app = web.Application()
-    app[_QUEUE_KEY] = queue
+    app[_EXTRACTION_QUEUE_KEY] = extraction_queue
+    app[_PROPAGATION_QUEUE_KEY] = propagation_queue
     app[_SECRET_KEY] = settings.webhook_secret
     app[_STATE_KEY] = state
     app.router.add_post("/trigger/extract", trigger_extraction)
+    app.router.add_post("/trigger/propagate", trigger_propagation)
     app.router.add_get("/health", health)
     app.router.add_get("/processing", processing)
     return app
 
 
 async def run_http_server(
-    queue: asyncio.Queue[int],
+    extraction_queue: asyncio.Queue[int],
+    propagation_queue: asyncio.Queue[int],
     settings: Settings,
     state: ProcessingState,
 ) -> None:
     """Long-running task: bind the listener on settings.http_port and serve
     until cancelled."""
-    app = make_app(queue, settings, state)
+    app = make_app(extraction_queue, propagation_queue, settings, state)
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", settings.http_port)

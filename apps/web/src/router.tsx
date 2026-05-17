@@ -18,9 +18,6 @@ const Find = lazy(() =>
 const Home = lazy(() =>
   import("./routes/Home").then((m) => ({ default: m.Home })),
 );
-const Inbox = lazy(() =>
-  import("./routes/Inbox").then((m) => ({ default: m.Inbox })),
-);
 const InboxReview = lazy(() =>
   import("./routes/InboxReview").then((m) => ({ default: m.InboxReview })),
 );
@@ -266,6 +263,11 @@ const settingsRoute = createRoute({
   ),
 });
 
+// Permanent redirect to the Library's review tab. The standalone /inbox
+// page was retired when the review queue moved into the Library; the
+// redirect stays so old bookmarks and external links keep working.
+// No component is mounted — the redirect fires inside `beforeLoad`
+// before the renderer runs.
 const inboxRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/inbox",
@@ -273,11 +275,6 @@ const inboxRoute = createRoute({
     await ensureLoggedIn(context);
     throw redirect({ to: "/library", search: { tab: "review" } });
   },
-  component: () => (
-    <RouteSuspense>
-      <Inbox />
-    </RouteSuspense>
-  ),
 });
 
 const inboxReviewRoute = createRoute({

@@ -148,7 +148,7 @@ export function InboxReview({ id }: { id: number }) {
     const ids = list.data?.results.map((r) => r.id) ?? [];
     const filtered = ids.filter((d) => d !== id);
     if (filtered.length === 0) {
-      void navigate({ to: "/inbox" });
+      void navigate({ to: "/library", search: { tab: "review" } });
       return;
     }
     const currentPos = ids.indexOf(id);
@@ -169,7 +169,7 @@ export function InboxReview({ id }: { id: number }) {
     if (target !== undefined) {
       void navigate({ to: "/inbox/$id", params: { id: String(target) } });
     } else {
-      void navigate({ to: "/inbox" });
+      void navigate({ to: "/library", search: { tab: "review" } });
     }
   };
 
@@ -198,7 +198,7 @@ export function InboxReview({ id }: { id: number }) {
       r: onReject,
       j: () => advance("next"),
       k: () => advance("prev"),
-      Escape: () => void navigate({ to: "/inbox" }),
+      Escape: () => void navigate({ to: "/library", search: { tab: "review" } }),
     },
     detail.isSuccess,
   );

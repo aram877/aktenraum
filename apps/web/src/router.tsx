@@ -38,6 +38,9 @@ const Login = lazy(() =>
 const SettingsPage = lazy(() =>
   import("./routes/Settings").then((m) => ({ default: m.SettingsPage })),
 );
+const Trash = lazy(() =>
+  import("./routes/Trash").then((m) => ({ default: m.Trash })),
+);
 const Upload = lazy(() =>
   import("./routes/Upload").then((m) => ({ default: m.Upload })),
 );
@@ -200,6 +203,17 @@ const libraryReviewRoute = createRoute({
   },
 });
 
+const trashRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/trash",
+  beforeLoad: ({ context }) => ensureLoggedIn(context),
+  component: () => (
+    <RouteSuspense>
+      <Trash />
+    </RouteSuspense>
+  ),
+});
+
 const uploadRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/upload",
@@ -257,6 +271,7 @@ const routeTree = rootRoute.addChildren([
   findRoute,
   libraryRoute,
   libraryReviewRoute,
+  trashRoute,
   uploadRoute,
   settingsRoute,
   inboxRoute,

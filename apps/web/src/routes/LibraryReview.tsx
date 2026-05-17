@@ -381,7 +381,7 @@ export function LibraryReview({ id }: { id: number }) {
                     type="button"
                     onClick={() => setConfirmingDelete(true)}
                     disabled={deleteDoc.isPending}
-                    title="Dokument löschen"
+                    title="In den Papierkorb verschieben (30 Tage wiederherstellbar)"
                     className="rounded-md border border-hairline p-1.5 text-ink-subtle hover:border-red-200 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
                   >
                     <TrashIcon className="h-3.5 w-3.5" />
@@ -389,7 +389,7 @@ export function LibraryReview({ id }: { id: number }) {
                 )}
                 {confirmingDelete && (
                   <div className="flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-900">
-                    <span className="font-medium">Löschen?</span>
+                    <span className="font-medium">In den Papierkorb?</span>
                     <button
                       type="button"
                       onClick={() => setConfirmingDelete(false)}

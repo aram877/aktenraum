@@ -3,17 +3,27 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useInFlightCount } from "../lib/documents";
 import { useInboxList } from "../lib/inbox";
 import { useLogout, useMe } from "../lib/auth";
+import { useTrashCount } from "../lib/trash";
 
 export function Nav({
   active,
 }: {
-  active: "home" | "ask" | "find" | "library" | "upload" | "inbox" | "settings";
+  active:
+    | "home"
+    | "ask"
+    | "find"
+    | "library"
+    | "upload"
+    | "inbox"
+    | "trash"
+    | "settings";
 }) {
   const me = useMe();
   const logout = useLogout();
   const navigate = useNavigate();
   const inbox = useInboxList({ pageSize: 1 });
   const inFlight = useInFlightCount();
+  const trashCount = useTrashCount();
 
   const onLogout = async () => {
     await logout.mutateAsync();
@@ -69,6 +79,20 @@ export function Nav({
           </Link>
           <Link to="/upload" className={linkCls("upload")}>
             + Hochladen
+          </Link>
+          <Link
+            to="/trash"
+            className={`${linkCls("trash")} flex items-center gap-1.5`}
+          >
+            <span>Papierkorb</span>
+            {(trashCount.data?.total ?? 0) > 0 && (
+              <span
+                title="Im Papierkorb"
+                className="inline-flex min-w-[1.25rem] justify-center rounded-full bg-zinc-500 px-1.5 py-0.5 text-[10px] font-semibold text-white"
+              >
+                {trashCount.data?.total}
+              </span>
+            )}
           </Link>
           <Link to="/settings" className={linkCls("settings")}>
             Einstellungen

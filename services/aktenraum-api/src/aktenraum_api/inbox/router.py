@@ -6,7 +6,8 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..ai.deps import get_paperless_gateway
-from ..auth.deps import get_current_user
+from ..auth.deps import get_current_user, get_settings
+from ..config import Settings
 from ..db.models import User
 from ..db.session import get_session
 from ..paperless_gw import (
@@ -82,9 +83,10 @@ async def approve_inbox(
     body: InboxFieldUpdate | None = None,
     _user: User = Depends(get_current_user),
     gateway: PaperlessGateway = Depends(get_paperless_gateway),
+    settings: Settings = Depends(get_settings),
 ) -> InboxDetail:
     try:
-        return await service.approve(gateway, doc_id, body)
+        return await service.approve(gateway, doc_id, body, settings=settings)
     except PaperlessNotFoundError as e:
         raise _not_found(doc_id) from e
     except PaperlessAuthError as e:

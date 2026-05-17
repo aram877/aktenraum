@@ -26,7 +26,13 @@ RUN uv sync --frozen --no-dev
 
 RUN useradd --create-home --shell /bin/bash appuser \
     && chmod +x /app/services/aktenraum-api/entrypoint.sh \
-    && chown -R appuser:appuser /app
+    && chown -R appuser:appuser /app \
+    # Pre-create the HuggingFace cache path so the named volume mount in
+    # docker-compose.yml inherits appuser ownership. Without this, Docker
+    # creates the mount point as root and sentence-transformers fails with
+    # PermissionError on the first reranker download.
+    && mkdir -p /home/appuser/.cache/huggingface \
+    && chown -R appuser:appuser /home/appuser/.cache
 USER appuser
 
 ENTRYPOINT ["/app/services/aktenraum-api/entrypoint.sh"]

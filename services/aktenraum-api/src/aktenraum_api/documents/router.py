@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
 
+from .._auto_tagger import ping_auto_tagger
 from ..ai.deps import get_paperless_gateway
 from ..auth.deps import get_current_user, get_settings
 from ..config import Settings
@@ -266,7 +267,7 @@ async def reprocess(
             ),
         ) from e
 
-    notified = await _ping_auto_tagger(settings, doc_id)
+    notified = await ping_auto_tagger(settings, doc_id, trigger="extract")
     return ReprocessResponse(
         doc_id=doc_id,
         cleared_tags=_REPROCESS_REMOVE,
@@ -519,31 +520,6 @@ def _extract_doc_id(task_row: dict) -> int | None:
         except ValueError:
             return None
     return None
-
-
-async def _ping_auto_tagger(settings: Settings, doc_id: int) -> bool:
-    if not settings.auto_tagger_url:
-        return False
-    headers = {"Content-Type": "application/json"}
-    if settings.webhook_secret:
-        headers["X-Aktenraum-Secret"] = settings.webhook_secret
-    url = f"{settings.auto_tagger_url.rstrip('/')}/trigger/extract"
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                url, json={"document_id": doc_id}, headers=headers
-            )
-            if resp.status_code >= 400:
-                log.warning(
-                    "auto_tagger_ping_rejected",
-                    status=resp.status_code,
-                    body=resp.text[:200],
-                )
-                return False
-            return True
-    except Exception as e:
-        log.warning("auto_tagger_ping_failed", error=str(e))
-        return False
 
 
 @router.get("/{doc_id}/preview")

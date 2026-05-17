@@ -4,7 +4,8 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
-from httpx import AsyncClient
+import respx
+from httpx import AsyncClient, Response
 
 from aktenraum_api.ai.deps import get_paperless_gateway
 
@@ -95,12 +96,17 @@ def _make_fake_gateway(
 
 
 async def _logged_in(client_factory, **overrides):
-    app, settings, transport = await client_factory(
-        BOOTSTRAP_USERNAME="admin",
-        BOOTSTRAP_PASSWORD="topsecret",
-        PAPERLESS_API_TOKEN="dummy",
-        **overrides,
-    )
+    # Default AUTO_TAGGER_URL="" so legacy tests don't make a (slow,
+    # timing-out) HTTP call to the propagate trigger; tests that
+    # specifically exercise the trigger pass AUTO_TAGGER_URL explicitly.
+    base = {
+        "BOOTSTRAP_USERNAME": "admin",
+        "BOOTSTRAP_PASSWORD": "topsecret",
+        "PAPERLESS_API_TOKEN": "dummy",
+        "AUTO_TAGGER_URL": "",
+    }
+    base.update(overrides)
+    app, settings, transport = await client_factory(**base)
     return app, settings, transport
 
 
@@ -311,6 +317,109 @@ async def test_approve_with_no_body_skips_patch(client_factory):
     assert resp.status_code == 200
     fake_gateway.patch_document_custom_fields.assert_not_awaited()
     fake_gateway.swap_lifecycle_tag.assert_awaited_once()
+
+
+@respx.mock
+async def test_approve_fires_propagate_trigger(client_factory):
+    """Approve POSTs to the auto-tagger's /trigger/propagate webhook so
+    propagation runs immediately rather than waiting on the 30s poller."""
+    app, _settings, transport = await _logged_in(
+        client_factory,
+        AUTO_TAGGER_URL="http://auto-tagger.test:8001",
+    )
+    docs = {1: _doc(1)}
+    fake_gateway = _make_fake_gateway(documents=docs)
+    app.dependency_overrides[get_paperless_gateway] = lambda: fake_gateway
+
+    ping = respx.post("http://auto-tagger.test:8001/trigger/propagate").mock(
+        return_value=Response(202, json={"queued": 1})
+    )
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.post("/api/inbox/1/approve")
+
+    assert resp.status_code == 200
+    fake_gateway.swap_lifecycle_tag.assert_awaited_once()
+    assert ping.called
+    body_sent = ping.calls.last.request.read()
+    assert b'"document_id": 1' in body_sent or b'"document_id":1' in body_sent
+
+
+@respx.mock
+async def test_approve_trigger_includes_secret_header(client_factory):
+    app, _settings, transport = await _logged_in(
+        client_factory,
+        AUTO_TAGGER_URL="http://auto-tagger.test:8001",
+        WEBHOOK_SECRET="hunter2",
+    )
+    docs = {1: _doc(1)}
+    fake_gateway = _make_fake_gateway(documents=docs)
+    app.dependency_overrides[get_paperless_gateway] = lambda: fake_gateway
+
+    ping = respx.post("http://auto-tagger.test:8001/trigger/propagate").mock(
+        return_value=Response(202)
+    )
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            await c.post("/api/inbox/1/approve")
+
+    assert ping.called
+    assert ping.calls.last.request.headers.get("X-Aktenraum-Secret") == "hunter2"
+
+
+@respx.mock
+async def test_approve_succeeds_when_trigger_returns_5xx(client_factory):
+    """If the trigger fails, the tag swap was already applied and the
+    safety-net poller will catch the doc. Approve still returns 200."""
+    app, _settings, transport = await _logged_in(
+        client_factory,
+        AUTO_TAGGER_URL="http://auto-tagger.test:8001",
+    )
+    docs = {1: _doc(1)}
+    fake_gateway = _make_fake_gateway(documents=docs)
+    app.dependency_overrides[get_paperless_gateway] = lambda: fake_gateway
+
+    respx.post("http://auto-tagger.test:8001/trigger/propagate").mock(
+        return_value=Response(503)
+    )
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.post("/api/inbox/1/approve")
+
+    assert resp.status_code == 200
+    fake_gateway.swap_lifecycle_tag.assert_awaited_once()
+
+
+@respx.mock
+async def test_approve_skips_trigger_when_url_empty(client_factory):
+    """AUTO_TAGGER_URL="" → no outbound HTTP, approve still succeeds."""
+    app, _settings, transport = await _logged_in(
+        client_factory,
+        AUTO_TAGGER_URL="",
+    )
+    docs = {1: _doc(1)}
+    fake_gateway = _make_fake_gateway(documents=docs)
+    app.dependency_overrides[get_paperless_gateway] = lambda: fake_gateway
+
+    # A route that, if hit, would fail loudly — confirms no outbound call.
+    sentinel = respx.post("http://auto-tagger.test:8001/trigger/propagate").mock(
+        return_value=Response(500)
+    )
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.post("/api/inbox/1/approve")
+
+    assert resp.status_code == 200
+    fake_gateway.swap_lifecycle_tag.assert_awaited_once()
+    assert not sentinel.called
 
 
 async def test_reject_swaps_tags_without_patch(client_factory):

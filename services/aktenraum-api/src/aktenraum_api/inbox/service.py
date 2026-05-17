@@ -6,6 +6,8 @@ from typing import Any
 from aktenraum_core.paperless import LIFECYCLE_TAGS
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .._auto_tagger import ping_auto_tagger
+from ..config import Settings
 from ..paperless_gw import PaperlessGateway
 from ..type_fields import service as type_fields_service
 from .schemas import InboxDetail, InboxFieldUpdate, InboxItem, InboxList
@@ -87,6 +89,8 @@ async def approve(
     gateway: PaperlessGateway,
     doc_id: int,
     update: InboxFieldUpdate | None = None,
+    *,
+    settings: Settings | None = None,
 ) -> InboxDetail:
     if update is not None and update.populated():
         doc = await gateway.get_document(doc_id)
@@ -98,6 +102,14 @@ async def approve(
         remove=[PENDING_TAG, LOW_CONFIDENCE_TAG],
         add=[APPROVED_TAG],
     )
+    # Best-effort: kick the auto-tagger so propagation runs immediately
+    # instead of waiting on the 30s safety-net poller. Never raises:
+    # the tag swap above is the source of truth, the poller is the
+    # safety net, and ping_auto_tagger() swallows every error.
+    if settings is not None:
+        await ping_auto_tagger(
+            settings, doc_id, trigger="propagate", timeout=2.0
+        )
     return await get_detail(gateway, doc_id)
 
 

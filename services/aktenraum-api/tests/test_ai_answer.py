@@ -275,6 +275,62 @@ def test_answer_prompt_dedupes_field_hints_across_candidates():
     assert system.count("Gehaltsabrechnung-Dokumente") == 1
 
 
+# ---- Denial detector unit tests ----
+
+
+def test_is_denial_answer_trips_on_prompt_template():
+    """The bake-baked denial template the system prompt teaches the model."""
+    from aktenraum_api.ai.router import _is_denial_answer
+
+    assert _is_denial_answer("Ich konnte das in den Dokumenten nicht finden.")
+
+
+def test_is_denial_answer_trips_on_common_variants():
+    from aktenraum_api.ai.router import _is_denial_answer
+
+    assert _is_denial_answer(
+        "Die Antwort steht nicht in den bereitgestellten Dokumenten."
+    )
+    assert _is_denial_answer(
+        "Keines der Dokumente enthält diese Information."
+    )
+    assert _is_denial_answer("Ich habe keine passenden Dokumente gefunden.")
+
+
+def test_is_denial_answer_ignores_real_prose():
+    """A real answer that mentions 'nicht' must NOT trip the detector."""
+    from aktenraum_api.ai.router import _is_denial_answer
+
+    assert not _is_denial_answer(
+        "Dein Pass läuft am 12.05.2030 ab. [Quelle: 17]"
+    )
+    assert not _is_denial_answer(
+        "Du hast 4.200 € verdient. Steuern sind nicht ausgewiesen. [Quelle: 5]"
+    )
+
+
+def test_is_denial_answer_ignores_empty():
+    from aktenraum_api.ai.router import _is_denial_answer
+
+    assert not _is_denial_answer("")
+    assert not _is_denial_answer("   ")
+
+
+def test_is_denial_answer_ignores_long_partial_answer():
+    """A long answer that happens to include a denial phrase is treated as
+    real content — the user gets to keep their citations even though one
+    field is missing."""
+    from aktenraum_api.ai.router import _is_denial_answer
+
+    long_partial = (
+        "Du hast bei Wizz Air drei Flüge gebucht: nach Bukarest, nach Sofia "
+        "und nach Warschau. Die genauen Preise konnte ich in den Dokumenten "
+        "nicht finden, aber die Buchungsbestätigungen sind verlinkt. "
+        "Insgesamt hast du in 2024 mehrere Flüge gebucht."
+    )
+    assert not _is_denial_answer(long_partial)
+
+
 # ---- Router tests ----
 
 
@@ -727,6 +783,47 @@ async def test_answer_real_prose_with_no_cited_ids_still_surfaces_candidates(cli
     assert [c["id"] for c in body["citations"]] == [16]
 
 
+async def test_answer_denial_returns_empty_citations(client_factory):
+    """When the answer LLM uses the bake-baked denial template, the response
+    must NOT back-fill citations from the retrieved set. Rendering source
+    cards under "Ich konnte das nicht finden" was the reported failure mode
+    — the SPA looked like it was lying about its own search.
+    """
+    app, _settings, transport = await _logged_in(client_factory)
+    cv_doc = _doc(
+        16,
+        title="Aram CV",
+        correspondent_id=None,
+        document_type_id=None,
+        custom_fields=[{"field": 9, "value": "Frontend bei Kopfstand."}],
+    )
+    backend = _ScriptedBackend(
+        on_filter=SearchFilter(tags=["Lebenslauf"]),
+        on_answer=AnswerOutput(
+            answer_de="Ich konnte das in den Dokumenten nicht finden.",
+            cited_ids=[],
+        ),
+    )
+    gateway = _make_gateway(
+        documents=[cv_doc], field_ids={"ai_summary_de": 9}
+    )
+    gateway.list_tags = AsyncMock(return_value={"Lebenslauf": 99})
+    app.dependency_overrides[get_llm_backend] = lambda: backend
+    app.dependency_overrides[get_answer_llm_backend] = lambda: backend
+    app.dependency_overrides[get_paperless_gateway] = lambda: gateway
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.post(
+                "/api/ai/answer", json={"question": "Wo arbeite ich?"}
+            )
+
+    body = resp.json()
+    assert "nicht finden" in body["answer_de"]
+    assert body["citations"] == []
+
+
 async def test_answer_stream_emits_meta_chunks_and_final(client_factory):
     """Happy-path SSE stream: meta first, then chunk events for each delta,
     then a final event with citations resolved from inline `[Quelle: N]`.
@@ -842,6 +939,43 @@ async def test_answer_stream_backfills_citations_when_no_inline_marker(client_fa
 
     final = next(p for n, p in _parse_sse(resp.text) if n == "final")
     assert [c["id"] for c in final["citations"]] == [16]
+
+
+async def test_answer_stream_denial_returns_empty_citations(client_factory):
+    """Streaming counterpart of test_answer_denial_returns_empty_citations:
+    when the streamed prose IS a denial, the final event must carry no
+    citations even though the retrieval set is non-empty.
+    """
+    app, _settings, transport = await _logged_in(client_factory)
+    cv_doc = _doc(
+        16,
+        title="Aram CV",
+        correspondent_id=None,
+        document_type_id=None,
+        custom_fields=[{"field": 9, "value": "Frontend bei Kopfstand."}],
+    )
+    backend = _ScriptedBackend(
+        on_filter=SearchFilter(tags=["Lebenslauf"]),
+        stream_chunks=["Ich konnte das ", "in den Dokumenten nicht finden."],
+    )
+    gateway = _make_gateway(
+        documents=[cv_doc], field_ids={"ai_summary_de": 9}
+    )
+    gateway.list_tags = AsyncMock(return_value={"Lebenslauf": 99})
+    app.dependency_overrides[get_llm_backend] = lambda: backend
+    app.dependency_overrides[get_answer_llm_backend] = lambda: backend
+    app.dependency_overrides[get_paperless_gateway] = lambda: gateway
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.post(
+                "/api/ai/answer/stream", json={"question": "Wo arbeite ich?"}
+            )
+
+    final = next(p for n, p in _parse_sse(resp.text) if n == "final")
+    assert "nicht finden" in final["answer_de"]
+    assert final["citations"] == []
 
 
 async def test_answer_stream_degenerate_text_swaps_to_softfail(client_factory):

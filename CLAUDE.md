@@ -504,6 +504,8 @@ Resilience: any RAG stage failing degrades gracefully (embedder error → empty 
 
 The bge-reranker-v2-m3 model is **lazy-loaded on the first /ask** — first call after a fresh container blocks ~5 minutes (HF download). Subsequent calls are fast (~50 ms × 50 candidates ≈ 2.5s rerank). Phase 0.3 will move the download to install time.
 
+**Denial suppresses citations.** When the answer LLM writes the prompt-baked "I couldn't find that" template (`_DENIAL_RE` in `router.py` — matches "in den Dokumenten nicht finden", "keine passenden Dokumente", "keines der Dokumente enthält", and three more variants, length-capped at 200 chars), the no-citations back-fill is skipped and the SPA renders the denial alone. Without this gate the back-fill rule ("if the model wrote prose but cited nothing, surface the retrieved set so the user has a source to verify against") rendered source cards beneath a "nicht gefunden" message, which looked like the AI was lying about its own search. The gate is strict — partial answers longer than 200 chars that happen to contain a denial phrase still get their citations back-filled.
+
 ### RAG: indexing pipeline (auto-tagger)
 
 Indexing fans out from propagation. When a doc reaches `ai-propagated`, the propagator enqueues its id on the `indexing_queue`; a fifth concurrent task in the auto-tagger drains the queue and runs:

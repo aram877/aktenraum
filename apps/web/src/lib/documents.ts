@@ -110,6 +110,24 @@ export function useBulkReprocess() {
   });
 }
 
+async function dismissDuplicateRequest(docId: number): Promise<{ doc_id: number }> {
+  const { data } = await api.post<{ doc_id: number }>(
+    `/documents/${docId}/dismiss-duplicate`,
+  );
+  return data;
+}
+
+export function useDismissDuplicate() {
+  const qc = useQueryClient();
+  return useMutation<{ doc_id: number }, AxiosError<{ detail?: string }>, number>({
+    mutationFn: dismissDuplicateRequest,
+    onSuccess: (_data, docId) => {
+      qc.invalidateQueries({ queryKey: ["library"] });
+      qc.invalidateQueries({ queryKey: ["document-detail", docId] });
+    },
+  });
+}
+
 async function deleteDocumentRequest(docId: number): Promise<void> {
   await api.delete(`/documents/${docId}`);
 }

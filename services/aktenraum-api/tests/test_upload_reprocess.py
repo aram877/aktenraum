@@ -226,3 +226,49 @@ async def test_reprocess_requires_auth(client_factory):
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             resp = await c.post("/api/documents/9/reprocess")
     assert resp.status_code == 401
+
+
+# ---- dismiss-duplicate ----
+
+
+async def test_dismiss_duplicate_removes_tag(client_factory):
+    app, _settings, transport = await _logged_in(client_factory)
+    gateway = AsyncMock()
+    gateway.swap_lifecycle_tag = AsyncMock(return_value=[])
+    app.dependency_overrides[get_paperless_gateway] = lambda: gateway
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.post("/api/documents/7/dismiss-duplicate")
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["doc_id"] == 7
+    gateway.swap_lifecycle_tag.assert_awaited_once()
+    kwargs = gateway.swap_lifecycle_tag.await_args.kwargs
+    assert kwargs["remove"] == ["ai-duplicate"]
+    assert kwargs["add"] == []
+
+
+async def test_dismiss_duplicate_requires_auth(client_factory):
+    app, _settings, transport = await _logged_in(client_factory)
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            resp = await c.post("/api/documents/7/dismiss-duplicate")
+    assert resp.status_code == 401
+
+
+async def test_dismiss_duplicate_404_for_missing_doc(client_factory):
+    from aktenraum_api.paperless_gw import PaperlessNotFoundError
+
+    app, _settings, transport = await _logged_in(client_factory)
+    gateway = AsyncMock()
+    gateway.swap_lifecycle_tag = AsyncMock(side_effect=PaperlessNotFoundError(9999))
+    app.dependency_overrides[get_paperless_gateway] = lambda: gateway
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.post("/api/documents/9999/dismiss-duplicate")
+
+    assert resp.status_code == 404

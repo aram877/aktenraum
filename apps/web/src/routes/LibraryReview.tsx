@@ -495,6 +495,7 @@ function Field({
           onChange={(e) => onChange(e.target.value)}
           rows={5}
           placeholder={placeholder}
+          autoComplete="off"
           className={inputCls}
         />
       ) : (
@@ -503,6 +504,7 @@ function Field({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
+          autoComplete="off"
           className={inputCls}
         />
       )}

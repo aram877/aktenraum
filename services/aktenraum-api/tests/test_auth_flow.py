@@ -86,3 +86,129 @@ async def test_logout_clears_cookie(client_factory):
     # Cleared cookies have Max-Age=0 (or expires in the past).
     assert "Max-Age=0" in set_cookie or 'expires=Thu, 01 Jan 1970' in set_cookie.lower()
     assert me_resp_after.status_code == 401
+
+
+async def test_change_password_happy_path(client_factory):
+    app, settings, transport = await _logged_in_client(client_factory)
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await c.post(
+                "/api/auth/login",
+                json={"username": "admin", "password": "topsecret"},
+            )
+            change_resp = await c.post(
+                "/api/auth/change-password",
+                json={
+                    "current_password": "topsecret",
+                    "new_password": "newsecret123",
+                },
+            )
+            assert change_resp.status_code == 204
+            set_cookie = change_resp.headers.get("set-cookie", "")
+            assert settings.cookie_name in set_cookie
+            assert (
+                "Max-Age=0" in set_cookie
+                or "expires=Thu, 01 Jan 1970" in set_cookie.lower()
+            )
+            me_after = await c.get("/api/auth/me")
+            assert me_after.status_code == 401
+
+        async with AsyncClient(transport=transport, base_url="http://test") as fresh:
+            old_login = await fresh.post(
+                "/api/auth/login",
+                json={"username": "admin", "password": "topsecret"},
+            )
+            assert old_login.status_code == 401
+            new_login = await fresh.post(
+                "/api/auth/login",
+                json={"username": "admin", "password": "newsecret123"},
+            )
+            assert new_login.status_code == 200
+
+
+async def test_change_password_wrong_current(client_factory):
+    app, _settings, transport = await _logged_in_client(client_factory)
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await c.post(
+                "/api/auth/login",
+                json={"username": "admin", "password": "topsecret"},
+            )
+            change_resp = await c.post(
+                "/api/auth/change-password",
+                json={
+                    "current_password": "WRONG",
+                    "new_password": "newsecret123",
+                },
+            )
+            assert change_resp.status_code == 401
+            me_after = await c.get("/api/auth/me")
+            assert me_after.status_code == 200
+
+        async with AsyncClient(transport=transport, base_url="http://test") as fresh:
+            still_old = await fresh.post(
+                "/api/auth/login",
+                json={"username": "admin", "password": "topsecret"},
+            )
+            assert still_old.status_code == 200
+
+
+async def test_change_password_new_equals_current(client_factory):
+    app, _settings, transport = await _logged_in_client(client_factory)
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await c.post(
+                "/api/auth/login",
+                json={"username": "admin", "password": "topsecret"},
+            )
+            change_resp = await c.post(
+                "/api/auth/change-password",
+                json={
+                    "current_password": "topsecret",
+                    "new_password": "topsecret",
+                },
+            )
+            assert change_resp.status_code == 400
+            me_after = await c.get("/api/auth/me")
+            assert me_after.status_code == 200
+
+
+async def test_change_password_unauthenticated(client_factory):
+    app, _settings, transport = await _logged_in_client(client_factory)
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            change_resp = await c.post(
+                "/api/auth/change-password",
+                json={
+                    "current_password": "topsecret",
+                    "new_password": "newsecret123",
+                },
+            )
+            assert change_resp.status_code == 401
+
+        async with AsyncClient(transport=transport, base_url="http://test") as fresh:
+            login_resp = await fresh.post(
+                "/api/auth/login",
+                json={"username": "admin", "password": "topsecret"},
+            )
+            assert login_resp.status_code == 200
+
+
+async def test_change_password_too_short(client_factory):
+    app, _settings, transport = await _logged_in_client(client_factory)
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await c.post(
+                "/api/auth/login",
+                json={"username": "admin", "password": "topsecret"},
+            )
+            change_resp = await c.post(
+                "/api/auth/change-password",
+                json={
+                    "current_password": "topsecret",
+                    "new_password": "short",
+                },
+            )
+            assert change_resp.status_code == 422
+            me_after = await c.get("/api/auth/me")
+            assert me_after.status_code == 200

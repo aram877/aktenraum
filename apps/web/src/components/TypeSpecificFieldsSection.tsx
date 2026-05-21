@@ -41,6 +41,7 @@ function FieldInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        autoComplete="off"
         maxLength={def.field_type === "year" ? 4 : undefined}
         className={INPUT_CLS}
       />

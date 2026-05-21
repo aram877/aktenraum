@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import type { DocumentSummary } from "../lib/ai";
-import { useDeleteDocument, useReprocess } from "../lib/documents";
+import { useDeleteDocument, useDismissDuplicate, useReprocess } from "../lib/documents";
 
 type Props = {
   doc: DocumentSummary;
@@ -22,6 +22,7 @@ export function DocumentPreviewModal({
 }: Props) {
   const reprocess = useReprocess();
   const deleteDoc = useDeleteDocument();
+  const dismissDuplicate = useDismissDuplicate();
   const [confirming, setConfirming] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
@@ -60,6 +61,11 @@ export function DocumentPreviewModal({
   const deleteError = deleteDoc.error?.response?.data?.detail
     ?? deleteDoc.error?.message
     ?? null;
+  const dismissError = dismissDuplicate.error?.response?.data?.detail
+    ?? dismissDuplicate.error?.message
+    ?? null;
+  const isDuplicate =
+    !dismissDuplicate.isSuccess && doc.lifecycle_tags.includes("ai-duplicate");
 
   return (
     <div
@@ -172,9 +178,29 @@ export function DocumentPreviewModal({
             </button>
           </div>
         </header>
-        {(reprocessError || deleteError) && (
+        {(reprocessError || deleteError || dismissError) && (
           <div className="border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700">
-            {reprocessError ?? deleteError}
+            {reprocessError ?? deleteError ?? dismissError}
+          </div>
+        )}
+        {isDuplicate && (
+          <div className="flex items-center justify-between border-b border-amber-200 bg-amber-50 px-4 py-2">
+            <span className="text-xs text-amber-800">
+              Mögliches Duplikat erkannt — dieses Dokument ähnelt einem anderen im Archiv.
+            </span>
+            <button
+              type="button"
+              onClick={() => dismissDuplicate.mutate(doc.id)}
+              disabled={dismissDuplicate.isPending}
+              className="ml-4 shrink-0 rounded-md border border-amber-300 bg-white px-3 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+            >
+              {dismissDuplicate.isPending ? "…" : "Markierung entfernen"}
+            </button>
+          </div>
+        )}
+        {dismissDuplicate.isSuccess && (
+          <div className="border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-xs text-emerald-700">
+            ✓ Duplikat-Markierung entfernt
           </div>
         )}
         <iframe

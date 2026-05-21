@@ -32,7 +32,18 @@
       "Bash(ollama pull *)",
       "Bash(ollama list *)",
       "Bash(grep -i 'detail\\\\|id\\\\|review\\\\|$id')",
-      "Bash(task nginx:rebuild)"
+      "Bash(task nginx:rebuild)",
+      "Read(//c/Users/Admin/aktenraum//**)",
+      "Bash(ls /aktenraum/)",
+      "Bash(curl -sv -o /dev/null http://localhost:8080/api/documents/128/preview)",
+      "Bash(curl *)",
+      "Bash(PAPERLESS_API_TOKEN=4a19e91ea9edd476f6b4684a0d6579eaec66df41 bash *)",
+      "Bash(task web:deploy)",
+      "Bash(awk ' *)",
+      "Bash(mv /tmp/inbox_tmp.tsx /d/Development/document-organizer/apps/web/src/routes/InboxReview.tsx)",
+      "Bash(mv /tmp/lib_tmp.tsx /d/Development/document-organizer/apps/web/src/routes/LibraryReview.tsx)",
+      "Read(//c/Users/Admin/aktenraum/**)",
+      "Bash(python3.exe -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'{d[\\\\\"count\\\\\"]} documents in Paperless'\\)\")"
     ]
   },
   "hooks": {

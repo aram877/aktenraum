@@ -125,12 +125,50 @@ export function ProcessingBadge({
   }
 
   const state = classify(tags, errorMessage);
+  const hasDuplicate = tags.includes("ai-duplicate");
+  const hasEmail = tags.includes("email-ingested");
+
+  const extraPills = (
+    <>
+      {hasEmail && (
+        <span
+          title="Per E-Mail eingegangen."
+          className="inline-block rounded-full px-2 py-0.5 text-[10px] font-medium bg-sky-100 text-sky-700"
+        >
+          E-Mail
+        </span>
+      )}
+      {hasDuplicate && (
+        <span
+          title="Mögliches Duplikat erkannt — bitte im Vorschau-Fenster prüfen."
+          className="inline-block rounded-full px-2 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-800"
+        >
+          Duplikat?
+        </span>
+      )}
+    </>
+  );
+
+  if (!hasDuplicate && !hasEmail) {
+    return (
+      <span
+        title={state.title}
+        className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-medium ${VARIANT_STYLE[state.variant]} ${className}`}
+      >
+        {state.label}
+      </span>
+    );
+  }
+
   return (
-    <span
-      title={state.title}
-      className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-medium ${VARIANT_STYLE[state.variant]} ${className}`}
-    >
-      {state.label}
+    <span className={`inline-flex items-center gap-1 ${className}`}>
+      <span
+        title={state.title}
+        className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-medium ${VARIANT_STYLE[state.variant]}`}
+      >
+        {state.label}
+      </span>
+      {extraPills}
     </span>
   );
 }

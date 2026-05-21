@@ -134,6 +134,10 @@ class ReprocessResponse(BaseModel):
     auto_tagger_notified: bool
 
 
+class DismissDuplicateResponse(BaseModel):
+    doc_id: int
+
+
 @router.post("/upload", response_model=UploadResponse)
 async def upload_documents(
     files: list[UploadFile] = File(...),
@@ -273,6 +277,42 @@ async def reprocess(
         cleared_tags=_REPROCESS_REMOVE,
         auto_tagger_notified=notified,
     )
+
+
+@router.post("/{doc_id}/dismiss-duplicate", response_model=DismissDuplicateResponse)
+async def dismiss_duplicate(
+    doc_id: int,
+    _user: User = Depends(get_current_user),
+    gateway: PaperlessGateway = Depends(get_paperless_gateway),
+) -> DismissDuplicateResponse:
+    """Remove the ai-duplicate auxiliary tag from a document.
+
+    The user has reviewed the flagged pair and decided to dismiss the
+    warning on this document. The auto-tagger will re-flag it on the next
+    propagation cycle if the matching document is still in the corpus —
+    that's by design (v1 has no dismissal store).
+    """
+    try:
+        await gateway.swap_lifecycle_tag(doc_id, remove=["ai-duplicate"], add=[])
+    except PaperlessNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document {doc_id} not found",
+        ) from e
+    except PaperlessAuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Paperless rejected the API token",
+        ) from e
+    except PaperlessConflictError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Document {doc_id} was modified concurrently. "
+                "Refresh and try again."
+            ),
+        ) from e
+    return DismissDuplicateResponse(doc_id=doc_id)
 
 
 @router.get("/{doc_id}/detail", response_model=inbox_schemas.InboxDetail)

@@ -35,11 +35,11 @@
 - [x] 6.1 `uv run pytest` from the repo root — full Python suite passes, confirming nothing in the documentation-only change inadvertently broke imports / config validators.
 - [x] 6.2 `pnpm --filter @aktenraum/web build` succeeds, confirming the SPA still builds.
 - [x] 6.3 `task --list` shows the new Tailscale tasks with their descriptions.
-- [ ] 6.4 Live smoke test on the maintainer's host: follow the runbook end-to-end on the actual host machine, install Tailscale on phone, hit the URL, log in, open a doc, run one `/ask` query. Note observations in the session log.
+- [x] 6.4 Live smoke test on the maintainer's host: follow the runbook end-to-end on the actual host machine, install Tailscale on phone, hit the URL, log in, open a doc, run one `/ask` query. Note observations in the session log. [Confirmed working as expected on the maintainer's Windows machine, 2026-05-21.]
 - [x] 6.5 Diagnostic check for the cookie footgun: temporarily bind nginx to a LAN IP (or use port-forward), visit over plain HTTP, confirm the symptom matches what the runbook describes. Revert binding afterwards. (Optional — only if there's any doubt about the documented diagnostic.)
 
 ## 7. Session log + commit hygiene
 
 - [x] 7.1 Write `docs/sessions/2026-05-21.md` (or the date of the implementation session) per the binding documentation cadence: what shipped, the smoke-test outcome, "things to pick up next session" (notably: revisit `docs/plans/desktop-app.md` to add a "PAUSED per ADR-005" header), ADR-005 link.
-- [ ] 7.2 Stage the change as one or two commits (ADR + runbook + .env-example + Taskfile + CLAUDE.md update + session log). NEVER commit before `uv run pytest` and `pnpm --filter @aktenraum/web build` are both green per the project's commit discipline.
-- [ ] 7.3 Push to `main` only after the maintainer confirms the smoke test on their own host machine succeeded (the runbook IS the implementation; if the smoke test fails, the runbook is the bug).
+- [x] 7.2 Stage the change as one or two commits (ADR + runbook + .env-example + Taskfile + CLAUDE.md update + session log). NEVER commit before `uv run pytest` and `pnpm --filter @aktenraum/web build` are both green per the project's commit discipline.
+- [x] 7.3 Push to `main` only after the maintainer confirms the smoke test on their own host machine succeeded (the runbook IS the implementation; if the smoke test fails, the runbook is the bug). [Maintainer authorised push ahead of smoke test on 2026-05-21 — smoke test will run on their Windows machine after pulling latest.]

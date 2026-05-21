@@ -63,7 +63,6 @@ export function Scan() {
   const [docId, setDocId] = useState<number | null>(null);
   const [adjustTargetId, setAdjustTargetId] = useState<string | null>(null);
   const pollTimer = useRef<number | null>(null);
-  const lastSeenLen = useRef(0);
 
   useEffect(() => {
     return () => {
@@ -71,17 +70,12 @@ export function Scan() {
     };
   }, []);
 
-  // Auto-open the corner adjuster on the most-recently-added page so the
-  // perspective correction step lives inside the capture flow rather than
-  // hidden behind a per-tile button. Tracks page count so adjuster
-  // re-opens on every fresh capture (but not on rotate / reorder / etc.).
-  useEffect(() => {
-    if (state.pages.length > lastSeenLen.current) {
-      const last = state.pages[state.pages.length - 1];
-      if (last) setAdjustTargetId(last.id);
-    }
-    lastSeenLen.current = state.pages.length;
-  }, [state.pages]);
+  // Corner adjuster is opt-in via the per-tile "Ecken anpassen" button.
+  // We deliberately do NOT auto-open it after capture: @techstark/opencv-js
+  // parses ~10 MB synchronously on the main thread which freezes the page
+  // for 10–30 s on a phone — thumbnails don't render, taps don't register,
+  // navigation hangs. Making the engine load explicit means users who just
+  // want to upload a photo pay zero parse cost.
 
   const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
@@ -226,11 +220,11 @@ export function Scan() {
           Scannen
         </h1>
         <p className="mt-1 text-sm text-ink-muted">
-          Fotografiere Seite für Seite. Nach jeder Aufnahme erkennen wir die
-          Dokumentkanten automatisch — ziehe die Ecken bei Bedarf zurecht.
-          Anschließend kannst du Seiten drehen, neu anordnen oder löschen.
-          Beim Hochladen werden alle Seiten zu einem PDF zusammengefasst und
-          gelangen in die KI-Pipeline.
+          Fotografiere Seite für Seite. Du kannst Seiten drehen, neu anordnen
+          oder löschen. Über die Schaltfläche „Ecken anpassen" lässt sich
+          eine schräge Aufnahme nachträglich gerade ziehen (lädt beim ersten
+          Tippen ein größeres Modul). Beim Hochladen werden alle Seiten zu
+          einem PDF zusammengefasst und gelangen in die KI-Pipeline.
         </p>
 
         {!terminal && (

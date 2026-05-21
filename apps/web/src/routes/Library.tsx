@@ -12,7 +12,7 @@ import {
   useProcessingState,
 } from "../lib/documents";
 import type { InboxItem } from "../lib/inbox";
-import { useBulkApprove, useInboxList } from "../lib/inbox";
+import { useBulkApprove, useInboxList, useInboxListInfinite } from "../lib/inbox";
 
 const DEFAULT_PAGE_SIZE = 25;
 
@@ -688,7 +688,7 @@ function Field({
 
 function ZurPruefungTab() {
   const navigate = useNavigate();
-  const list = useInboxList({ pageSize: 50, ordering: "-modified" });
+  const list = useInboxListInfinite({ pageSize: 50, ordering: "-modified" });
   const bulkApprove = useBulkApprove();
 
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -697,10 +697,14 @@ function ZurPruefungTab() {
     failed: number;
   } | null>(null);
 
-  const visibleIds = useMemo(
-    () => list.data?.results.map((r) => r.id) ?? [],
+  const rows = useMemo<InboxItem[]>(
+    () => list.data?.pages.flatMap((p) => p.results) ?? [],
     [list.data],
   );
+  const total = list.data?.pages[0]?.total ?? 0;
+  const loaded = rows.length;
+
+  const visibleIds = useMemo(() => rows.map((r) => r.id), [rows]);
 
   const effectiveSelected = useMemo(() => {
     if (!visibleIds.length) return selected;
@@ -757,7 +761,7 @@ function ZurPruefungTab() {
           </p>
         </div>
         <span className="text-sm text-ink-subtle">
-          {list.data ? `${list.data.total} offen` : "…"}
+          {list.data ? `${total} offen` : "…"}
         </span>
       </div>
 
@@ -767,7 +771,7 @@ function ZurPruefungTab() {
         </p>
       )}
 
-      {list.data && list.data.results.length === 0 && (
+      {list.data && loaded === 0 && (
         <div className="mt-8 rounded-lg border border-dashed border-hairline bg-surface p-8 text-center text-sm text-ink-subtle">
           Keine offenen Dokumente.{" "}
           <Link to="/ask" className="font-medium text-ink underline">
@@ -776,7 +780,7 @@ function ZurPruefungTab() {
         </div>
       )}
 
-      {list.data && list.data.results.length > 0 && (
+      {list.data && loaded > 0 && (
         <>
           {selectedCount > 0 && (
             <div className="sticky top-0 z-10 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-inverse/20 bg-inverse px-4 py-2 text-sm text-on-inverse">
@@ -846,7 +850,7 @@ function ZurPruefungTab() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-hairline-soft">
-                {list.data.results.map((row) => (
+                {rows.map((row) => (
                   <ReviewRow
                     key={row.id}
                     row={row}
@@ -863,6 +867,22 @@ function ZurPruefungTab() {
               </tbody>
             </table>
           </div>
+
+          {(list.hasNextPage || list.isFetchingNextPage) && (
+            <div className="mt-4 flex items-center justify-center gap-3">
+              <span className="text-xs text-ink-subtle">
+                {loaded} von {total} geladen
+              </span>
+              <button
+                type="button"
+                onClick={() => void list.fetchNextPage()}
+                disabled={list.isFetchingNextPage || !list.hasNextPage}
+                className="rounded-md border border-hairline bg-surface px-4 py-1.5 text-sm font-medium text-ink hover:bg-canvas disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {list.isFetchingNextPage ? "lade…" : "Mehr anzeigen"}
+              </button>
+            </div>
+          )}
         </>
       )}
     </main>

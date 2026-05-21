@@ -72,14 +72,14 @@ export function DocumentPreviewModal({
       role="dialog"
       aria-modal="true"
       onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-6"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 sm:px-4 sm:py-6"
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-xl"
+        className="flex h-full w-full flex-col overflow-hidden bg-white shadow-xl sm:max-w-5xl sm:rounded-lg"
       >
-        <header className="flex items-center justify-between border-b border-neutral-200 px-4 py-3">
-          <div className="min-w-0">
+        <header className="flex flex-wrap items-start justify-between gap-3 border-b border-neutral-200 px-4 py-3">
+          <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-semibold">{doc.title}</div>
             {doc.original_file_name && doc.original_file_name !== doc.title && (
               <div className="truncate text-[11px] text-neutral-400">
@@ -92,7 +92,7 @@ export function DocumentPreviewModal({
               {doc.created ? ` · ${doc.created}` : ""}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {showReprocess && !reprocess.isSuccess && !confirming && (
               <button
                 type="button"

@@ -255,24 +255,24 @@ export function Upload() {
           </ul>
         )}
 
-        <div className="mt-4 flex items-center justify-between gap-3">
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
           <button
             type="button"
             onClick={() => setFiles([])}
             disabled={files.length === 0 || uploading}
-            className="rounded-md border border-hairline bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-canvas disabled:opacity-50"
+            className="rounded-md border border-hairline bg-surface px-3 py-2 text-sm font-medium text-ink-muted hover:bg-canvas disabled:opacity-50"
           >
             Liste leeren
           </button>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
             {allTerminal && inboxCount > 0 && (
               <button
                 type="button"
                 onClick={() =>
                   navigate({ to: "/library", search: { tab: "review" } })
                 }
-                className="rounded-md border border-hairline bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-canvas"
+                className="rounded-md border border-hairline bg-surface px-3 py-2 text-sm font-medium text-ink-muted hover:bg-canvas"
               >
                 Zur Prüfung →
               </button>
@@ -280,7 +280,7 @@ export function Upload() {
             {allTerminal && inboxCount === 0 && (
               <Link
                 to="/library"
-                className="rounded-md border border-hairline bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-canvas"
+                className="rounded-md border border-hairline bg-surface px-3 py-2 text-sm font-medium text-ink-muted hover:bg-canvas"
               >
                 Zur Bibliothek →
               </Link>
@@ -289,7 +289,7 @@ export function Upload() {
               type="button"
               onClick={startUpload}
               disabled={queuedCount === 0 || uploading}
-              className="rounded-md bg-ink px-4 py-1.5 text-sm font-medium text-on-inverse hover:opacity-80 disabled:opacity-60"
+              className="rounded-md bg-ink px-4 py-2 text-sm font-medium text-on-inverse hover:opacity-80 disabled:opacity-60"
             >
               {uploading
                 ? "Lädt hoch…"

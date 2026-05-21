@@ -88,6 +88,7 @@ export function LibraryReview({ id }: { id: number }) {
   const [form, setForm] = useState<FormState>(detailToForm(undefined));
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [reprocessedAt, setReprocessedAt] = useState<Date | null>(null);
+  const [mobilePane, setMobilePane] = useState<"pdf" | "form">("form");
   const lastHydratedRef = useRef<FormState | null>(null);
   const lastHydratedIdRef = useRef<number | null>(null);
 
@@ -200,11 +201,18 @@ export function LibraryReview({ id }: { id: number }) {
     deleteDoc.error?.message ??
     null;
 
+  const paneTabCls = (key: "pdf" | "form") =>
+    `flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+      mobilePane === key
+        ? "bg-ink text-on-inverse"
+        : "bg-surface text-ink-muted hover:text-ink"
+    }`;
+
   return (
     <div className="flex min-h-full flex-col">
       <Nav active="library" />
-      <main className="flex-1 px-6 py-4">
-        <div className="mb-3 flex items-center justify-between">
+      <main className="flex-1 px-4 py-3 md:px-6 md:py-4">
+        <div className="mb-3 flex items-center justify-between gap-3">
           <button
             type="button"
             onClick={() => window.history.back()}
@@ -226,15 +234,39 @@ export function LibraryReview({ id }: { id: number }) {
         )}
 
         {detail.data && (
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,2fr)]">
-            <iframe
-              key={id}
-              title={`Vorschau ${id}`}
-              src={`/api/documents/${id}/preview`}
-              className="h-[80vh] w-full rounded-lg border border-hairline bg-surface"
-            />
+          <>
+            <div className="mb-3 flex gap-1 rounded-md border border-hairline bg-canvas p-1 lg:hidden">
+              <button
+                type="button"
+                onClick={() => setMobilePane("form")}
+                className={paneTabCls("form")}
+              >
+                Bearbeiten
+              </button>
+              <button
+                type="button"
+                onClick={() => setMobilePane("pdf")}
+                className={paneTabCls("pdf")}
+              >
+                PDF
+              </button>
+            </div>
 
-            <section className="flex h-[80vh] flex-col overflow-hidden rounded-lg border border-hairline bg-surface">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,2fr)]">
+              <iframe
+                key={id}
+                title={`Vorschau ${id}`}
+                src={`/api/documents/${id}/preview`}
+                className={`h-[calc(100vh-200px)] w-full rounded-lg border border-hairline bg-surface lg:h-[80vh] ${
+                  mobilePane === "pdf" ? "" : "hidden lg:block"
+                }`}
+              />
+
+            <section
+              className={`flex max-h-[calc(100vh-200px)] flex-col overflow-hidden rounded-lg border border-hairline bg-surface lg:h-[80vh] lg:max-h-none ${
+                mobilePane === "form" ? "" : "hidden lg:flex"
+              }`}
+            >
               <header className="flex items-start justify-between gap-3 border-b border-hairline px-4 py-3">
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold text-ink">
@@ -371,14 +403,13 @@ export function LibraryReview({ id }: { id: number }) {
                 </p>
               )}
 
-              <footer className="flex items-center justify-end gap-1.5 border-t border-hairline px-4 py-2.5">
-                {/* Left-side utility icons */}
+              <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-hairline px-3 py-2.5">
                 <a
                   href={`/api/documents/${id}/download`}
                   title="Download"
-                  className="rounded-md border border-hairline p-1.5 text-ink-subtle hover:bg-canvas hover:text-ink"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-hairline text-ink-subtle hover:bg-canvas hover:text-ink sm:h-auto sm:w-auto sm:p-1.5"
                 >
-                  <DownloadIcon className="h-3.5 w-3.5" />
+                  <DownloadIcon className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
                 </a>
 
                 {!confirmingDelete && (
@@ -387,9 +418,9 @@ export function LibraryReview({ id }: { id: number }) {
                     onClick={() => setConfirmingDelete(true)}
                     disabled={deleteDoc.isPending}
                     title="In den Papierkorb verschieben (30 Tage wiederherstellbar)"
-                    className="rounded-md border border-hairline p-1.5 text-ink-subtle hover:border-red-200 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-hairline text-ink-subtle hover:border-red-200 hover:bg-red-50 hover:text-red-700 disabled:opacity-50 sm:h-auto sm:w-auto sm:p-1.5"
                   >
-                    <TrashIcon className="h-3.5 w-3.5" />
+                    <TrashIcon className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
                   </button>
                 )}
                 {confirmingDelete && (
@@ -414,17 +445,16 @@ export function LibraryReview({ id }: { id: number }) {
                   </div>
                 )}
 
-                {/* Divider */}
-                <span className="mx-1 h-4 w-px bg-hairline" />
+                <span className="mx-1 hidden h-4 w-px bg-hairline sm:inline" />
 
                 <button
                   type="button"
                   onClick={onReprocess}
                   disabled={reprocess.isPending || patch.isPending}
                   title="Erneut verarbeiten — KI neu klassifizieren"
-                  className="rounded-md border border-hairline p-1.5 text-ink-subtle hover:border-amber-200 hover:bg-amber-50 hover:text-amber-800 disabled:opacity-50"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-hairline text-ink-subtle hover:border-amber-200 hover:bg-amber-50 hover:text-amber-800 disabled:opacity-50 sm:h-auto sm:w-auto sm:p-1.5"
                 >
-                  <RefreshIcon className="h-3.5 w-3.5" />
+                  <RefreshIcon className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
                 </button>
 
                 <button
@@ -432,9 +462,9 @@ export function LibraryReview({ id }: { id: number }) {
                   onClick={onReset}
                   disabled={!isDirty || patch.isPending}
                   title="Änderungen zurücksetzen"
-                  className="rounded-md border border-hairline p-1.5 text-ink-subtle hover:bg-canvas hover:text-ink disabled:opacity-40"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-hairline text-ink-subtle hover:bg-canvas hover:text-ink disabled:opacity-40 sm:h-auto sm:w-auto sm:p-1.5"
                 >
-                  <UndoIcon className="h-3.5 w-3.5" />
+                  <UndoIcon className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
                 </button>
 
                 <button
@@ -442,14 +472,15 @@ export function LibraryReview({ id }: { id: number }) {
                   onClick={onSave}
                   disabled={!isDirty || patch.isPending}
                   title="Speichern"
-                  className="inline-flex items-center gap-1.5 rounded-md bg-ink px-3 py-1.5 text-xs font-medium text-on-inverse hover:opacity-80 disabled:opacity-50"
+                  className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md bg-ink px-3 py-2 text-sm font-medium text-on-inverse hover:opacity-80 disabled:opacity-50 sm:flex-initial sm:px-3 sm:py-1.5 sm:text-xs"
                 >
-                  <CheckIcon className="h-3 w-3" />
+                  <CheckIcon className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
                   {patch.isPending ? "…" : "Speichern"}
                 </button>
               </footer>
             </section>
-          </div>
+            </div>
+          </>
         )}
       </main>
     </div>

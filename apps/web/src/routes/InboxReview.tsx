@@ -94,6 +94,7 @@ export function InboxReview({ id }: { id: number }) {
   const reject = useReject(id);
 
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [mobilePane, setMobilePane] = useState<"pdf" | "form">("form");
   const lastHydratedRef = useRef<FormState | null>(null);
   const lastHydratedIdRef = useRef<number | null>(null);
 
@@ -205,11 +206,18 @@ export function InboxReview({ id }: { id: number }) {
 
   const errorDetail = approve.error?.message || reject.error?.message;
 
+  const paneTabCls = (key: "pdf" | "form") =>
+    `flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+      mobilePane === key
+        ? "bg-ink text-on-inverse"
+        : "bg-surface text-ink-muted hover:text-ink"
+    }`;
+
   return (
     <div className="flex min-h-full flex-col">
       <Nav active="inbox" />
-      <main className="flex-1 px-6 py-4">
-        <div className="mb-3 flex items-center justify-between">
+      <main className="flex-1 px-4 py-3 md:px-6 md:py-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <button
             type="button"
             onClick={() => window.history.back()}
@@ -217,7 +225,7 @@ export function InboxReview({ id }: { id: number }) {
           >
             ← Zur Prüfung
           </button>
-          <span className="text-xs text-ink-subtle">
+          <span className="hidden text-xs text-ink-subtle md:inline">
             Tasten:{" "}
             <kbd className="rounded border border-hairline bg-surface-raised px-1">A</kbd>{" "}
             Genehmigen ·{" "}
@@ -238,14 +246,39 @@ export function InboxReview({ id }: { id: number }) {
         )}
 
         {detail.data && (
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-            <iframe
-              key={id}
-              title={`Vorschau ${id}`}
-              src={`/api/inbox/${id}/preview`}
-              className="h-[80vh] w-full rounded-lg border border-hairline bg-surface"
-            />
-            <section className="flex h-[80vh] flex-col overflow-hidden rounded-lg border border-hairline bg-surface">
+          <>
+            {/* Mobile pane switcher (hidden lg+) */}
+            <div className="mb-3 flex gap-1 rounded-md border border-hairline bg-canvas p-1 lg:hidden">
+              <button
+                type="button"
+                onClick={() => setMobilePane("form")}
+                className={paneTabCls("form")}
+              >
+                Bearbeiten
+              </button>
+              <button
+                type="button"
+                onClick={() => setMobilePane("pdf")}
+                className={paneTabCls("pdf")}
+              >
+                PDF
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+              <iframe
+                key={id}
+                title={`Vorschau ${id}`}
+                src={`/api/inbox/${id}/preview`}
+                className={`h-[calc(100vh-200px)] w-full rounded-lg border border-hairline bg-surface lg:h-[80vh] ${
+                  mobilePane === "pdf" ? "" : "hidden lg:block"
+                }`}
+              />
+            <section
+              className={`flex max-h-[calc(100vh-200px)] flex-col overflow-hidden rounded-lg border border-hairline bg-surface lg:h-[80vh] lg:max-h-none ${
+                mobilePane === "form" ? "" : "hidden lg:flex"
+              }`}
+            >
               <header className="flex items-center justify-between border-b border-hairline px-4 py-3">
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold text-ink">
@@ -353,15 +386,15 @@ export function InboxReview({ id }: { id: number }) {
                 </p>
               )}
 
-              <footer className="flex items-center justify-end gap-1.5 border-t border-hairline px-4 py-2.5">
+              <footer className="flex items-center justify-end gap-2 border-t border-hairline px-4 py-3">
                 <button
                   type="button"
                   onClick={onReject}
                   disabled={reject.isPending || approve.isPending}
                   title="Ablehnen (R)"
-                  className="inline-flex items-center gap-1.5 rounded-md border border-hairline bg-canvas px-3 py-1.5 text-xs font-medium text-ink-muted hover:bg-surface-raised disabled:opacity-60"
+                  className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-hairline bg-canvas px-3 py-2 text-sm font-medium text-ink-muted hover:bg-surface-raised disabled:opacity-60 sm:flex-initial sm:text-xs"
                 >
-                  <XIcon className="h-3 w-3" />
+                  <XIcon className="h-3.5 w-3.5" />
                   Ablehnen
                 </button>
                 <button
@@ -369,14 +402,15 @@ export function InboxReview({ id }: { id: number }) {
                   onClick={onApprove}
                   disabled={reject.isPending || approve.isPending}
                   title="Genehmigen (A)"
-                  className="inline-flex items-center gap-1.5 rounded-md bg-ink px-3 py-1.5 text-xs font-medium text-on-inverse hover:opacity-80 disabled:opacity-60"
+                  className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md bg-ink px-3 py-2 text-sm font-medium text-on-inverse hover:opacity-80 disabled:opacity-60 sm:flex-initial sm:text-xs"
                 >
-                  <CheckIcon className="h-3 w-3" />
+                  <CheckIcon className="h-3.5 w-3.5" />
                   {approve.isPending ? "…" : "Genehmigen"}
                 </button>
               </footer>
             </section>
-          </div>
+            </div>
+          </>
         )}
       </main>
     </div>

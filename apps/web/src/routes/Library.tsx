@@ -210,7 +210,7 @@ export function Library({ search }: { search: Search }) {
       <Nav active="library" />
 
       {/* Tabs */}
-      <div className="border-b border-hairline bg-canvas px-6">
+      <div className="border-b border-hairline bg-canvas px-4 md:px-6">
         <nav className="flex gap-1">
           <button
             onClick={() => navigate({ to: "/library", search: { tab: "review" } })}
@@ -243,9 +243,8 @@ export function Library({ search }: { search: Search }) {
       {tab === "review" ? (
         <ZurPruefungTab />
       ) : (
-        <main className="mx-auto flex w-full max-w-7xl flex-1 gap-6 px-6 py-6">
-          {/* Filter sidebar */}
-          <aside className="w-60 shrink-0">
+        <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-4 px-4 py-4 md:flex-row md:gap-6 md:px-6 md:py-6">
+          <FilterSidebar>
             <div className="rounded-lg border border-hairline bg-surface p-4">
               <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-subtle">
                 Filter
@@ -354,7 +353,7 @@ export function Library({ search }: { search: Search }) {
               selected={search.tags ?? []}
               onToggle={toggleTag}
             />
-          </aside>
+          </FilterSidebar>
 
           <section className="min-w-0 flex-1">
             <div className="flex items-baseline justify-between">
@@ -447,7 +446,8 @@ export function Library({ search }: { search: Search }) {
                   </p>
                 )}
 
-                <div className="mt-4 rounded-lg border border-hairline bg-surface">
+                {/* Desktop table */}
+                <div className="mt-4 hidden rounded-lg border border-hairline bg-surface md:block">
                   <table className="w-full text-left text-sm">
                     <thead className="border-b border-hairline text-xs uppercase tracking-wide text-ink-subtle">
                       <tr>
@@ -497,6 +497,30 @@ export function Library({ search }: { search: Search }) {
                     </tbody>
                   </table>
                 </div>
+
+                {/* Mobile cards */}
+                <ul className="mt-4 space-y-2 md:hidden">
+                  {list.data.results.map((row) => (
+                    <LibraryCard
+                      key={row.id}
+                      row={row}
+                      selectedTags={search.tags ?? []}
+                      onTagClick={toggleTag}
+                      checked={effectiveSelected.has(row.id)}
+                      onToggle={() => toggleOne(row.id)}
+                      inFlight={
+                        row.is_processing ||
+                        isInFlight(row.id, processing.data)
+                      }
+                      onOpen={() =>
+                        navigate({
+                          to: "/library/$id",
+                          params: { id: String(row.id) },
+                        })
+                      }
+                    />
+                  ))}
+                </ul>
               </>
             )}
 
@@ -668,6 +692,121 @@ function Row({
   );
 }
 
+function FilterSidebar({ children }: { children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <aside className="w-full shrink-0 md:w-60">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between rounded-md border border-hairline bg-surface px-3 py-2 text-sm text-ink-muted md:hidden"
+      >
+        <span className="font-medium">Filter &amp; Tags</span>
+        <span aria-hidden className="text-xs">
+          {open ? "▴" : "▾"}
+        </span>
+      </button>
+      <div className={`${open ? "mt-2 block" : "hidden"} md:mt-0 md:block`}>
+        {children}
+      </div>
+    </aside>
+  );
+}
+
+function LibraryCard({
+  row,
+  selectedTags,
+  onTagClick,
+  checked,
+  onToggle,
+  inFlight,
+  onOpen,
+}: {
+  row: LibraryItem;
+  selectedTags: string[];
+  onTagClick: (tag: string) => void;
+  checked: boolean;
+  onToggle: () => void;
+  inFlight: boolean;
+  onOpen: () => void;
+}) {
+  return (
+    <li className="rounded-lg border border-hairline bg-surface p-3">
+      <div className="flex items-start gap-3">
+        <input
+          type="checkbox"
+          aria-label={`${row.title} auswählen`}
+          checked={checked}
+          onChange={onToggle}
+          onClick={(e) => e.stopPropagation()}
+          className="mt-1 h-5 w-5 shrink-0 cursor-pointer accent-ink"
+        />
+        <button
+          type="button"
+          onClick={onOpen}
+          className="min-w-0 flex-1 text-left"
+        >
+          <div className="truncate text-sm font-medium text-ink">
+            {row.title}
+          </div>
+          {row.original_file_name && row.original_file_name !== row.title && (
+            <div className="truncate text-[10px] text-ink-faint">
+              Original: {row.original_file_name}
+            </div>
+          )}
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted">
+            {row.document_type && <span>{row.document_type}</span>}
+            {row.correspondent && (
+              <>
+                <span aria-hidden className="text-ink-faint">·</span>
+                <span>{row.correspondent}</span>
+              </>
+            )}
+            {row.created && (
+              <>
+                <span aria-hidden className="text-ink-faint">·</span>
+                <span>{row.created}</span>
+              </>
+            )}
+          </div>
+          <div className="mt-2">
+            <ProcessingBadge
+              tags={row.lifecycle_tags}
+              errorMessage={row.ai_error_message}
+              inFlight={inFlight}
+            />
+          </div>
+        </button>
+      </div>
+      {row.tags.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {row.tags.slice(0, 5).map((t) => {
+            const active = selectedTags.includes(t);
+            return (
+              <button
+                key={t}
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onTagClick(t);
+                }}
+                className={
+                  active
+                    ? "rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-800"
+                    : "rounded-full border border-hairline bg-canvas px-2 py-0.5 text-[11px] text-ink-muted"
+                }
+              >
+                {t}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </li>
+  );
+}
+
 const inputCls =
   "mt-1 block w-full rounded-md border border-hairline bg-canvas px-2 py-1.5 text-sm text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none";
 
@@ -750,17 +889,17 @@ function ZurPruefungTab() {
   };
 
   return (
-    <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-6">
-      <div className="flex items-baseline justify-between">
-        <div>
+    <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-4 md:px-6 md:py-6">
+      <div className="flex items-baseline justify-between gap-3">
+        <div className="min-w-0">
           <h1 className="text-lg font-semibold tracking-tight text-ink">
             Zur Prüfung
           </h1>
-          <p className="mt-0.5 text-sm text-ink-muted">
+          <p className="mt-0.5 text-xs text-ink-muted sm:text-sm">
             Dokumente warten auf Ihre Prüfung. Zuletzt geänderte zuerst.
           </p>
         </div>
-        <span className="text-sm text-ink-subtle">
+        <span className="shrink-0 text-sm text-ink-subtle">
           {list.data ? `${total} offen` : "…"}
         </span>
       </div>
@@ -829,7 +968,7 @@ function ZurPruefungTab() {
             </p>
           )}
 
-          <div className="mt-4 rounded-lg border border-hairline bg-surface">
+          <div className="mt-4 hidden rounded-lg border border-hairline bg-surface md:block">
             <table className="w-full text-left text-sm">
               <thead className="border-b border-hairline text-xs uppercase tracking-wide text-ink-subtle">
                 <tr>
@@ -867,6 +1006,24 @@ function ZurPruefungTab() {
               </tbody>
             </table>
           </div>
+
+          {/* Mobile cards */}
+          <ul className="mt-4 space-y-2 md:hidden">
+            {rows.map((row) => (
+              <ReviewCard
+                key={row.id}
+                row={row}
+                checked={effectiveSelected.has(row.id)}
+                onToggle={() => toggleOne(row.id)}
+                onOpen={() =>
+                  navigate({
+                    to: "/inbox/$id",
+                    params: { id: String(row.id) },
+                  })
+                }
+              />
+            ))}
+          </ul>
 
           {(list.hasNextPage || list.isFetchingNextPage) && (
             <div className="mt-4 flex items-center justify-center gap-3">
@@ -930,5 +1087,62 @@ function ReviewRow({
           : "—"}
       </td>
     </tr>
+  );
+}
+
+function ReviewCard({
+  row,
+  checked,
+  onToggle,
+  onOpen,
+}: {
+  row: InboxItem;
+  checked: boolean;
+  onToggle: () => void;
+  onOpen: () => void;
+}) {
+  const flagCls = row.low_confidence ? "border-l-2 border-amber-400" : "";
+  return (
+    <li className={`rounded-lg border border-hairline bg-surface p-3 ${flagCls}`}>
+      <div className="flex items-start gap-3">
+        <input
+          type="checkbox"
+          aria-label={`${row.title} auswählen`}
+          checked={checked}
+          onChange={onToggle}
+          onClick={(e) => e.stopPropagation()}
+          className="mt-1 h-5 w-5 shrink-0 cursor-pointer accent-ink"
+        />
+        <button
+          type="button"
+          onClick={onOpen}
+          className="min-w-0 flex-1 text-left"
+        >
+          <div className="truncate text-sm font-medium text-ink">
+            {row.title}
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted">
+            {row.ai_document_type && <span>{row.ai_document_type}</span>}
+            {row.ai_correspondent && (
+              <>
+                <span aria-hidden className="text-ink-faint">·</span>
+                <span>{row.ai_correspondent}</span>
+              </>
+            )}
+            {(row.ai_issue_date || row.created) && (
+              <>
+                <span aria-hidden className="text-ink-faint">·</span>
+                <span>{row.ai_issue_date ?? row.created}</span>
+              </>
+            )}
+          </div>
+        </button>
+        {row.ai_confidence != null && (
+          <span className="shrink-0 rounded-full bg-canvas px-2 py-0.5 text-[11px] font-medium text-ink-muted">
+            {Math.round(row.ai_confidence * 100)}%
+          </span>
+        )}
+      </div>
+    </li>
   );
 }

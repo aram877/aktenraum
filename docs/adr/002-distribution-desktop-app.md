@@ -1,6 +1,6 @@
 # ADR-002: Distribution — Tauri Desktop App Wrapping Docker
 
-**Status**: Accepted
+**Status**: Accepted (Phase 0 deferred — see [ADR-005](005-test-phase-access-via-tailscale.md))
 
 ## Context
 

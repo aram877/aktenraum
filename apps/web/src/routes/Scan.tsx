@@ -1,15 +1,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useReducer,
-  useRef,
-  useState,
-} from "react";
-import ReactCrop, { type Crop, type PixelCrop } from "react-image-crop";
-import "react-image-crop/dist/ReactCrop.css";
+import { useEffect, useReducer, useRef, useState } from "react";
 
+import { CornerAdjusterModal } from "../components/CornerAdjusterModal";
 import { Nav } from "../components/Nav";
 import {
   ArrowDownIcon,
@@ -18,7 +10,6 @@ import {
   CropIcon,
   RotateIcon,
   TrashIcon,
-  XIcon,
 } from "../components/Icons";
 import {
   fetchDocumentStatus,
@@ -30,7 +21,6 @@ import { scanReducer } from "../lib/scan-reducer";
 import {
   initialScanState,
   MAX_PAGES,
-  type ScanCrop,
   type ScanPage,
 } from "../lib/scan-types";
 
@@ -71,14 +61,27 @@ export function Scan() {
   const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const [taskId, setTaskId] = useState<string | null>(null);
   const [docId, setDocId] = useState<number | null>(null);
-  const [cropTarget, setCropTarget] = useState<string | null>(null);
+  const [adjustTargetId, setAdjustTargetId] = useState<string | null>(null);
   const pollTimer = useRef<number | null>(null);
+  const lastSeenLen = useRef(0);
 
   useEffect(() => {
     return () => {
       if (pollTimer.current !== null) clearTimeout(pollTimer.current);
     };
   }, []);
+
+  // Auto-open the corner adjuster on the most-recently-added page so the
+  // perspective correction step lives inside the capture flow rather than
+  // hidden behind a per-tile button. Tracks page count so adjuster
+  // re-opens on every fresh capture (but not on rotate / reorder / etc.).
+  useEffect(() => {
+    if (state.pages.length > lastSeenLen.current) {
+      const last = state.pages[state.pages.length - 1];
+      if (last) setAdjustTargetId(last.id);
+    }
+    lastSeenLen.current = state.pages.length;
+  }, [state.pages]);
 
   const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
@@ -211,10 +214,9 @@ export function Scan() {
   const terminal =
     phase === "inbox" || phase === "library" || phase === "error";
 
-  const targetPage = useMemo(
-    () => (cropTarget ? pages.find((p) => p.id === cropTarget) : null),
-    [cropTarget, pages],
-  );
+  const adjustTarget = adjustTargetId
+    ? pages.find((p) => p.id === adjustTargetId)
+    : null;
 
   return (
     <div className="flex min-h-full flex-col">
@@ -224,9 +226,11 @@ export function Scan() {
           Scannen
         </h1>
         <p className="mt-1 text-sm text-ink-muted">
-          Fotografiere Seite für Seite. Du kannst Seiten drehen, zuschneiden,
-          neu anordnen oder löschen. Beim Hochladen werden alle Seiten zu einem
-          PDF zusammengefasst und gelangen in die KI-Pipeline.
+          Fotografiere Seite für Seite. Nach jeder Aufnahme erkennen wir die
+          Dokumentkanten automatisch — ziehe die Ecken bei Bedarf zurecht.
+          Anschließend kannst du Seiten drehen, neu anordnen oder löschen.
+          Beim Hochladen werden alle Seiten zu einem PDF zusammengefasst und
+          gelangen in die KI-Pipeline.
         </p>
 
         {!terminal && (
@@ -267,7 +271,7 @@ export function Scan() {
                     index={idx}
                     total={pages.length}
                     onRotate={() => dispatch({ type: "rotate", id: page.id })}
-                    onCrop={() => setCropTarget(page.id)}
+                    onCrop={() => setAdjustTargetId(page.id)}
                     onRemove={() => dispatch({ type: "remove", id: page.id })}
                     onMoveUp={() =>
                       dispatch({
@@ -364,13 +368,13 @@ export function Scan() {
         )}
       </main>
 
-      {targetPage && (
-        <CropModal
-          page={targetPage}
-          onCancel={() => setCropTarget(null)}
-          onApply={(crop) => {
-            dispatch({ type: "crop", id: targetPage.id, crop });
-            setCropTarget(null);
+      {adjustTarget && (
+        <CornerAdjusterModal
+          blob={adjustTarget.blob}
+          onCancel={() => setAdjustTargetId(null)}
+          onApply={(warped) => {
+            dispatch({ type: "replace", id: adjustTarget.id, blob: warped });
+            setAdjustTargetId(null);
           }}
         />
       )}
@@ -443,7 +447,7 @@ function PageTile({
           <TileBtn onClick={onRotate} label="Drehen">
             <RotateIcon className="h-4 w-4" />
           </TileBtn>
-          <TileBtn onClick={onCrop} label="Zuschneiden">
+          <TileBtn onClick={onCrop} label="Ecken anpassen">
             <CropIcon className="h-4 w-4" />
           </TileBtn>
           <TileBtn onClick={onRemove} label="Löschen" danger>
@@ -477,150 +481,6 @@ function TileBtn({ onClick, disabled, label, danger, children }: TileBtnProps) {
     >
       {children}
     </button>
-  );
-}
-
-type CropModalProps = {
-  page: ScanPage;
-  onCancel: () => void;
-  onApply: (crop: ScanCrop | null) => void;
-};
-
-function CropModal({ page, onCancel, onApply }: CropModalProps) {
-  const [url, setUrl] = useState<string | null>(null);
-  const [crop, setCrop] = useState<Crop | undefined>(undefined);
-  const [pixelCrop, setPixelCrop] = useState<PixelCrop | null>(null);
-  const imgRef = useRef<HTMLImageElement | null>(null);
-
-  useEffect(() => {
-    const next = URL.createObjectURL(page.blob);
-    setUrl(next);
-    return () => URL.revokeObjectURL(next);
-  }, [page.blob]);
-
-  const onImageLoaded = useCallback(() => {
-    const img = imgRef.current;
-    if (!img) return;
-    const w = img.naturalWidth;
-    const h = img.naturalHeight;
-    if (page.crop) {
-      const seeded: PixelCrop = {
-        unit: "px",
-        x: page.crop.x,
-        y: page.crop.y,
-        width: page.crop.w,
-        height: page.crop.h,
-      };
-      setPixelCrop(seeded);
-      setCrop(seeded);
-    } else {
-      const initial: PixelCrop = {
-        unit: "px",
-        x: 0,
-        y: 0,
-        width: w,
-        height: h,
-      };
-      setPixelCrop(initial);
-      setCrop(initial);
-    }
-  }, [page.crop]);
-
-  const apply = () => {
-    if (!pixelCrop) {
-      onApply(null);
-      return;
-    }
-    if (pixelCrop.width < 8 || pixelCrop.height < 8) {
-      onApply(null);
-      return;
-    }
-    onApply({
-      x: Math.round(pixelCrop.x),
-      y: Math.round(pixelCrop.y),
-      w: Math.round(pixelCrop.width),
-      h: Math.round(pixelCrop.height),
-    });
-  };
-
-  const reset = () => {
-    const img = imgRef.current;
-    if (!img) {
-      onApply(null);
-      return;
-    }
-    const full: PixelCrop = {
-      unit: "px",
-      x: 0,
-      y: 0,
-      width: img.naturalWidth,
-      height: img.naturalHeight,
-    };
-    setPixelCrop(full);
-    setCrop(full);
-  };
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex flex-col bg-canvas"
-      role="dialog"
-      aria-label="Zuschneiden"
-    >
-      <div className="flex items-center justify-between border-b border-hairline px-4 py-3">
-        <span className="text-sm font-medium text-ink">Zuschneiden</span>
-        <button
-          type="button"
-          onClick={onCancel}
-          aria-label="Abbrechen"
-          className="inline-flex h-9 w-9 items-center justify-center rounded-md text-ink-muted hover:bg-surface hover:text-ink"
-        >
-          <XIcon className="h-4 w-4" />
-        </button>
-      </div>
-      <div className="flex flex-1 items-center justify-center overflow-auto p-4">
-        {url && (
-          <ReactCrop
-            crop={crop}
-            onChange={(_, percentCrop) => setCrop(percentCrop)}
-            onComplete={(c) => setPixelCrop(c)}
-            ruleOfThirds
-          >
-            <img
-              ref={imgRef}
-              src={url}
-              alt="Zuschneiden"
-              onLoad={onImageLoaded}
-              className="max-h-[70vh] max-w-full"
-            />
-          </ReactCrop>
-        )}
-      </div>
-      <div className="flex items-center justify-between gap-2 border-t border-hairline px-4 py-3">
-        <button
-          type="button"
-          onClick={reset}
-          className="rounded-md border border-hairline bg-surface px-3 py-2 text-sm font-medium text-ink-muted hover:bg-canvas"
-        >
-          Zurücksetzen
-        </button>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded-md border border-hairline bg-surface px-3 py-2 text-sm font-medium text-ink-muted hover:bg-canvas"
-          >
-            Abbrechen
-          </button>
-          <button
-            type="button"
-            onClick={apply}
-            className="rounded-md bg-ink px-4 py-2 text-sm font-medium text-on-inverse hover:opacity-80"
-          >
-            Übernehmen
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }
 

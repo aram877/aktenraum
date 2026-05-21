@@ -3,6 +3,7 @@ import { TypeSpecificFieldsSection } from "../components/TypeSpecificFieldsSecti
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Nav } from "../components/Nav";
+import { NeighborNav } from "../components/NeighborNav";
 import { CheckIcon, XIcon } from "../components/Icons";
 import type { InboxFieldUpdate } from "../lib/inbox";
 import {
@@ -206,6 +207,11 @@ export function InboxReview({ id }: { id: number }) {
 
   const errorDetail = approve.error?.message || reject.error?.message;
 
+  const neighborIds = list.data?.results.map((r) => r.id) ?? [];
+  const neighborPos = neighborIds.indexOf(id);
+  const neighborTotal = neighborIds.length;
+  const canNavigate = neighborTotal > 1;
+
   const paneTabCls = (key: "pdf" | "form") =>
     `flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
       mobilePane === key
@@ -218,14 +224,23 @@ export function InboxReview({ id }: { id: number }) {
       <Nav active="inbox" />
       <main className="flex-1 px-4 py-3 md:px-6 md:py-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <button
-            type="button"
-            onClick={() => window.history.back()}
-            className="text-sm text-ink-muted hover:text-ink"
-          >
-            ← Zur Prüfung
-          </button>
-          <span className="hidden text-xs text-ink-subtle md:inline">
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => window.history.back()}
+              className="text-sm text-ink-muted hover:text-ink"
+            >
+              ← Zur Prüfung
+            </button>
+            <NeighborNav
+              position={neighborPos}
+              total={neighborTotal}
+              canNavigate={canNavigate}
+              onPrev={() => advance("prev")}
+              onNext={() => advance("next")}
+            />
+          </div>
+          <span className="hidden text-xs text-ink-subtle lg:inline">
             Tasten:{" "}
             <kbd className="rounded border border-hairline bg-surface-raised px-1">A</kbd>{" "}
             Genehmigen ·{" "}

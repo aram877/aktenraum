@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { TypeSpecificFieldsSection } from "../components/TypeSpecificFieldsSection";
 
 import { Nav } from "../components/Nav";
+import { NeighborNav } from "../components/NeighborNav";
 import { ProcessingBadge } from "../components/ProcessingBadge";
 import {
   CheckIcon,
@@ -21,6 +22,8 @@ import {
   useProcessingState,
   useReprocess,
 } from "../lib/documents";
+import { useKeyboardShortcuts } from "../lib/keyboard";
+import { useLibrary } from "../lib/library";
 import { userFacingTags } from "../lib/lifecycleTags";
 
 const DOC_TYPES = [
@@ -84,6 +87,7 @@ export function LibraryReview({ id }: { id: number }) {
   const patch = useDocumentFieldsPatch(id);
   const reprocess = useReprocess();
   const deleteDoc = useDeleteDocument();
+  const neighbors = useLibrary({ page_size: 100, ordering: "-created" });
 
   const [form, setForm] = useState<FormState>(detailToForm(undefined));
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -201,6 +205,58 @@ export function LibraryReview({ id }: { id: number }) {
     deleteDoc.error?.message ??
     null;
 
+  const neighborIds = neighbors.data?.results.map((r) => r.id) ?? [];
+  const neighborPos = neighborIds.indexOf(id);
+  const neighborTotal = neighborIds.length;
+  const canNavigate = neighborTotal > 1;
+
+  const advance = (direction: "next" | "prev") => {
+    if (
+      isDirty &&
+      !window.confirm("Ungespeicherte Änderungen verwerfen?")
+    ) {
+      return;
+    }
+    if (neighborIds.length === 0) return;
+    const filtered = neighborIds.filter((d) => d !== id);
+    if (filtered.length === 0) {
+      void navigate({ to: "/library" });
+      return;
+    }
+    const currentPos = neighborIds.indexOf(id);
+    let target: number | undefined;
+    if (currentPos === -1) {
+      target =
+        direction === "next" ? filtered[0] : filtered[filtered.length - 1];
+    } else if (direction === "next") {
+      target =
+        filtered.find((d) => neighborIds.indexOf(d) > currentPos) ??
+        filtered[0];
+    } else {
+      const before = filtered.filter(
+        (d) => neighborIds.indexOf(d) < currentPos,
+      );
+      target = before.length
+        ? before[before.length - 1]
+        : filtered[filtered.length - 1];
+    }
+    if (target !== undefined) {
+      void navigate({
+        to: "/library/$id",
+        params: { id: String(target) },
+      });
+    }
+  };
+
+  useKeyboardShortcuts(
+    {
+      j: () => advance("next"),
+      k: () => advance("prev"),
+      Escape: () => void navigate({ to: "/library" }),
+    },
+    detail.isSuccess,
+  );
+
   const paneTabCls = (key: "pdf" | "form") =>
     `flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
       mobilePane === key
@@ -212,14 +268,23 @@ export function LibraryReview({ id }: { id: number }) {
     <div className="flex min-h-full flex-col">
       <Nav active="library" />
       <main className="flex-1 px-4 py-3 md:px-6 md:py-4">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={() => window.history.back()}
-            className="text-sm text-ink-muted hover:text-ink"
-          >
-            ← Zurück zur Bibliothek
-          </button>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => window.history.back()}
+              className="text-sm text-ink-muted hover:text-ink"
+            >
+              ← Zurück zur Bibliothek
+            </button>
+            <NeighborNav
+              position={neighborPos}
+              total={neighborTotal}
+              canNavigate={canNavigate}
+              onPrev={() => advance("prev")}
+              onNext={() => advance("next")}
+            />
+          </div>
           {isDirty && (
             <span className="text-xs text-amber-700">
               Ungespeicherte Änderungen

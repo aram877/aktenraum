@@ -1,4 +1,5 @@
 import {
+  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
@@ -97,6 +98,28 @@ export function useInboxList(params: { page?: number; pageSize?: number; orderin
   return useQuery<InboxList, AxiosError>({
     queryKey: [...INBOX_KEY, "list", params.page ?? 1, params.pageSize ?? 20, params.ordering ?? "-modified"],
     queryFn: () => fetchInboxList(params),
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
+  });
+}
+
+// Same data as useInboxList, paged via load-more. Used by the review tab,
+// where the user triages top-to-bottom and multi-select must span chunks.
+export function useInboxListInfinite(
+  params: { pageSize?: number; ordering?: string } = {},
+) {
+  const pageSize = params.pageSize ?? 50;
+  const ordering = params.ordering ?? "-modified";
+  return useInfiniteQuery<InboxList, AxiosError>({
+    queryKey: [...INBOX_KEY, "list-infinite", pageSize, ordering],
+    queryFn: ({ pageParam }) =>
+      fetchInboxList({ page: pageParam as number, pageSize, ordering }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage, allPages) => {
+      const loaded = allPages.reduce((n, p) => n + p.results.length, 0);
+      if (loaded >= lastPage.total) return undefined;
+      return lastPage.page + 1;
+    },
     staleTime: 30_000,
     refetchOnWindowFocus: true,
   });

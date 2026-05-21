@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AxiosError } from "axios";
 
-import { fetchMe, login, logout, type User } from "./api";
+import { changePassword, fetchMe, login, logout, type User } from "./api";
 
 const ME_KEY = ["me"] as const;
 
@@ -35,6 +35,20 @@ export function useLogout() {
   return useMutation({
     mutationFn: logout,
     onSettled: () => {
+      qc.setQueryData(ME_KEY, undefined);
+      qc.invalidateQueries({ queryKey: ME_KEY });
+    },
+  });
+}
+
+// The server clears the auth cookie on success, so we also drop the cached
+// `/me` state. Caller is responsible for navigating to /login.
+export function useChangePassword() {
+  const qc = useQueryClient();
+  return useMutation<void, AxiosError, { currentPassword: string; newPassword: string }>({
+    mutationFn: ({ currentPassword, newPassword }) =>
+      changePassword(currentPassword, newPassword),
+    onSuccess: () => {
       qc.setQueryData(ME_KEY, undefined);
       qc.invalidateQueries({ queryKey: ME_KEY });
     },

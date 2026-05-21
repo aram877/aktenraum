@@ -7,8 +7,8 @@ from ..db.models import User
 from ..db.session import get_session
 from .deps import get_current_user, get_settings
 from .jwt import create_token
-from .passwords import verify_password
-from .schemas import LoginRequest, UserResponse
+from .passwords import hash_password, verify_password
+from .schemas import ChangePasswordRequest, LoginRequest, UserResponse
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -50,3 +50,28 @@ async def logout(
 @router.get("/me", response_model=UserResponse)
 async def me(user: User = Depends(get_current_user)) -> UserResponse:
     return UserResponse(username=user.username)
+
+
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+async def change_password(
+    body: ChangePasswordRequest,
+    response: Response,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> Response:
+    if not verify_password(body.current_password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Current password is incorrect",
+        )
+    if body.new_password == body.current_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must differ from current password",
+        )
+    user.password_hash = hash_password(body.new_password)
+    await session.commit()
+    response.delete_cookie(key=settings.cookie_name, path="/")
+    response.status_code = status.HTTP_204_NO_CONTENT
+    return response

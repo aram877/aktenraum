@@ -1,6 +1,9 @@
 import { useState } from "react";
 
+import { useNavigate } from "@tanstack/react-router";
+
 import { Nav } from "../components/Nav";
+import { useChangePassword } from "../lib/auth";
 import type { LLMQuality } from "../lib/settings";
 import {
   useAnswerLLMSettings,
@@ -109,6 +112,138 @@ function ModelPicker({
   );
 }
 
+function mapChangePasswordError(status: number | undefined): string {
+  if (status === 401) return "Aktuelles Passwort ist nicht korrekt.";
+  if (status === 400)
+    return "Das neue Passwort muss sich vom aktuellen unterscheiden.";
+  if (status === 422)
+    return "Bitte fülle alle Felder korrekt aus (min. 8 Zeichen für das neue Passwort).";
+  return "Unbekannter Fehler beim Ändern des Passworts.";
+}
+
+function KontoSection() {
+  const navigate = useNavigate();
+  const change = useChangePassword();
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [showSuccess, setShowSuccess] = useState(false);
+
+  const confirmMismatch = confirm.length > 0 && confirm !== next;
+  const newTooShort = next.length > 0 && next.length < 8;
+  const canSubmit =
+    current.length > 0 &&
+    next.length >= 8 &&
+    next === confirm &&
+    !change.isPending &&
+    !showSuccess;
+
+  const errorBanner = change.error
+    ? mapChangePasswordError(change.error.response?.status)
+    : null;
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canSubmit) return;
+    try {
+      await change.mutateAsync({ currentPassword: current, newPassword: next });
+      setCurrent("");
+      setNext("");
+      setConfirm("");
+      setShowSuccess(true);
+      setTimeout(() => {
+        void navigate({ to: "/login" });
+      }, 1500);
+    } catch {
+      // error already captured on the mutation's `error` field
+    }
+  }
+
+  return (
+    <div>
+      <h2 className="text-sm font-semibold text-ink">Konto</h2>
+      <p className="mt-0.5 text-xs text-ink-muted">
+        Passwort ändern. Du wirst nach erfolgreicher Änderung neu angemeldet.
+      </p>
+
+      {showSuccess && (
+        <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          Passwort geändert — du wirst zum Login geleitet.
+        </p>
+      )}
+      {errorBanner && !showSuccess && (
+        <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {errorBanner}
+        </p>
+      )}
+
+      <form onSubmit={onSubmit} className="mt-4 space-y-3" noValidate>
+        <label className="block">
+          <span className="text-xs font-medium text-ink-muted">
+            Aktuelles Passwort
+          </span>
+          <input
+            type="password"
+            value={current}
+            onChange={(e) => setCurrent(e.target.value)}
+            autoComplete="current-password"
+            disabled={change.isPending || showSuccess}
+            className="mt-1 w-full rounded-lg border border-hairline bg-surface px-3 py-2 text-sm text-ink focus:border-ink focus:outline-none"
+          />
+        </label>
+
+        <label className="block">
+          <span className="text-xs font-medium text-ink-muted">
+            Neues Passwort
+          </span>
+          <input
+            type="password"
+            value={next}
+            onChange={(e) => setNext(e.target.value)}
+            autoComplete="new-password"
+            disabled={change.isPending || showSuccess}
+            minLength={8}
+            maxLength={128}
+            className="mt-1 w-full rounded-lg border border-hairline bg-surface px-3 py-2 text-sm text-ink focus:border-ink focus:outline-none"
+          />
+          {newTooShort && (
+            <span className="mt-1 block text-[11px] text-red-700">
+              Mindestens 8 Zeichen.
+            </span>
+          )}
+        </label>
+
+        <label className="block">
+          <span className="text-xs font-medium text-ink-muted">
+            Neues Passwort bestätigen
+          </span>
+          <input
+            type="password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            autoComplete="new-password"
+            disabled={change.isPending || showSuccess}
+            className="mt-1 w-full rounded-lg border border-hairline bg-surface px-3 py-2 text-sm text-ink focus:border-ink focus:outline-none"
+          />
+          {confirmMismatch && (
+            <span className="mt-1 block text-[11px] text-red-700">
+              Passwörter stimmen nicht überein.
+            </span>
+          )}
+        </label>
+
+        <button
+          type="submit"
+          disabled={!canSubmit}
+          className="rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-surface disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {change.isPending ? "speichere…" : "Passwort ändern"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
 export function SettingsPage() {
   const tagger = useLLMSettings();
   const updateTagger = useUpdateLLMSettings();
@@ -162,6 +297,10 @@ export function SettingsPage() {
         )}
 
         <div className="mt-6 space-y-8">
+          <KontoSection />
+
+          <div className="border-t border-hairline" />
+
           <ModelPicker
             title="Klassifikations-Modell"
             description="Wird für die automatische Dokumentenextraktion verwendet (Typ, Felder, Datum)."

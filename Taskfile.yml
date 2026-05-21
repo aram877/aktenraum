@@ -251,6 +251,18 @@ tasks:
     cmds:
       - MSYS_NO_PATHCONV=1 {{.COMPOSE}} exec backup restic snapshots --tag aktenraum
 
+  # ----- Tailscale remote access (see docs/runbooks/tailscale-remote-access.md) -----
+
+  tailscale:serve:
+    desc: "Expose aktenraum on the tailnet over HTTPS (proxies https://<host>.<tailnet>.ts.net → local SPA port). Persists across reboots via --bg. Requires Tailscale installed + tailscale up."
+    cmds:
+      - tailscale serve --bg --https=443 http://localhost:${AKTENRAUM_WEB_PORT:-8080}
+
+  tailscale:status:
+    desc: "Show the current tailscale serve mappings (sanity check after tailscale:serve)."
+    cmds:
+      - tailscale serve status
+
   # ----- DB / Qdrant inspection -----
 
   db:paperless:

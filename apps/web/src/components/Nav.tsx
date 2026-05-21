@@ -13,6 +13,7 @@ type NavKey =
   | "find"
   | "library"
   | "upload"
+  | "scan"
   | "inbox"
   | "trash"
   | "settings";
@@ -103,6 +104,9 @@ export function Nav({ active }: { active: NavKey }) {
             </Link>
             <Link to="/upload" className={linkCls("upload")}>
               + Hochladen
+            </Link>
+            <Link to="/scan" className={linkCls("scan")}>
+              Scannen
             </Link>
             <Link
               to="/trash"
@@ -210,6 +214,9 @@ export function Nav({ active }: { active: NavKey }) {
             </Link>
             <Link to="/upload" className={drawerLinkCls("upload")} onClick={() => setMenuOpen(false)}>
               <span>+ Hochladen</span>
+            </Link>
+            <Link to="/scan" className={drawerLinkCls("scan")} onClick={() => setMenuOpen(false)}>
+              <span>Scannen</span>
             </Link>
             <Link to="/trash" className={drawerLinkCls("trash")} onClick={() => setMenuOpen(false)}>
               <span>Papierkorb</span>

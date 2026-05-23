@@ -322,3 +322,228 @@ async def test_dismiss_duplicate_404_for_missing_doc(client_factory):
             resp = await c.post("/api/documents/9999/dismiss-duplicate")
 
     assert resp.status_code == 404
+
+
+# ---- duplicate-candidates ----
+
+
+def _ai_fields_doc(
+    *,
+    doc_id: int,
+    correspondent_id: int,
+    tag_ids: list[int],
+    fields_by_id: dict[int, str | None],
+) -> dict:
+    """Build a Paperless-shaped doc dict the dedup detector reads."""
+    cf = [
+        {"field": fid, "value": val}
+        for fid, val in fields_by_id.items()
+        if val is not None
+    ]
+    return {
+        "id": doc_id,
+        "title": f"Doc {doc_id}",
+        "correspondent": correspondent_id,
+        "document_type": None,
+        "created": "2024-03-15",
+        "tags": tag_ids,
+        "custom_fields": cf,
+        "original_file_name": None,
+    }
+
+
+def _candidates_gateway(
+    *,
+    target: dict,
+    candidates: list[dict],
+    custom_field_ids: dict[str, int],
+    tags: dict[str, int],
+    correspondents: dict[str, int] | None = None,
+    document_types: dict[str, int] | None = None,
+):
+    gw = AsyncMock()
+    gw.get_document = AsyncMock(return_value=target)
+    gw.list_tags = AsyncMock(return_value=dict(tags))
+    gw.list_correspondents = AsyncMock(
+        return_value=correspondents if correspondents is not None else {}
+    )
+    gw.list_document_types = AsyncMock(
+        return_value=document_types if document_types is not None else {}
+    )
+    gw._get_custom_field_ids = AsyncMock(return_value=dict(custom_field_ids))
+    gw.search_documents = AsyncMock(
+        return_value={"results": candidates, "count": len(candidates)}
+    )
+    return gw
+
+
+async def test_duplicate_candidates_returns_matched_docs(client_factory):
+    app, _settings, transport = await _logged_in(client_factory)
+    field_ids = {
+        "ai_correspondent": 1,
+        "ai_issue_date": 2,
+        "ai_monetary_amount": 3,
+        "ai_reference_numbers": 4,
+    }
+    tags = {
+        "ai-propagated": 10,
+        "ai-duplicate": 11,
+        "ai-duplicate-dismissed": 12,
+    }
+    target = _ai_fields_doc(
+        doc_id=99,
+        correspondent_id=500,
+        tag_ids=[10, 11],  # propagated + duplicate
+        fields_by_id={
+            1: "Telekom",
+            2: "2024-03-15",
+            3: "EUR42.99",
+            4: None,
+        },
+    )
+    cand_match = _ai_fields_doc(
+        doc_id=7,
+        correspondent_id=500,
+        tag_ids=[10, 11],
+        fields_by_id={
+            1: "Telekom",
+            2: "2024-03-15",
+            3: "EUR42.99",
+            4: None,
+        },
+    )
+    cand_no_match = _ai_fields_doc(
+        doc_id=8,
+        correspondent_id=500,
+        tag_ids=[10],
+        fields_by_id={
+            1: "Telekom",
+            2: "2024-04-01",  # different date
+            3: "EUR42.99",
+            4: None,
+        },
+    )
+    gw = _candidates_gateway(
+        target=target,
+        candidates=[cand_match, cand_no_match],
+        custom_field_ids=field_ids,
+        tags=tags,
+    )
+    app.dependency_overrides[get_paperless_gateway] = lambda: gw
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.get("/api/documents/99/duplicate-candidates")
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["doc_id"] == 99
+    ids = [c["id"] for c in body["candidates"]]
+    assert ids == [7]  # only the match, no false positives
+
+
+async def test_duplicate_candidates_filters_dismissed_candidates(client_factory):
+    app, _settings, transport = await _logged_in(client_factory)
+    field_ids = {
+        "ai_correspondent": 1,
+        "ai_issue_date": 2,
+        "ai_monetary_amount": 3,
+        "ai_reference_numbers": 4,
+    }
+    tags = {
+        "ai-propagated": 10,
+        "ai-duplicate": 11,
+        "ai-duplicate-dismissed": 12,
+    }
+    target = _ai_fields_doc(
+        doc_id=99,
+        correspondent_id=500,
+        tag_ids=[10, 11],
+        fields_by_id={1: "Telekom", 2: "2024-03-15", 3: "EUR42.99", 4: None},
+    )
+    cand_dismissed = _ai_fields_doc(
+        doc_id=7,
+        correspondent_id=500,
+        # candidate carries the dismissed tag → filtered out
+        tag_ids=[10, 12],
+        fields_by_id={1: "Telekom", 2: "2024-03-15", 3: "EUR42.99", 4: None},
+    )
+    gw = _candidates_gateway(
+        target=target,
+        candidates=[cand_dismissed],
+        custom_field_ids=field_ids,
+        tags=tags,
+    )
+    app.dependency_overrides[get_paperless_gateway] = lambda: gw
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.get("/api/documents/99/duplicate-candidates")
+
+    assert resp.status_code == 200
+    assert resp.json()["candidates"] == []
+
+
+async def test_duplicate_candidates_target_dismissed_returns_empty(client_factory):
+    app, _settings, transport = await _logged_in(client_factory)
+    field_ids = {
+        "ai_correspondent": 1,
+        "ai_issue_date": 2,
+        "ai_monetary_amount": 3,
+        "ai_reference_numbers": 4,
+    }
+    tags = {
+        "ai-propagated": 10,
+        "ai-duplicate": 11,
+        "ai-duplicate-dismissed": 12,
+    }
+    # Target itself carries the dismissed tag → don't even look for matches.
+    target = _ai_fields_doc(
+        doc_id=99,
+        correspondent_id=500,
+        tag_ids=[10, 12],
+        fields_by_id={1: "Telekom", 2: "2024-03-15", 3: "EUR42.99", 4: None},
+    )
+    gw = _candidates_gateway(
+        target=target,
+        candidates=[],
+        custom_field_ids=field_ids,
+        tags=tags,
+    )
+    app.dependency_overrides[get_paperless_gateway] = lambda: gw
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.get("/api/documents/99/duplicate-candidates")
+
+    assert resp.status_code == 200
+    assert resp.json()["candidates"] == []
+    # No need to even hit search_documents.
+    gw.search_documents.assert_not_awaited()
+
+
+async def test_duplicate_candidates_404_for_missing_doc(client_factory):
+    from aktenraum_api.paperless_gw import PaperlessNotFoundError
+
+    app, _settings, transport = await _logged_in(client_factory)
+    gw = AsyncMock()
+    gw.get_document = AsyncMock(side_effect=PaperlessNotFoundError(9999))
+    app.dependency_overrides[get_paperless_gateway] = lambda: gw
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.get("/api/documents/9999/duplicate-candidates")
+
+    assert resp.status_code == 404
+
+
+async def test_duplicate_candidates_requires_auth(client_factory):
+    app, _settings, transport = await _logged_in(client_factory)
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            resp = await c.get("/api/documents/99/duplicate-candidates")
+    assert resp.status_code == 401

@@ -6,6 +6,7 @@ import { TypeSpecificFieldsSection } from "../components/TypeSpecificFieldsSecti
 import { Nav } from "../components/Nav";
 import { NeighborNav } from "../components/NeighborNav";
 import { DocumentMarkers } from "../components/DocumentMarkers";
+import { DuplicateNotice } from "../components/DuplicateNotice";
 import { ProcessingBadge } from "../components/ProcessingBadge";
 import {
   CheckIcon,
@@ -391,6 +392,10 @@ export function LibraryReview({ id }: { id: number }) {
                 <ErrorBanner
                   tags={detail.data.tags}
                   message={detail.data.ai_error_message}
+                />
+                <DuplicateNotice
+                  docId={detail.data.id}
+                  enabled={detail.data.tags.includes("ai-duplicate")}
                 />
                 <Field
                   label="Titel (KI-Vorschlag)"

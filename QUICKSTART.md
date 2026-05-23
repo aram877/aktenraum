@@ -130,4 +130,7 @@ The rest of the tasks are for development: rebuilding code, running tests, debug
 | Fix 401 / API errors | `task recover` |
 | Make a manual backup | `task backup:run` |
 | List backup history | `task backup:snapshots` |
+| Rebuild after code changes | `task build` |
+| Rebuild frontend only | `task build:fe` |
+| Rebuild backend only | `task build:be` |
 | Wipe everything | `task destroy` |

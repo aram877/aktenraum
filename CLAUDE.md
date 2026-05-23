@@ -60,6 +60,9 @@ The root `Taskfile.yml` ([Taskfile.dev](https://taskfile.dev), `brew install go-
 | `task recover` | re-mint Paperless API token + restart auto-tagger + aktenraum-api (fixes 401 storms after any DB recreation) |
 | `task setup` | complete first-time setup: secrets → stack → token → Paperless bootstrap → backup init → first snapshot |
 | `task destroy` | stop stack + delete `AKTENRAUM_DATA_DIR` entirely (prompts for `DELETE` confirmation) |
+| `task build` | rebuild everything (nginx/SPA + auto-tagger + aktenraum-api) after code changes |
+| `task build:fe` | rebuild frontend only (nginx image with baked SPA) |
+| `task build:be` | rebuild backend only (auto-tagger + aktenraum-api) |
 | `task up` / `task down` / `task ps` / `task restart` | raw compose lifecycle (lower-level; prefer `start`/`stop`) |
 | `task logs SVC=auto-tagger` | tail a single service |
 | `task recreate SVC=auto-tagger` | recreate a service after env-file edits (env files are NOT re-read by `restart`) |

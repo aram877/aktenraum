@@ -67,6 +67,7 @@ The root `Taskfile.yml` ([Taskfile.dev](https://taskfile.dev), `brew install go-
 | `task logs SVC=auto-tagger` | tail a single service |
 | `task recreate SVC=auto-tagger` | recreate a service after env-file edits (env files are NOT re-read by `restart`) |
 | `task web:dev` | Vite hot-reload on `:5173`, bound to `0.0.0.0` so LAN devices can hit it |
+| `task dev:up` / `task dev:down` / `task dev:logs` | Hot-reload mode for the Python services — bind-mounts source + runs `uvicorn --reload` (api) and `watchfiles` (auto-tagger). `.py` saves go live in ~1s, no rebuild per edit. `dev:down` flips back to prod entrypoints. |
 | `task web:deploy` / `task nginx:rebuild` | bake the SPA into the nginx image |
 | `task api:rebuild` / `task tagger:rebuild` | rebuild + recreate a Python service |
 | `task test` / `task test:py` / `task test:web` | full suite or one half |

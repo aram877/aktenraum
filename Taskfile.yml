@@ -186,11 +186,9 @@ tasks:
   paperless:bootstrap:
     desc: "Create Paperless custom fields + lifecycle tags via REST API"
     cmds:
-      # Runs the bootstrap inside the auto-tagger container so we don't
-      # depend on the host having bash. Works identically on macOS / Linux
-      # PowerShell / Git Bash. Requires the stack to be up so paperless
-      # is reachable from within the network.
-      - "{{.COMPOSE}} exec -T auto-tagger /app/.venv/bin/python -m auto_tagger.bootstrap_paperless"
+      # MSYS_NO_PATHCONV=1 + double-slash path prevents Git Bash from mangling
+      # /app/.venv/bin/python into a Windows path (C:/Program Files/Git/app/...).
+      - "MSYS_NO_PATHCONV=1 {{.COMPOSE}} exec -T auto-tagger //app/.venv/bin/python -m auto_tagger.bootstrap_paperless"
 
   # ----- Frontend (SPA) -----
 

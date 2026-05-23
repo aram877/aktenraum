@@ -10,6 +10,12 @@ published to the host, so this endpoint is only reachable from inside
 the network. We add the WEBHOOK_SECRET check on top when set, for
 defence-in-depth in installations that DO expose the api beyond
 localhost.
+
+`GET /api/settings/auto-approve` + `PUT /api/settings/auto-approve` are
+auth-gated and edit the per-DocumentType rule table. The internal
+endpoint `GET /api/settings/active-auto-approve-rules` mirrors the
+LLM internal-endpoint pattern — secret-gated, consumed by the
+auto-tagger with a 60s TTL cache.
 """
 
 from __future__ import annotations
@@ -23,7 +29,11 @@ from ..auth.deps import get_current_user, get_settings
 from ..config import Settings
 from ..db.models import User
 from ..db.session import get_session
-from . import service
+from . import auto_approve_service, service
+from .auto_approve_schemas import (
+    AutoApproveRulesResponse,
+    AutoApproveRulesUpdateRequest,
+)
 from .quality import QUALITY_TO_MODEL
 from .schemas import LLMSettings, LLMSettingsUpdate
 
@@ -90,3 +100,46 @@ async def get_active_llm_model_internal(
             )
     quality = await service.get_active_quality(session)
     return _to_response(quality)
+
+
+@router.get("/auto-approve", response_model=AutoApproveRulesResponse)
+async def get_auto_approve_rules(
+    _user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> AutoApproveRulesResponse:
+    rules = await auto_approve_service.list_rules(session)
+    return AutoApproveRulesResponse(rules=rules)
+
+
+@router.put("/auto-approve", response_model=AutoApproveRulesResponse)
+async def update_auto_approve_rules(
+    body: AutoApproveRulesUpdateRequest,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> AutoApproveRulesResponse:
+    rules = await auto_approve_service.replace_rules(
+        session, body, updated_by=user.username
+    )
+    return AutoApproveRulesResponse(rules=rules)
+
+
+@router.get(
+    "/active-auto-approve-rules", response_model=AutoApproveRulesResponse
+)
+async def get_active_auto_approve_rules_internal(
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    x_aktenraum_secret: str | None = Header(default=None, alias="X-Aktenraum-Secret"),
+) -> AutoApproveRulesResponse:
+    """Auto-tagger reads the per-type rules from here before each
+    routing decision. Authless by design (in-network only); if
+    WEBHOOK_SECRET is configured, the header must match."""
+    if settings.webhook_secret:
+        if x_aktenraum_secret is None or not hmac.compare_digest(
+            x_aktenraum_secret, settings.webhook_secret
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Bad secret"
+            )
+    rules = await auto_approve_service.list_rules(session)
+    return AutoApproveRulesResponse(rules=rules)

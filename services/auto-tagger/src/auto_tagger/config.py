@@ -1,7 +1,5 @@
-from typing import Annotated
-
-from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -38,18 +36,17 @@ class Settings(BaseSettings):
     enable_propagation: bool = Field(True)
 
     # Confidence-based routing.
-    #   AUTO_APPROVE_CONFIDENCE: minimum confidence to skip review and tag
-    #     `ai-approved` directly. Default 0.90.
-    #   AUTO_APPROVE_TYPES: hard allowlist on top of the confidence threshold.
-    #     Both must be satisfied for a doc to auto-approve. Empty list disables
-    #     auto-approve entirely — that's the secure default. Without this gate
-    #     a prompt-injected PDF could emit confidence=0.99 and slip past review.
-    #     Comma-separated env value: `AUTO_APPROVE_TYPES=Rechnung,Kontoauszug`.
+    #   Per-DocumentType `enabled` + `min_confidence` rules are stored in
+    #   the aktenraum-api `auto_approve_rules` table, edited from the SPA
+    #   Settings page, and fetched here over HTTP with a 60s TTL cache —
+    #   see `auto_approve_config.get_rules`. The legacy
+    #   `AUTO_APPROVE_CONFIDENCE` / `AUTO_APPROVE_TYPES` env vars are no
+    #   longer read at runtime; the Alembic migration consumes
+    #   `AUTO_APPROVE_CONFIDENCE` once as the seed `min_confidence` and
+    #   logs `AUTO_APPROVE_TYPES` at INFO for visibility.
     #   LOW_CONFIDENCE_THRESHOLD: extractions below this confidence are tagged
     #     ai-low-confidence in addition to ai-pending so the user can
     #     prioritise them in the review queue.
-    auto_approve_confidence: float = Field(0.90, ge=0.0, le=1.0)
-    auto_approve_types: Annotated[list[str], NoDecode] = Field(default_factory=list)
     low_confidence_threshold: float = Field(0.6, ge=0.0, le=1.0)
 
     # Few-shot exemplars: when > 0, each extraction call prepends N recent
@@ -78,13 +75,6 @@ class Settings(BaseSettings):
     # in `X-Aktenraum-Secret`; missing/wrong header → 401. Empty disables
     # auth (fine for the default localhost-only / internal-network setup).
     webhook_secret: str = Field("")
-
-    @field_validator("auto_approve_types", mode="before")
-    @classmethod
-    def _split_csv(cls, v: object) -> object:
-        if isinstance(v, str):
-            return [s.strip() for s in v.split(",") if s.strip()]
-        return v
 
     # Text processing
     max_tokens_input: int = Field(

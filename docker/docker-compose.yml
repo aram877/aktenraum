@@ -128,6 +128,11 @@ services:
         condition: service_started
       qdrant:
         condition: service_healthy
+      # Soft dependency: the auto-tagger boots even if aktenraum-api is
+      # still warming up. When unreachable the rule-fetch fails closed
+      # (everything routes to ai-pending) until the cache populates.
+      aktenraum-api:
+        condition: service_started
     env_file:
       - path: auto-tagger.env
         required: false

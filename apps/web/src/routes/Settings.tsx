@@ -1,14 +1,22 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useNavigate } from "@tanstack/react-router";
 
 import { Nav } from "../components/Nav";
+import type { DocumentType } from "../lib/ai";
 import { useChangePassword } from "../lib/auth";
-import type { LLMQuality } from "../lib/settings";
+import { DOC_TYPES } from "../lib/library";
+import type {
+  AutoApproveRule,
+  AutoApproveRuleUpdate,
+  LLMQuality,
+} from "../lib/settings";
 import {
   useAnswerLLMSettings,
+  useAutoApproveRules,
   useLLMSettings,
   useUpdateAnswerLLMSettings,
+  useUpdateAutoApproveRules,
   useUpdateLLMSettings,
 } from "../lib/settings";
 
@@ -244,6 +252,260 @@ function KontoSection() {
   );
 }
 
+type DraftState = Map<DocumentType, { enabled: boolean; min_confidence: number }>;
+
+function _buildDraft(rules: AutoApproveRule[]): DraftState {
+  const m: DraftState = new Map();
+  for (const r of rules) {
+    m.set(r.document_type, {
+      enabled: r.enabled,
+      min_confidence: r.min_confidence,
+    });
+  }
+  return m;
+}
+
+function _isDirty(rules: AutoApproveRule[], draft: DraftState): boolean {
+  for (const r of rules) {
+    const d = draft.get(r.document_type);
+    if (!d) return true;
+    if (d.enabled !== r.enabled) return true;
+    if (d.min_confidence !== r.min_confidence) return true;
+  }
+  return false;
+}
+
+function _formatTimestamp(value: string | null): string {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("de-DE", {
+    dateStyle: "short",
+    timeStyle: "short",
+  });
+}
+
+function AutoApproveSection() {
+  const { data, error, isLoading } = useAutoApproveRules();
+  const update = useUpdateAutoApproveRules();
+  const [draft, setDraft] = useState<DraftState>(new Map());
+  const [showSaved, setShowSaved] = useState(false);
+
+  // Reset draft whenever the fetched data changes (initial load, post-save).
+  useEffect(() => {
+    if (data?.rules) {
+      setDraft(_buildDraft(data.rules));
+    }
+  }, [data]);
+
+  const dirty = useMemo(
+    () => (data?.rules ? _isDirty(data.rules, draft) : false),
+    [data, draft],
+  );
+
+  // Stable display order: alphabetical by German display name (the enum
+  // values themselves are already German). DOC_TYPES is the canonical
+  // ordering used elsewhere; we sort a copy for this section so the eye
+  // doesn't bounce.
+  const sortedTypes = useMemo<readonly DocumentType[]>(() => {
+    return [...DOC_TYPES].sort((a, b) => a.localeCompare(b, "de"));
+  }, []);
+
+  const setEnabled = (dt: DocumentType, enabled: boolean) => {
+    setDraft((prev) => {
+      const next = new Map(prev);
+      const cur = next.get(dt) ?? { enabled: false, min_confidence: 0.9 };
+      next.set(dt, { ...cur, enabled });
+      return next;
+    });
+  };
+  const setMinConfidence = (dt: DocumentType, min_confidence: number) => {
+    setDraft((prev) => {
+      const next = new Map(prev);
+      const cur = next.get(dt) ?? { enabled: false, min_confidence: 0.9 };
+      next.set(dt, { ...cur, min_confidence });
+      return next;
+    });
+  };
+  const toggleAll = (enabled: boolean) => {
+    setDraft((prev) => {
+      const next = new Map(prev);
+      for (const dt of sortedTypes) {
+        const cur = next.get(dt) ?? { enabled: false, min_confidence: 0.9 };
+        next.set(dt, { ...cur, enabled });
+      }
+      return next;
+    });
+  };
+  const reset = () => {
+    if (data?.rules) setDraft(_buildDraft(data.rules));
+  };
+
+  const onSave = async () => {
+    if (!data?.rules) return;
+    const payload: AutoApproveRuleUpdate[] = sortedTypes.map((dt) => {
+      const d = draft.get(dt) ?? { enabled: false, min_confidence: 0.9 };
+      // Round to 2 decimals to match the server's Numeric(3,2) precision.
+      return {
+        document_type: dt,
+        enabled: d.enabled,
+        min_confidence: Math.round(d.min_confidence * 100) / 100,
+      };
+    });
+    try {
+      await update.mutateAsync(payload);
+      setShowSaved(true);
+      setTimeout(() => setShowSaved(false), 2500);
+    } catch {
+      // error already captured on the mutation's `error` field
+    }
+  };
+
+  const errorBanner =
+    error?.response?.data?.detail ||
+    update.error?.response?.data?.detail ||
+    null;
+
+  return (
+    <div>
+      <h2 className="text-sm font-semibold text-ink">Auto-Genehmigung</h2>
+      <p className="mt-0.5 text-xs text-ink-muted">
+        Welche Dokumenttypen dürfen ohne manuelle Prüfung automatisch
+        genehmigt werden? Pro Typ legst du Mindest-Konfidenz fest.
+        Änderungen wirken im Auto-Tagger innerhalb von 60&nbsp;Sekunden.
+      </p>
+
+      {showSaved && (
+        <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          Auto-Genehmigung gespeichert.
+        </p>
+      )}
+      {errorBanner && (
+        <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {errorBanner}
+        </p>
+      )}
+
+      {isLoading && (
+        <p className="mt-4 text-xs text-ink-subtle">Lade Regeln…</p>
+      )}
+
+      {data?.rules && (
+        <>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => toggleAll(true)}
+              className="rounded-lg border border-hairline px-3 py-1.5 text-xs font-medium text-ink hover:bg-canvas"
+            >
+              Alle aktivieren
+            </button>
+            <button
+              type="button"
+              onClick={() => toggleAll(false)}
+              className="rounded-lg border border-hairline px-3 py-1.5 text-xs font-medium text-ink hover:bg-canvas"
+            >
+              Alle deaktivieren
+            </button>
+            <div className="ml-auto flex gap-2">
+              <button
+                type="button"
+                onClick={reset}
+                disabled={!dirty || update.isPending}
+                className="rounded-lg border border-hairline px-3 py-1.5 text-xs font-medium text-ink hover:bg-canvas disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Zurücksetzen
+              </button>
+              <button
+                type="button"
+                onClick={onSave}
+                disabled={!dirty || update.isPending}
+                className="rounded-lg bg-ink px-4 py-1.5 text-xs font-semibold text-surface disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {update.isPending ? "speichere…" : "Speichern"}
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-4 overflow-x-auto rounded-lg border border-hairline">
+            <table className="w-full text-sm">
+              <thead className="bg-canvas text-left text-xs text-ink-muted">
+                <tr>
+                  <th className="px-3 py-2 font-medium">Typ</th>
+                  <th className="px-3 py-2 font-medium">Aktiviert</th>
+                  <th className="px-3 py-2 font-medium">Min. Konfidenz</th>
+                  <th className="px-3 py-2 font-medium">Zuletzt geändert</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedTypes.map((dt) => {
+                  const serverRule = data.rules.find(
+                    (r) => r.document_type === dt,
+                  );
+                  const d =
+                    draft.get(dt) ?? { enabled: false, min_confidence: 0.9 };
+                  const serverLow =
+                    serverRule != null && serverRule.min_confidence < 0.7;
+                  return (
+                    <tr
+                      key={dt}
+                      className="border-t border-hairline hover:bg-canvas/50"
+                    >
+                      <td className="px-3 py-2 text-ink">{dt}</td>
+                      <td className="px-3 py-2">
+                        <input
+                          type="checkbox"
+                          checked={d.enabled}
+                          onChange={(e) => setEnabled(dt, e.target.checked)}
+                          className="h-4 w-4 accent-ink"
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            min={0}
+                            max={1}
+                            step={0.05}
+                            value={d.min_confidence}
+                            onChange={(e) =>
+                              setMinConfidence(
+                                dt,
+                                Number.parseFloat(e.target.value || "0"),
+                              )
+                            }
+                            className="w-20 rounded-md border border-hairline bg-surface px-2 py-1 text-sm text-ink focus:border-ink focus:outline-none"
+                          />
+                          {serverLow && (
+                            <span
+                              title="Min. Konfidenz unter 0,70 — kritische Typen besser höher setzen."
+                              className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800"
+                            >
+                              Achtung: niedriger Schwellwert
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 text-xs text-ink-muted">
+                        {_formatTimestamp(serverRule?.updated_at ?? null)}
+                        {serverRule?.updated_by && (
+                          <span className="ml-1 text-ink-subtle">
+                            ({serverRule.updated_by})
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function SettingsPage() {
   const tagger = useLLMSettings();
   const updateTagger = useUpdateLLMSettings();
@@ -298,6 +560,10 @@ export function SettingsPage() {
 
         <div className="mt-6 space-y-8">
           <KontoSection />
+
+          <div className="border-t border-hairline" />
+
+          <AutoApproveSection />
 
           <div className="border-t border-hairline" />
 

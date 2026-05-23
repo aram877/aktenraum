@@ -1,5 +1,10 @@
 import pytest
-from aktenraum_core.models import DocumentExtraction, DocumentType, KeyDates
+from aktenraum_core.models import (
+    AutoApproveRule,
+    DocumentExtraction,
+    DocumentType,
+    KeyDates,
+)
 from pydantic import ValidationError
 
 
@@ -71,3 +76,40 @@ class TestDocumentExtractionValidation:
         assert ex.reference_numbers == []
         assert ex.suggested_tags == []
         assert ex.key_dates.issue is None
+
+
+class TestAutoApproveRule:
+    def test_defaults(self):
+        rule = AutoApproveRule(document_type=DocumentType.Rechnung)
+        assert rule.enabled is False
+        assert rule.min_confidence == 0.90
+        assert rule.updated_at is None
+        assert rule.updated_by is None
+
+    def test_min_confidence_zero_accepted(self):
+        rule = AutoApproveRule(
+            document_type=DocumentType.Rechnung, min_confidence=0.0
+        )
+        assert rule.min_confidence == 0.0
+
+    def test_min_confidence_one_accepted(self):
+        rule = AutoApproveRule(
+            document_type=DocumentType.Rechnung, min_confidence=1.0
+        )
+        assert rule.min_confidence == 1.0
+
+    def test_min_confidence_below_zero_rejected(self):
+        with pytest.raises(ValidationError):
+            AutoApproveRule(
+                document_type=DocumentType.Rechnung, min_confidence=-0.01
+            )
+
+    def test_min_confidence_above_one_rejected(self):
+        with pytest.raises(ValidationError):
+            AutoApproveRule(
+                document_type=DocumentType.Rechnung, min_confidence=1.01
+            )
+
+    def test_unknown_document_type_rejected(self):
+        with pytest.raises(ValidationError):
+            AutoApproveRule(document_type="NotARealType")

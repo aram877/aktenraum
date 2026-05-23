@@ -8,6 +8,7 @@ def _doc(
     issue_date: str | None = "2024-03-15",
     monetary_amount: str | None = "EUR42.99",
     reference_numbers: str | None = None,
+    document_type: str | None = None,
 ) -> DocFields:
     return DocFields(
         id=doc_id,
@@ -15,6 +16,7 @@ def _doc(
         issue_date=issue_date,
         monetary_amount=monetary_amount,
         reference_numbers=reference_numbers,
+        document_type=document_type,
     )
 
 
@@ -173,3 +175,54 @@ class TestCandidateExclusion:
         new = _doc(99)
         cand = _doc(1, issue_date=None)
         assert find_duplicates(new, [cand]) == []
+
+
+class TestDocumentTypeDiscriminator:
+    """Type-aware matching: a Rechnung and its Beleg (payment proof)
+    from the same vendor on the same day for the same amount should
+    NOT be flagged as duplicates — they're related but distinct
+    records of the same transaction."""
+
+    def test_different_types_dont_match_despite_same_amount(self):
+        # The Anthropic invoice + receipt scenario the user hit.
+        rechnung = _doc(1, document_type="Rechnung")
+        beleg = _doc(2, document_type="Beleg")
+        assert find_duplicates(beleg, [rechnung]) == []
+        assert find_duplicates(rechnung, [beleg]) == []
+
+    def test_different_types_dont_match_despite_shared_refs(self):
+        # Even if a Beleg references the Rechnung's number, the type
+        # discriminator wins — the user explicitly opted for type-
+        # awareness over ref-overlap heuristics.
+        rechnung = _doc(
+            1, document_type="Rechnung", reference_numbers="INV-123"
+        )
+        beleg = _doc(2, document_type="Beleg", reference_numbers="INV-123")
+        assert find_duplicates(beleg, [rechnung]) == []
+
+    def test_same_type_still_matches(self):
+        # Two Rechnungen from the same vendor on the same day for the
+        # same amount remain duplicates.
+        a = _doc(1, document_type="Rechnung")
+        b = _doc(2, document_type="Rechnung")
+        assert find_duplicates(b, [a]) == [1]
+
+    def test_missing_type_on_either_side_skips_check(self):
+        # Backward compat: corpora indexed before this signal existed
+        # have None for document_type. Don't block the match.
+        a = _doc(1, document_type=None)
+        b = _doc(2, document_type="Rechnung")
+        assert find_duplicates(b, [a]) == [1]
+
+    def test_missing_type_on_both_sides_skips_check(self):
+        a = _doc(1, document_type=None)
+        b = _doc(2, document_type=None)
+        assert find_duplicates(b, [a]) == [1]
+
+    def test_type_match_is_case_insensitive(self):
+        # Defence in depth: if a doc somehow stored its type in a
+        # different case (it shouldn't — the enum is exact-string —
+        # but cf. correspondent case-folding) it should still match.
+        a = _doc(1, document_type="rechnung")
+        b = _doc(2, document_type="Rechnung")
+        assert find_duplicates(b, [a]) == [1]

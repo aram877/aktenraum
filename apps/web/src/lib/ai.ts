@@ -29,6 +29,7 @@ export type DocumentType =
   | "Zeugnis"
   | "Arbeitszeugnis"
   | "Mitgliedschaft"
+  | "Beleg"
   | "Sonstiges";
 
 export type SearchFilter = {

@@ -472,6 +472,21 @@ MODULES: Final[dict[DocumentType, DocTypeModule]] = {
             "A-12345). [Quelle: 49]'"
         ),
     ),
+    DocumentType.Beleg: DocTypeModule(
+        answer_hint=(
+            "Belege bestätigen, dass eine Zahlung erfolgt ist. Zentrale "
+            "Felder: bezahlter Betrag, Zahlungsart, Belegnummer und "
+            "bezugnehmende Rechnungsnummer (falls genannt)."
+        ),
+        answer_example=(
+            "Frage: 'Habe ich die Anthropic-Rechnung bezahlt?'\n"
+            "Typenspezifische Felder: Bezahlter Betrag: EUR200.00, "
+            "Zahlungsart: Kreditkarte, Bezugnehmende Rechnungsnummer: "
+            "INV-2024-03\n"
+            "→ 'Ja, du hast 200,00 € per Kreditkarte für die Rechnung "
+            "INV-2024-03 bezahlt. [Quelle: 50]'"
+        ),
+    ),
     DocumentType.Sonstiges: DocTypeModule(),
 }
 

@@ -55,6 +55,7 @@ class DocumentType(StrEnum):
     Zeugnis = "Zeugnis"
     Arbeitszeugnis = "Arbeitszeugnis"
     Mitgliedschaft = "Mitgliedschaft"
+    Beleg = "Beleg"
     Sonstiges = "Sonstiges"
 
 

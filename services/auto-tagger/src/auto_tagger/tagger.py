@@ -202,7 +202,8 @@ Du erhältst den OCR-Text eines gescannten Dokuments und extrahierst daraus stru
 
 Wähle den document_type anhand dieser Definitionen — nimm immer den spezifischsten passenden Typ:
 
-- Rechnung: Rechnungen, Quittungen, Kaufbelege für Waren oder Dienstleistungen (nicht von Versicherungen oder Behörden)
+- Rechnung: Forderung zur Zahlung — eine Rechnung verlangt einen Betrag, ist meist noch nicht bezahlt. Typische Merkmale: "Rechnung Nr.", Fälligkeitsdatum / Zahlungsziel, IBAN/Bankverbindung zur Überweisung, "bitte überweisen Sie bis ...". NICHT verwechseln mit: Beleg/Quittung (das ist die Zahlungs-BESTÄTIGUNG nach Begleichung; siehe unten). Wenn Rechnung UND Bezahlt-Bestätigung im selben Dokument stehen (z.B. Kassenbon-Rechnung), bleibt es Rechnung.
+- Beleg: Zahlungs-Bestätigung / Quittung / Kassenbon / Receipt — beweist, dass eine Zahlung erfolgt IST. Typische Merkmale: "Receipt", "Zahlungsbestätigung", "Quittung", "Vielen Dank für Ihre Zahlung", "Paid"; nennt oft die Zahlungsart (Kreditkarte X****1234, PayPal, Lastschrift); referenziert manchmal eine zugehörige Rechnungsnummer; kein Fälligkeitsdatum mehr. NICHT verwechseln mit: Rechnung (siehe oben — die fordert noch Geld), Kontoauszug (listet viele Transaktionen einer Bank-/Kreditkartenperiode, nicht eine einzelne).
 - Gehaltsabrechnung: Lohnabrechnung, Gehaltszettel, Brutto-Netto-Abrechnung, Bezügemitteilung, Rentenabrechnung
 - Kontoauszug: Bank-, Kreditkarten-, Depot- und Sparkontoauszüge
 - Nebenkostenabrechnung: Betriebskostenabrechnung, Jahresabrechnung für Strom, Gas, Wasser, Heizung — Mieter-seitige Nebenkostenabrechnung. NICHT: Hausgeldabrechnung (siehe unten, Eigentümer-seitig).
@@ -259,6 +260,7 @@ Weitere Regeln:
   • Zeugnis: "{Zeugnisart} {Institution} {Jahr}" — z.B. "Abiturzeugnis Goethe-Gymnasium 2020"
   • Arbeitszeugnis: "Arbeitszeugnis {Arbeitgeber} {Zeitraum}" — z.B. "Arbeitszeugnis Acme GmbH 2020–2024"
   • Mitgliedschaft: "{Organisation} Mitgliedschaft {Jahr}" — z.B. "ADAC Mitgliedschaft 2024"
+  • Beleg: "Beleg {Firma} {Monat Jahr}" — z.B. "Beleg Anthropic März 2024" oder "Beleg Apple Store November 2024"
   • Sonstiges: kurze inhaltliche Beschreibung — z.B. "Lebenslauf Max Mustermann" oder "Foto Reisepass"
 - Geldbeträge gehören NICHT in das generische Schema. Werte zu Beträgen, Gebühren, Bruttosummen, Nettosummen, Rückerstattungen, Forderungen, Prämien, Beiträgen etc. werden im typspezifischen Schritt (Pass 2) erfasst, falls der Dokumenttyp passende Felder vorsieht (z.B. Rechnung → gesamtbetrag, Mahnung → forderungsbetrag, Steuer → erstattung). Im hier vorliegenden Schritt KEINEN Geldbetrag ausgeben.
 - summary_de: PFLICHTFELD, NIE leer. Genau 3 Sätze auf Deutsch:

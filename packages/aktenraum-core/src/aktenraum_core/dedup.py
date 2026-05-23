@@ -5,13 +5,20 @@ PATCH; matched candidates get tagged `ai-duplicate` alongside the new
 doc. This module is intentionally pure (no Paperless I/O) so the rule
 is exhaustively unit-testable without HTTP mocks.
 
-v1 detection rule — every condition must hold for two docs to be
+Detection rule — every condition must hold for two docs to be
 considered duplicates:
   1. Both carry a non-empty `ai_correspondent` that matches after
      Unicode case-folding and trimming.
   2. Both carry an `ai_issue_date` and the dates are equal as strict
      ISO strings.
-  3. At least one of:
+  3. Document types match. When BOTH docs carry a `document_type`,
+     the types must be equal. This prevents the common false positive
+     where an invoice (Rechnung) and its payment confirmation (Beleg)
+     from the same vendor on the same day for the same amount get
+     flagged as duplicates — they're related but NOT duplicates.
+     If either side has no type, the type check is skipped (backward
+     compat with corpora indexed before this signal existed).
+  4. At least one of:
      a. Both `ai_monetary_amount` values exist and parse to numbers
         differing by ≤ 0.01 after stripping the Paperless ISO prefix
         (e.g. `EUR149.99` → 149.99).
@@ -45,6 +52,11 @@ class DocFields:
     issue_date: str | None = None
     monetary_amount: str | None = None
     reference_numbers: str | None = None
+    # Used as a discriminator so a Rechnung + Beleg (or any two
+    # docs of different types) for the same vendor / date / amount
+    # don't get flagged as duplicates. Optional for backward compat —
+    # missing on either side skips the check.
+    document_type: str | None = None
 
 
 _AMOUNT_TOLERANCE = 0.01
@@ -66,6 +78,8 @@ def find_duplicates(
     new_amount = _parse_amount(new_doc.monetary_amount)
     new_refs = _normalize_refs(new_doc.reference_numbers)
 
+    new_type = _norm_text(new_doc.document_type)
+
     matches: list[int] = []
     for cand in candidates:
         if cand.id == new_doc.id:
@@ -73,6 +87,13 @@ def find_duplicates(
         if _norm_text(cand.correspondent) != new_corr:
             continue
         if _norm_text(cand.issue_date) != new_date:
+            continue
+        cand_type = _norm_text(cand.document_type)
+        # Type discriminator: when both sides have a type, they must
+        # match. Missing type on either side → skip the check (the
+        # corpus may pre-date the doc-type signal, or the LLM didn't
+        # extract one).
+        if new_type and cand_type and new_type != cand_type:
             continue
         if _amount_matches(new_amount, _parse_amount(cand.monetary_amount)):
             matches.append(cand.id)

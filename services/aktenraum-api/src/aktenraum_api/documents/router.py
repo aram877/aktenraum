@@ -437,6 +437,7 @@ def _project_doc_fields(
         issue_date=values.get("ai_issue_date"),
         monetary_amount=values.get("ai_monetary_amount"),
         reference_numbers=values.get("ai_reference_numbers"),
+        document_type=values.get("ai_document_type"),
     )
 
 

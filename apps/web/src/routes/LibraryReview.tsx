@@ -91,6 +91,10 @@ export function LibraryReview({ id }: { id: number }) {
 
   const [form, setForm] = useState<FormState>(detailToForm(undefined));
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  useEffect(() => {
+    setConfirmingDelete(false);
+  }, [id]);
   const [reprocessedAt, setReprocessedAt] = useState<Date | null>(null);
   const [mobilePane, setMobilePane] = useState<"pdf" | "form">("form");
   const lastHydratedRef = useRef<FormState | null>(null);

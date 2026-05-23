@@ -48,6 +48,9 @@ export type DocumentSummary = {
   document_type: string | null;
   created: string | null;
   lifecycle_tags: string[];
+  /** User-facing tags (excludes lifecycle tags). Used to detect membership
+   * in `wichtig` for the star toggle. */
+  tags: string[];
   ai_error_message: string | null;
 };
 

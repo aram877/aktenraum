@@ -52,7 +52,7 @@ def _split_suggested_tags(raw: str | None) -> list[str]:
 
 async def _find_duplicate_ids(
     paperless: PaperlessClient,
-    new_doc_id: int,
+    new_doc: dict,
     correspondent_id: int,
     ai_fields: dict,
 ) -> list[int]:
@@ -60,11 +60,22 @@ async def _find_duplicate_ids(
     plus the new doc's fields to the detector.
 
     Pure orchestration: the matching rule lives in `dedup.find_duplicates`.
-    Returns an empty list when the correspondent has no other propagated
-    docs yet, when detection short-circuits on a missing anchor, or when
-    the new doc's id happens to be the only match returned (shouldn't
-    happen because the detector excludes self ids, but defence in depth).
+    Returns an empty list when:
+      - the new doc itself carries `ai-duplicate-dismissed` (operator has
+        explicitly said it's not a duplicate — never re-flag it),
+      - the correspondent has no other propagated docs yet,
+      - detection short-circuits on a missing anchor.
+
+    Candidates carrying `ai-duplicate-dismissed` are also filtered out so
+    the operator's prior decision sticks even when a new doc lands in
+    the same correspondent.
     """
+    dismissed_id = await _try_get_tag_id(paperless, "ai-duplicate-dismissed")
+    new_doc_id = int(new_doc["id"])
+    new_doc_tags = set(new_doc.get("tags") or [])
+    if dismissed_id is not None and dismissed_id in new_doc_tags:
+        return []
+
     candidates = await paperless.get_documents_with_tag(
         "ai-propagated",
         batch_size=_DUPLICATE_CANDIDATE_CAP,
@@ -73,6 +84,14 @@ async def _find_duplicate_ids(
     )
     if not candidates:
         return []
+    if dismissed_id is not None:
+        candidates = [
+            c
+            for c in candidates
+            if dismissed_id not in (c.get("tags") or [])
+        ]
+        if not candidates:
+            return []
     field_name_by_id = await paperless.get_custom_field_name_by_id()
     new_doc_fields = DocFields(
         id=new_doc_id,
@@ -85,6 +104,35 @@ async def _find_duplicate_ids(
         _doc_to_fields(c, field_name_by_id) for c in candidates
     ]
     return find_duplicates(new_doc_fields, candidate_fields)
+
+
+async def _try_get_tag_id(paperless: PaperlessClient, name: str) -> int | None:
+    """Look up a tag id without creating it. Returns None when missing.
+
+    The dedup detector needs to KNOW whether `ai-duplicate-dismissed`
+    exists, not create it as a side effect of running propagation. The
+    SPA's dismiss endpoint is the only path that should create the tag.
+
+    Best-effort: any failure (HTTP error, unexpected mock shape, missing
+    method) returns None so the calling dedup path proceeds as if the
+    dismissed tag isn't in use. Safer than failing the whole propagation
+    when the dedup dismissal feature happens to be unavailable.
+    """
+    try:
+        # PaperlessClient caches its tag map; this is a cheap dict lookup
+        # after the first call per process.
+        tag_ids = await paperless.get_entity_name_map("/api/tags/")
+        # Guard against mock/wrong-type returns: only iterate real dicts
+        # so tests that don't set up this helper don't blow up with
+        # AsyncMock coroutine warnings.
+        if not isinstance(tag_ids, dict):
+            return None
+        for tid, tname in tag_ids.items():
+            if tname == name:
+                return tid
+    except Exception:  # noqa: BLE001
+        return None
+    return None
 
 
 def _doc_to_fields(doc: dict, field_name_by_id: dict[int, str]) -> DocFields:
@@ -179,7 +227,7 @@ async def process_approved_document(
             try:
                 duplicate_ids = await _find_duplicate_ids(
                     paperless,
-                    doc_id,
+                    doc,
                     correspondent_id,
                     ai_fields,
                 )

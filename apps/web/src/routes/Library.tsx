@@ -7,7 +7,9 @@ import type { LibraryOrdering } from "../router";
 import type { LibraryItem, LibraryQuery, TagFacet } from "../lib/library";
 import { DOC_TYPES, useLibrary, useTagFacet } from "../lib/library";
 import {
+  IMPORTANT_TAG,
   isInFlight,
+  sortTagsImportantFirst,
   useBulkReprocess,
   useProcessingState,
 } from "../lib/documents";
@@ -648,27 +650,36 @@ function Row({
         )}
         {row.tags.length > 0 && (
           <div className="mt-1 flex flex-wrap gap-1">
-            {row.tags.slice(0, 5).map((t) => {
-              const active = selectedTags.includes(t);
-              return (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onTagClick(t);
-                  }}
-                  className={
-                    active
-                      ? "rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] text-emerald-800"
-                      : "rounded-full border border-hairline bg-canvas px-2 py-0.5 text-[10px] text-ink-muted hover:bg-surface-raised"
-                  }
-                  title={`Auf Tag '${t}' filtern`}
-                >
-                  {t}
-                </button>
-              );
-            })}
+            {sortTagsImportantFirst(row.tags)
+              .slice(0, 5)
+              .map((t) => {
+                const active = selectedTags.includes(t);
+                const isImportant = t === IMPORTANT_TAG;
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onTagClick(t);
+                    }}
+                    className={
+                      isImportant
+                        ? "rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800"
+                        : active
+                          ? "rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] text-emerald-800"
+                          : "rounded-full border border-hairline bg-canvas px-2 py-0.5 text-[10px] text-ink-muted hover:bg-surface-raised"
+                    }
+                    title={
+                      isImportant
+                        ? "Wichtig — auf diese Markierung filtern"
+                        : `Auf Tag '${t}' filtern`
+                    }
+                  >
+                    {isImportant ? "★ wichtig" : t}
+                  </button>
+                );
+              })}
           </div>
         )}
       </td>
@@ -800,26 +811,31 @@ function LibraryCard({
       </div>
       {row.tags.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1">
-          {row.tags.slice(0, 5).map((t) => {
-            const active = selectedTags.includes(t);
-            return (
-              <button
-                key={t}
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onTagClick(t);
-                }}
-                className={
-                  active
-                    ? "rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-800"
-                    : "rounded-full border border-hairline bg-canvas px-2 py-0.5 text-[11px] text-ink-muted"
-                }
-              >
-                {t}
-              </button>
-            );
-          })}
+          {sortTagsImportantFirst(row.tags)
+            .slice(0, 5)
+            .map((t) => {
+              const active = selectedTags.includes(t);
+              const isImportant = t === IMPORTANT_TAG;
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onTagClick(t);
+                  }}
+                  className={
+                    isImportant
+                      ? "rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800"
+                      : active
+                        ? "rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-800"
+                        : "rounded-full border border-hairline bg-canvas px-2 py-0.5 text-[11px] text-ink-muted"
+                  }
+                >
+                  {isImportant ? "★ wichtig" : t}
+                </button>
+              );
+            })}
         </div>
       )}
     </li>

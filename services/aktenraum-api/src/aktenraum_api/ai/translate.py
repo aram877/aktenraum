@@ -78,11 +78,16 @@ def apply_post_filter(
     out: list[DocumentSummary] = []
     for doc in results:
         lifecycle: list[str] = []
-        if tag_name_by_id and lifecycle_tag_names:
+        user_tags: list[str] = []
+        if tag_name_by_id:
             for tid in doc.get("tags") or []:
                 name = tag_name_by_id.get(tid)
-                if name and name in lifecycle_tag_names:
+                if not name:
+                    continue
+                if lifecycle_tag_names and name in lifecycle_tag_names:
                     lifecycle.append(name)
+                else:
+                    user_tags.append(name)
 
         error_message: str | None = None
         if error_field_id is not None:
@@ -101,6 +106,7 @@ def apply_post_filter(
                 document_type=document_types.get(doc.get("document_type")),
                 created=_parse_date_field(doc.get("created_date") or doc.get("created")),
                 lifecycle_tags=lifecycle,
+                tags=user_tags,
                 ai_error_message=error_message,
             )
         )

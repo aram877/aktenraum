@@ -138,7 +138,9 @@ ensure_tag "ai-propagation-error" "#ef4444"  # red    — propagation failed mid
 ensure_tag "ai-low-confidence"    "#fb923c"  # orange — review queue priority flag
 ensure_tag "ai-error"             "#ef4444"  # red    — extraction failed
 ensure_tag "ai-duplicate"         "#a855f7"  # purple — auxiliary: matched another propagated doc on key AI fields
+ensure_tag "ai-duplicate-dismissed" "#9ca3af" # gray   — user dismissed the dup warning; sticky, suppresses re-flagging
 ensure_tag "email-ingested"       "#0ea5e9"  # sky    — provenance: arrived via IMAP, not consume folder / upload
+ensure_tag "wichtig"              "#f59e0b"  # amber  — user marker: starred / important; shown first in tag chips
 
 # --------------------------------------------------------------------------
 # Email ingestion (optional)

@@ -128,6 +128,56 @@ export function useDismissDuplicate() {
   });
 }
 
+async function starRequest(docId: number): Promise<{ doc_id: number }> {
+  const { data } = await api.post<{ doc_id: number }>(
+    `/documents/${docId}/star`,
+  );
+  return data;
+}
+
+async function unstarRequest(docId: number): Promise<{ doc_id: number }> {
+  const { data } = await api.delete<{ doc_id: number }>(
+    `/documents/${docId}/star`,
+  );
+  return data;
+}
+
+export function useStarDocument() {
+  const qc = useQueryClient();
+  return useMutation<{ doc_id: number }, AxiosError<{ detail?: string }>, number>({
+    mutationFn: starRequest,
+    onSuccess: (_data, docId) => {
+      qc.invalidateQueries({ queryKey: ["library"] });
+      qc.invalidateQueries({ queryKey: ["document-detail", docId] });
+    },
+  });
+}
+
+export function useUnstarDocument() {
+  const qc = useQueryClient();
+  return useMutation<{ doc_id: number }, AxiosError<{ detail?: string }>, number>({
+    mutationFn: unstarRequest,
+    onSuccess: (_data, docId) => {
+      qc.invalidateQueries({ queryKey: ["library"] });
+      qc.invalidateQueries({ queryKey: ["document-detail", docId] });
+    },
+  });
+}
+
+/** The "Als wichtig markieren" tag. Shown first in tag-chip lists. */
+export const IMPORTANT_TAG = "wichtig";
+
+/** Sort tag chips so `wichtig` always renders first. */
+export function sortTagsImportantFirst(tags: readonly string[]): string[] {
+  const out = [...tags];
+  out.sort((a, b) => {
+    if (a === IMPORTANT_TAG && b !== IMPORTANT_TAG) return -1;
+    if (b === IMPORTANT_TAG && a !== IMPORTANT_TAG) return 1;
+    return a.localeCompare(b, "de");
+  });
+  return out;
+}
+
 async function deleteDocumentRequest(docId: number): Promise<void> {
   await api.delete(`/documents/${docId}`);
 }

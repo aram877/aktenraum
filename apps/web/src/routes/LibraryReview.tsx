@@ -345,7 +345,16 @@ export function LibraryReview({ id }: { id: number }) {
                       </div>
                     )}
                   <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-ink-subtle">
-                    {detail.data.created && <span>{detail.data.created}</span>}
+                    {detail.data.created && (
+                      <span title="Dokumentdatum">
+                        Dok.: {detail.data.created}
+                      </span>
+                    )}
+                    {detail.data.added && (
+                      <span title="Hinzugefügt am (Posteingang in der Bibliothek)">
+                        Hinzugefügt: {detail.data.added}
+                      </span>
+                    )}
                     {detail.data.ai_confidence != null && (
                       <span>
                         {Math.round(detail.data.ai_confidence * 100)}% Konfidenz

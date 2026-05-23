@@ -21,7 +21,11 @@ class LibraryItem(BaseModel):
     id: int
     title: str
     original_file_name: str | None = None
+    # `created` = the document's own date (Paperless `created_date`), e.g. the
+    # invoice's issue date. `added` = when Paperless ingested the file. The
+    # SPA renders them side by side as "Dokumentdatum" / "Hinzugefügt am".
     created: date | None = None
+    added: date | None = None
     correspondent: str | None = None
     document_type: str | None = None
     lifecycle_tags: list[str] = Field(default_factory=list)

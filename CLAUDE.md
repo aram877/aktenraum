@@ -55,8 +55,12 @@ The root `Taskfile.yml` ([Taskfile.dev](https://taskfile.dev), `brew install go-
 
 | Task | Equivalent |
 | --- | --- |
-| `task bootstrap` | `setup.sh` + `bootstrap-secrets.sh` + `compose up -d` + next-step hints |
-| `task up` / `task down` / `task ps` / `task restart` | compose lifecycle |
+| `task start` / `task stop` | friendly aliases for `compose up -d` / `compose down` |
+| `task status` | `compose ps` |
+| `task recover` | re-mint Paperless API token + restart auto-tagger + aktenraum-api (fixes 401 storms after any DB recreation) |
+| `task setup` | complete first-time setup: secrets → stack → token → Paperless bootstrap → backup init → first snapshot |
+| `task destroy` | stop stack + delete `AKTENRAUM_DATA_DIR` entirely (prompts for `DELETE` confirmation) |
+| `task up` / `task down` / `task ps` / `task restart` | raw compose lifecycle (lower-level; prefer `start`/`stop`) |
 | `task logs SVC=auto-tagger` | tail a single service |
 | `task recreate SVC=auto-tagger` | recreate a service after env-file edits (env files are NOT re-read by `restart`) |
 | `task web:dev` | Vite hot-reload on `:5173`, bound to `0.0.0.0` so LAN devices can hit it |
@@ -369,6 +373,8 @@ Use `/opsx:apply` skill to implement tasks from an approved change.
 
 | Issue                                                                                                       | Fix                                                                                                                                                                                             |
 | ----------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`AKTENRAUM_DATA_DIR` unset on Windows causes silent data loss** — `${HOME}` resolves differently from Git Bash vs PowerShell vs Task runner, so each `docker compose up` may write postgres to a new path and initialise a fresh empty DB, abandoning the old data (two incidents: May 20, May 23 2026) | Set `AKTENRAUM_DATA_DIR=D:/aktenraum` (or your chosen Windows path) in `docker/.env`. The `.env.example` now has this line uncommented with a warning. Never change it without migrating the data directory first. |
+| Restic backup repo must be initialised once before any snapshot — `backup` container's `entrypoint.sh` runs `restic backup` but NOT `restic init`; on a fresh volume the repo is empty and all backups silently no-op | `task setup` includes the init step (idempotent). Manual: `docker compose exec backup sh -c 'restic -r /repo snapshots >/dev/null 2>&1 \|\| restic -r /repo init'` then `task backup:run` |
 | `docker compose restart` doesn't re-read env files                                                          | Use `docker compose up -d` to recreate the container                                                                                                                                            |
 | Python source changes don't take effect on restart                                                          | `docker compose up -d --build auto-tagger` to rebuild                                                                                                                                           |
 | Git Bash converts `/usr/local/bin/...` to Windows path in `docker exec`                                     | Prefix with `MSYS_NO_PATHCONV=1` and use `//usr/local/bin/...`                                                                                                                                  |

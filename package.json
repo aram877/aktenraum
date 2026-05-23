@@ -9,10 +9,5 @@
   "scripts": {
     "setup": "bash scripts/setup.sh",
     "bootstrap": "bash scripts/bootstrap-paperless.sh"
-  },
-  "pnpm": {
-    "neverBuiltDependencies": [
-      "canvas"
-    ]
   }
 }

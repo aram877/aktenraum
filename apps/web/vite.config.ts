@@ -23,30 +23,6 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react(), tailwindcss()],
-    build: {
-      // Force the OpenCV.js WASM runtime and the jscanify wrapper into a
-      // dedicated chunk so the main bundle stays small. The /scan route
-      // dynamic-imports lib/scan-engine.ts, which is the only thing that
-      // pulls these in — so the ~10 MB chunk is fetched only when the user
-      // actually opens the scanner, and is cached forever by content hash.
-      rollupOptions: {
-        output: {
-          manualChunks(id) {
-            if (
-              id.includes("@techstark/opencv-js") ||
-              id.includes("jscanify")
-            ) {
-              return "scan-engine";
-            }
-            return undefined;
-          },
-        },
-      },
-      // The scan-engine chunk is intentionally large (OpenCV.js WASM glue
-      // + jscanify, ~3.5 MB gzip). Vite warns at 500 KB by default; raise
-      // the threshold so the warning is meaningful for the other chunks.
-      chunkSizeWarningLimit: 12000,
-    },
     server: {
       host,
       port: 5173,

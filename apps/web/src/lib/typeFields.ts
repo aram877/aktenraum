@@ -58,12 +58,30 @@ export function useDocumentTypeSchema() {
   });
 }
 
-export function useTypeFields(docId: number | null) {
+export function useTypeFields(
+  docId: number | null,
+  opts?: { pollUntilArrived?: boolean },
+) {
   return useQuery<TypeFieldsResponse, AxiosError>({
     queryKey: [...TYPE_FIELDS_KEY, docId],
     queryFn: () => fetchTypeFields(docId as number),
     enabled: docId !== null,
     staleTime: 0,
+    // Pass 2 (type-specific extraction) runs in the auto-tagger AFTER
+    // pass 1 has applied the lifecycle tag, so a user who opens the
+    // detail page seconds after a doc lands sees the basic ai_* fields
+    // populated but the type-specific section still empty. Caller
+    // (Inbox/Library detail) opts in to polling when the parent doc
+    // still looks in-flight; we drop the interval the moment we get a
+    // non-empty response back, so the polling window is bounded by the
+    // server-side pass-2 duration (~seconds, not minutes).
+    refetchInterval: (query) => {
+      if (!opts?.pollUntilArrived) return false;
+      const data = query.state.data;
+      const arrived = !!data && Object.keys(data.fields ?? {}).length > 0;
+      return arrived ? false : 3000;
+    },
+    refetchIntervalInBackground: false,
     retry: (count, err) => {
       // 404 = no row yet, not an error worth retrying
       if ((err as AxiosError)?.response?.status === 404) return false;

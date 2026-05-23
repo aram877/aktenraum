@@ -453,6 +453,16 @@ export function LibraryReview({ id }: { id: number }) {
                         : null
                     }
                     fallbackDocumentType={detail.data.ai_document_type}
+                    // Poll for pass-2 results when the doc looks
+                    // freshly-processed: either it carries an in-flight
+                    // lifecycle tag, OR the user just triggered Erneut
+                    // verarbeiten. Once the values land, the hook
+                    // self-stops.
+                    pollUntilArrived={
+                      reprocessedAt !== null ||
+                      detail.data.tags.includes("ai-pending") ||
+                      detail.data.tags.includes("ai-approved")
+                    }
                   />
                 </div>
               </div>

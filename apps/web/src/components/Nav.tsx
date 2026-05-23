@@ -3,8 +3,10 @@ import { useEffect, useState } from "react";
 
 import { useInFlightCount } from "../lib/documents";
 import { useInboxList } from "../lib/inbox";
+import { useLiveCounts, useLiveCountsSubscription } from "../lib/live";
 import { useLogout, useMe } from "../lib/auth";
 import { useTrashCount } from "../lib/trash";
+import { isUploadInFlight, useUploads } from "../lib/upload-store";
 import { MenuIcon, XIcon } from "./Icons";
 
 type NavKey =
@@ -22,9 +24,29 @@ export function Nav({ active }: { active: NavKey }) {
   const me = useMe();
   const logout = useLogout();
   const navigate = useNavigate();
+  // Live counts ride on SSE — one subscription per session, push-based
+  // so the badges update within seconds of state changing on the
+  // backend (no manual refresh, no per-badge polling fan-out).
+  useLiveCountsSubscription();
+  const live = useLiveCounts();
+  // Polled hooks stay as a fallback for the brief moment between mount
+  // and the first SSE event arriving (~3s) AND for cases where SSE is
+  // blocked (some corporate proxies). Their `refetchOnWindowFocus`
+  // also keeps them honest if the EventSource somehow misses an event.
   const inbox = useInboxList({ pageSize: 1 });
   const inFlight = useInFlightCount();
   const trashCount = useTrashCount();
+  // Read the global upload store so the Nav badge updates from any
+  // page while files are being uploaded.
+  const uploads = useUploads();
+  const uploadInProgress = uploads.filter(
+    (u) =>
+      u.phase === "queued" ||
+      u.phase === "uploading" ||
+      u.phase === "consuming" ||
+      u.phase === "ai",
+  ).length;
+  const uploadsActive = isUploadInFlight(uploads);
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -42,12 +64,12 @@ export function Nav({ active }: { active: NavKey }) {
     await navigate({ to: "/login" });
   };
 
-  const inboxCount = inbox.data?.total ?? null;
-  const processingCount = Math.max(
-    0,
-    (inFlight.data?.count ?? 0) - (inboxCount ?? 0),
-  );
-  const trashTotal = trashCount.data?.total ?? 0;
+  // Live numbers win when SSE has delivered at least one event; otherwise
+  // fall back to whatever the polled hooks have cached.
+  const inboxCount = live.data?.inbox ?? inbox.data?.total ?? null;
+  const inFlightCount = live.data?.in_flight ?? inFlight.data?.count ?? 0;
+  const processingCount = Math.max(0, inFlightCount - (inboxCount ?? 0));
+  const trashTotal = live.data?.trash ?? trashCount.data?.total ?? 0;
 
   const linkCls = (key: NavKey) =>
     `text-sm transition-colors ${
@@ -127,6 +149,19 @@ export function Nav({ active }: { active: NavKey }) {
 
         {/* Desktop right side */}
         <div className="hidden items-center gap-3 text-sm text-ink-muted md:flex">
+          {uploadsActive && (
+            <Link
+              to="/upload"
+              title="Uploads laufen — klicken zum Fortschritt"
+              className="inline-flex items-center gap-1.5 rounded-full bg-sky-500/10 px-2.5 py-0.5 text-xs text-sky-700 hover:bg-sky-500/15"
+            >
+              <span
+                className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-600"
+                aria-hidden
+              />
+              {uploadInProgress} Uploads
+            </Link>
+          )}
           {processingCount > 0 && (
             <span
               title="Dokumente werden gerade von der KI verarbeitet"

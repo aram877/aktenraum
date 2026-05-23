@@ -285,15 +285,89 @@ async def dismiss_duplicate(
     _user: User = Depends(get_current_user),
     gateway: PaperlessGateway = Depends(get_paperless_gateway),
 ) -> DismissDuplicateResponse:
-    """Remove the ai-duplicate auxiliary tag from a document.
+    """Remove `ai-duplicate` AND add `ai-duplicate-dismissed` to make the
+    dismissal sticky.
 
-    The user has reviewed the flagged pair and decided to dismiss the
-    warning on this document. The auto-tagger will re-flag it on the next
-    propagation cycle if the matching document is still in the corpus —
-    that's by design (v1 has no dismissal store).
+    Before this change the dismiss only removed the warning tag; the
+    auto-tagger's next propagation against the matched doc would re-flag
+    it (see the prior CLAUDE.md gotcha). The sticky tag tells the
+    propagator: this user has reviewed THIS doc and decided it isn't a
+    duplicate — skip it in future dedup runs even if the field signals
+    still match.
     """
     try:
-        await gateway.swap_lifecycle_tag(doc_id, remove=["ai-duplicate"], add=[])
+        await gateway.ensure_tag("ai-duplicate-dismissed")
+        await gateway.swap_lifecycle_tag(
+            doc_id,
+            remove=["ai-duplicate"],
+            add=["ai-duplicate-dismissed"],
+        )
+    except PaperlessNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document {doc_id} not found",
+        ) from e
+    except PaperlessAuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Paperless rejected the API token",
+        ) from e
+    except PaperlessConflictError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Document {doc_id} was modified concurrently. "
+                "Refresh and try again."
+            ),
+        ) from e
+    return DismissDuplicateResponse(doc_id=doc_id)
+
+
+@router.post("/{doc_id}/star", response_model=DismissDuplicateResponse)
+async def star_document(
+    doc_id: int,
+    _user: User = Depends(get_current_user),
+    gateway: PaperlessGateway = Depends(get_paperless_gateway),
+) -> DismissDuplicateResponse:
+    """Add the `wichtig` tag so the doc shows up in /library?tags=wichtig.
+
+    The tag is treated like any other user tag by Paperless — the SPA
+    sorts `wichtig` to the front in tag-chip lists and renders it in a
+    distinct colour so the user can scan-glance the library.
+    """
+    try:
+        await gateway.ensure_tag("wichtig")
+        await gateway.swap_lifecycle_tag(doc_id, remove=[], add=["wichtig"])
+    except PaperlessNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document {doc_id} not found",
+        ) from e
+    except PaperlessAuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Paperless rejected the API token",
+        ) from e
+    except PaperlessConflictError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Document {doc_id} was modified concurrently. "
+                "Refresh and try again."
+            ),
+        ) from e
+    return DismissDuplicateResponse(doc_id=doc_id)
+
+
+@router.delete("/{doc_id}/star", response_model=DismissDuplicateResponse)
+async def unstar_document(
+    doc_id: int,
+    _user: User = Depends(get_current_user),
+    gateway: PaperlessGateway = Depends(get_paperless_gateway),
+) -> DismissDuplicateResponse:
+    """Remove the `wichtig` tag."""
+    try:
+        await gateway.swap_lifecycle_tag(doc_id, remove=["wichtig"], add=[])
     except PaperlessNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

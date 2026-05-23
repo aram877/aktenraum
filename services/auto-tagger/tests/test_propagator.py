@@ -253,3 +253,53 @@ async def test_propagator_no_duplicates_no_tag():
     tags_arg = paperless.patch_document_native_fields.await_args.kwargs["tags"]
     assert 102 not in tags_arg
     paperless.add_tag_to_document.assert_not_awaited()
+
+
+def _with_dismissed_tag_id(paperless: AsyncMock, *, tag_id: int = 555) -> None:
+    """Wire the test paperless mock so `_try_get_tag_id` resolves the
+    `ai-duplicate-dismissed` name to `tag_id`. The helper reads the
+    `get_entity_name_map("/api/tags/")` map (id → name)."""
+    paperless.get_entity_name_map = AsyncMock(
+        return_value={tag_id: "ai-duplicate-dismissed"}
+    )
+
+
+@pytest.mark.asyncio
+async def test_propagator_skips_dedup_for_dismissed_new_doc():
+    """When the NEW doc carries `ai-duplicate-dismissed`, the detector
+    short-circuits — no scan, no ai-duplicate tag on either side."""
+    paperless = _make_paperless(
+        new_doc_ai_fields=_ai_fields(),
+        candidate_docs=[_candidate_doc(7, correspondent="Telekom")],
+    )
+    _with_dismissed_tag_id(paperless, tag_id=555)
+    # The new doc carries the dismissed tag (id 555).
+    new_doc = {"id": 99, "title": "Doc", "tags": [100, 555]}
+
+    await process_approved_document(new_doc, paperless)
+
+    paperless.get_documents_with_tag.assert_not_awaited()
+    tags_arg = paperless.patch_document_native_fields.await_args.kwargs["tags"]
+    assert 102 not in tags_arg
+    paperless.add_tag_to_document.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_propagator_skips_dismissed_candidates():
+    """A matching candidate carrying `ai-duplicate-dismissed` is filtered
+    OUT of the candidate set — the new doc isn't tagged as duplicate of
+    it and the candidate isn't re-tagged either."""
+    candidate = _candidate_doc(7, correspondent="Telekom")
+    candidate["tags"] = [555]  # carries ai-duplicate-dismissed
+    paperless = _make_paperless(
+        new_doc_ai_fields=_ai_fields(),
+        candidate_docs=[candidate],
+    )
+    _with_dismissed_tag_id(paperless, tag_id=555)
+    new_doc = {"id": 99, "title": "Doc", "tags": [100]}
+
+    await process_approved_document(new_doc, paperless)
+
+    tags_arg = paperless.patch_document_native_fields.await_args.kwargs["tags"]
+    assert 102 not in tags_arg
+    paperless.add_tag_to_document.assert_not_awaited()

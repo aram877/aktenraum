@@ -79,6 +79,56 @@ class PaperlessGateway:
         self._tags_cache = (time.monotonic(), mapping)
         return mapping
 
+    async def ensure_tag(self, name: str) -> int:
+        """Return the id of a tag, creating it if missing.
+
+        Mirrors the auto-tagger's `PaperlessClient.get_or_create_tag`:
+        `?name__iexact=` (NOT `?name=`, which Paperless silently ignores),
+        plus a re-GET-on-409 race recovery for concurrent creates. Used by
+        the SPA-side toggle endpoints (`/star`, `/dismiss-duplicate`) so the
+        target tag doesn't have to be pre-seeded by the bootstrap script.
+        """
+        tags = await self.list_tags()
+        if name in tags:
+            return tags[name]
+        # Look up by case-insensitive name first to avoid a duplicate
+        # create on a cache miss.
+        resp = await self._client.get("/api/tags/", params={"name__iexact": name})
+        if resp.status_code in (401, 403):
+            raise PaperlessAuthError(resp.status_code)
+        if resp.status_code < 400:
+            results = resp.json().get("results") or []
+            found = next((r["id"] for r in results if r.get("name") == name), None)
+            if found is not None:
+                self._tags_cache = None
+                return found
+        # Tag genuinely missing — POST to create it.
+        resp = await self._client.post("/api/tags/", json={"name": name})
+        if resp.status_code in (401, 403):
+            raise PaperlessAuthError(resp.status_code)
+        if resp.status_code >= 400:
+            # Likely a parallel create lost the race — re-GET.
+            retry = await self._client.get(
+                "/api/tags/", params={"name__iexact": name}
+            )
+            if retry.status_code < 400:
+                results = retry.json().get("results") or []
+                raced = next(
+                    (r["id"] for r in results if r.get("name") == name), None
+                )
+                if raced is not None:
+                    self._tags_cache = None
+                    return raced
+            log.error(
+                "paperless_create_tag_rejected",
+                name=name,
+                status=resp.status_code,
+                body=resp.text,
+            )
+            resp.raise_for_status()
+        self._tags_cache = None
+        return int(resp.json()["id"])
+
     async def get_document(self, doc_id: int) -> dict:
         resp = await self._client.get(f"/api/documents/{doc_id}/")
         if resp.status_code == 404:

@@ -235,6 +235,7 @@ async def test_dismiss_duplicate_removes_tag(client_factory):
     app, _settings, transport = await _logged_in(client_factory)
     gateway = AsyncMock()
     gateway.swap_lifecycle_tag = AsyncMock(return_value=[])
+    gateway.ensure_tag = AsyncMock(return_value=42)
     app.dependency_overrides[get_paperless_gateway] = lambda: gateway
 
     async with app.router.lifespan_context(app):
@@ -244,10 +245,59 @@ async def test_dismiss_duplicate_removes_tag(client_factory):
 
     assert resp.status_code == 200, resp.text
     assert resp.json()["doc_id"] == 7
+    # The endpoint now also stamps a sticky `ai-duplicate-dismissed` tag
+    # so future propagations skip re-flagging this doc.
+    gateway.ensure_tag.assert_awaited_once_with("ai-duplicate-dismissed")
     gateway.swap_lifecycle_tag.assert_awaited_once()
     kwargs = gateway.swap_lifecycle_tag.await_args.kwargs
     assert kwargs["remove"] == ["ai-duplicate"]
+    assert kwargs["add"] == ["ai-duplicate-dismissed"]
+
+
+async def test_star_document_adds_wichtig_tag(client_factory):
+    app, _settings, transport = await _logged_in(client_factory)
+    gateway = AsyncMock()
+    gateway.ensure_tag = AsyncMock(return_value=99)
+    gateway.swap_lifecycle_tag = AsyncMock(return_value=[])
+    app.dependency_overrides[get_paperless_gateway] = lambda: gateway
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.post("/api/documents/12/star")
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["doc_id"] == 12
+    gateway.ensure_tag.assert_awaited_once_with("wichtig")
+    kwargs = gateway.swap_lifecycle_tag.await_args.kwargs
+    assert kwargs["remove"] == []
+    assert kwargs["add"] == ["wichtig"]
+
+
+async def test_unstar_document_removes_wichtig_tag(client_factory):
+    app, _settings, transport = await _logged_in(client_factory)
+    gateway = AsyncMock()
+    gateway.swap_lifecycle_tag = AsyncMock(return_value=[])
+    app.dependency_overrides[get_paperless_gateway] = lambda: gateway
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.delete("/api/documents/12/star")
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["doc_id"] == 12
+    kwargs = gateway.swap_lifecycle_tag.await_args.kwargs
+    assert kwargs["remove"] == ["wichtig"]
     assert kwargs["add"] == []
+
+
+async def test_star_document_requires_auth(client_factory):
+    app, _settings, transport = await _logged_in(client_factory)
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            resp = await c.post("/api/documents/12/star")
+    assert resp.status_code == 401
 
 
 async def test_dismiss_duplicate_requires_auth(client_factory):

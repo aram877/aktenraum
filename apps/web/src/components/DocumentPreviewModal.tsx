@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
 
 import type { DocumentSummary } from "../lib/ai";
-import { useDeleteDocument, useDismissDuplicate, useReprocess } from "../lib/documents";
+import {
+  IMPORTANT_TAG,
+  useDeleteDocument,
+  useDismissDuplicate,
+  useReprocess,
+  useStarDocument,
+  useUnstarDocument,
+} from "../lib/documents";
 
 type Props = {
   doc: DocumentSummary;
@@ -23,8 +30,15 @@ export function DocumentPreviewModal({
   const reprocess = useReprocess();
   const deleteDoc = useDeleteDocument();
   const dismissDuplicate = useDismissDuplicate();
+  const starDoc = useStarDocument();
+  const unstarDoc = useUnstarDocument();
   const [confirming, setConfirming] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // Local star state — optimistic so the icon flips immediately on
+  // click; the underlying mutation invalidates the parent list which
+  // will then re-fetch the canonical `tags` array.
+  const initiallyImportant = (doc.tags ?? []).includes(IMPORTANT_TAG);
+  const [important, setImportant] = useState(initiallyImportant);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -64,6 +78,25 @@ export function DocumentPreviewModal({
   const dismissError = dismissDuplicate.error?.response?.data?.detail
     ?? dismissDuplicate.error?.message
     ?? null;
+  const starError =
+    starDoc.error?.response?.data?.detail ??
+    starDoc.error?.message ??
+    unstarDoc.error?.response?.data?.detail ??
+    unstarDoc.error?.message ??
+    null;
+  const starPending = starDoc.isPending || unstarDoc.isPending;
+
+  const toggleImportant = async () => {
+    // Flip optimistically; revert on failure.
+    const next = !important;
+    setImportant(next);
+    try {
+      if (next) await starDoc.mutateAsync(doc.id);
+      else await unstarDoc.mutateAsync(doc.id);
+    } catch {
+      setImportant(!next);
+    }
+  };
   const isDuplicate =
     !dismissDuplicate.isSuccess && doc.lifecycle_tags.includes("ai-duplicate");
 
@@ -93,6 +126,24 @@ export function DocumentPreviewModal({
             </div>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={toggleImportant}
+              disabled={starPending}
+              title={
+                important
+                  ? "Wichtig-Markierung entfernen"
+                  : "Als wichtig markieren"
+              }
+              className={
+                important
+                  ? "inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+                  : "inline-flex items-center gap-1 rounded-md border border-neutral-300 bg-white px-3 py-1 text-xs font-medium text-neutral-700 hover:bg-neutral-100 disabled:opacity-50"
+              }
+            >
+              <span aria-hidden>{important ? "★" : "☆"}</span>
+              {important ? "Wichtig" : "Als wichtig markieren"}
+            </button>
             {showReprocess && !reprocess.isSuccess && !confirming && (
               <button
                 type="button"
@@ -178,9 +229,9 @@ export function DocumentPreviewModal({
             </button>
           </div>
         </header>
-        {(reprocessError || deleteError || dismissError) && (
+        {(reprocessError || deleteError || dismissError || starError) && (
           <div className="border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700">
-            {reprocessError ?? deleteError ?? dismissError}
+            {reprocessError ?? deleteError ?? dismissError ?? starError}
           </div>
         )}
         {isDuplicate && (

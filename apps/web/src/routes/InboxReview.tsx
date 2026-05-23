@@ -101,6 +101,11 @@ export function InboxReview({ id }: { id: number }) {
   const [mobilePane, setMobilePane] = useState<"pdf" | "form">("form");
   const [confirmingReprocess, setConfirmingReprocess] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  useEffect(() => {
+    setConfirmingDelete(false);
+    setConfirmingReprocess(false);
+  }, [id]);
   const lastHydratedRef = useRef<FormState | null>(null);
   const lastHydratedIdRef = useRef<number | null>(null);
 

@@ -5,6 +5,7 @@ import time
 
 import httpx
 import structlog
+from aktenraum_core.dedup import DocFields, find_duplicates
 from aktenraum_core.paperless import LIFECYCLE_TAGS
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
@@ -14,6 +15,8 @@ from starlette.background import BackgroundTask
 
 from .._auto_tagger import ping_auto_tagger
 from ..ai.deps import get_paperless_gateway
+from ..ai.schemas import DocumentSummary, SearchFilter
+from ..ai.translate import apply_post_filter
 from ..auth.deps import get_current_user, get_settings
 from ..config import Settings
 from ..db.models import User
@@ -136,6 +139,21 @@ class ReprocessResponse(BaseModel):
 
 class DismissDuplicateResponse(BaseModel):
     doc_id: int
+
+
+class DuplicateCandidatesResponse(BaseModel):
+    """Result of re-running the dedup detector against a single doc.
+
+    `candidates` is the (possibly empty) list of propagated docs the
+    detector currently matches against `doc_id` — i.e. the docs that
+    earned the `ai-duplicate` tag on `doc_id`. The SPA renders these as
+    clickable links on the detail page so the user can compare-and-
+    decide. Re-running on demand (rather than persisting pair ids)
+    keeps the result honest after dismissals or edits.
+    """
+
+    doc_id: int
+    candidates: list[DocumentSummary]
 
 
 @router.post("/upload", response_model=UploadResponse)
@@ -387,6 +405,148 @@ async def unstar_document(
             ),
         ) from e
     return DismissDuplicateResponse(doc_id=doc_id)
+
+
+# Cap matches the propagator's `_DUPLICATE_CANDIDATE_CAP` so on-demand
+# detection sees the same candidate set as the batch-time detection.
+_DUPLICATE_CANDIDATE_CAP = 200
+
+
+def _project_doc_fields(
+    doc: dict, field_id_to_name: dict[int, str]
+) -> DocFields:
+    """Pluck the four AI fields the dedup detector reads from a raw
+    Paperless doc dict.
+
+    Mirrors `auto_tagger.propagator._doc_to_fields` so the on-demand
+    endpoint sees identical inputs to the batch-time detection.
+    """
+    values: dict[str, str] = {}
+    for entry in doc.get("custom_fields") or []:
+        name = field_id_to_name.get(entry.get("field"))
+        if not name:
+            continue
+        value = entry.get("value")
+        if isinstance(value, str):
+            values[name] = value
+        elif value is not None:
+            values[name] = str(value)
+    return DocFields(
+        id=int(doc["id"]),
+        correspondent=values.get("ai_correspondent"),
+        issue_date=values.get("ai_issue_date"),
+        monetary_amount=values.get("ai_monetary_amount"),
+        reference_numbers=values.get("ai_reference_numbers"),
+    )
+
+
+@router.get(
+    "/{doc_id}/duplicate-candidates", response_model=DuplicateCandidatesResponse
+)
+async def list_duplicate_candidates(
+    doc_id: int,
+    _user: User = Depends(get_current_user),
+    gateway: PaperlessGateway = Depends(get_paperless_gateway),
+) -> DuplicateCandidatesResponse:
+    """Return the docs the dedup detector currently matches against `doc_id`.
+
+    Re-runs the same field-based detector the auto-tagger uses at
+    propagation time, against the live propagated corpus. Used by the
+    SPA detail page (Inbox + Library) to render "Mögliches Duplikat von
+    #N" links so the user can open the candidate, compare, and decide.
+
+    Filters out:
+      - the target doc itself
+      - propagated docs carrying `ai-duplicate-dismissed` (the user has
+        already decided those aren't duplicates)
+      - everything if the target itself carries `ai-duplicate-dismissed`
+
+    Returns an empty list when:
+      - the target lacks `ai_correspondent` or `ai_issue_date`
+        (detector short-circuits, same rule as batch-time)
+      - the target has no native correspondent so we can't scope the
+        candidate search server-side
+      - no other propagated docs match the field-based rule
+    """
+    try:
+        target = await gateway.get_document(doc_id)
+    except PaperlessNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document {doc_id} not found",
+        ) from e
+    except PaperlessAuthError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Paperless rejected the API token",
+        ) from e
+
+    tags = await gateway.list_tags()
+    propagated_id = tags.get("ai-propagated")
+    dismissed_id = tags.get("ai-duplicate-dismissed")
+    if propagated_id is None:
+        return DuplicateCandidatesResponse(doc_id=doc_id, candidates=[])
+
+    target_tag_ids = set(target.get("tags") or [])
+    if dismissed_id is not None and dismissed_id in target_tag_ids:
+        return DuplicateCandidatesResponse(doc_id=doc_id, candidates=[])
+
+    correspondent_id = target.get("correspondent")
+    if correspondent_id is None:
+        return DuplicateCandidatesResponse(doc_id=doc_id, candidates=[])
+
+    field_ids = await gateway._get_custom_field_ids()  # noqa: SLF001
+    field_id_to_name = {v: k for k, v in field_ids.items()}
+    target_fields = _project_doc_fields(target, field_id_to_name)
+    if not target_fields.correspondent or not target_fields.issue_date:
+        return DuplicateCandidatesResponse(doc_id=doc_id, candidates=[])
+
+    payload = await gateway.search_documents(
+        {
+            "tags__id__all": str(propagated_id),
+            "correspondent__id": str(correspondent_id),
+        },
+        page_size=_DUPLICATE_CANDIDATE_CAP,
+    )
+    raw_candidates: list[dict] = payload.get("results", [])
+    raw_candidates = [
+        c
+        for c in raw_candidates
+        if c.get("id") != doc_id
+        and (
+            dismissed_id is None
+            or dismissed_id not in (c.get("tags") or [])
+        )
+    ]
+    if not raw_candidates:
+        return DuplicateCandidatesResponse(doc_id=doc_id, candidates=[])
+
+    candidate_fields = [
+        _project_doc_fields(c, field_id_to_name) for c in raw_candidates
+    ]
+    matched_ids = set(find_duplicates(target_fields, candidate_fields))
+    if not matched_ids:
+        return DuplicateCandidatesResponse(doc_id=doc_id, candidates=[])
+
+    matched_raw = [c for c in raw_candidates if c.get("id") in matched_ids]
+    correspondents = await gateway.list_correspondents()
+    document_types = await gateway.list_document_types()
+    name_by_id = {
+        "correspondents": {v: k for k, v in correspondents.items()},
+        "document_types": {v: k for k, v in document_types.items()},
+    }
+    tag_name_by_id = {v: k for k, v in tags.items()}
+    # apply_post_filter takes a SearchFilter but doesn't actually use it
+    # (`del f` early on); passing an empty one satisfies the signature.
+    summaries = apply_post_filter(
+        matched_raw,
+        SearchFilter(),
+        name_by_id=name_by_id,
+        tag_name_by_id=tag_name_by_id,
+        lifecycle_tag_names=_BADGE_TAG_NAMES,
+        error_field_id=field_ids.get("ai_error_message"),
+    )
+    return DuplicateCandidatesResponse(doc_id=doc_id, candidates=summaries)
 
 
 @router.get("/{doc_id}/detail", response_model=inbox_schemas.InboxDetail)

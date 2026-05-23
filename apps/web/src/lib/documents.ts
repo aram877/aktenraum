@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AxiosError, AxiosProgressEvent } from "axios";
 
 import { api } from "./api";
+import type { DocumentSummary } from "./ai";
 
 export type UploadResult = {
   filename: string;
@@ -166,6 +167,40 @@ export function useUnstarDocument() {
 
 /** The "Als wichtig markieren" tag. Shown first in tag-chip lists. */
 export const IMPORTANT_TAG = "wichtig";
+
+// ---- Duplicate candidates ----
+
+export type DuplicateCandidatesResponse = {
+  doc_id: number;
+  candidates: DocumentSummary[];
+};
+
+async function fetchDuplicateCandidates(
+  docId: number,
+): Promise<DuplicateCandidatesResponse> {
+  const { data } = await api.get<DuplicateCandidatesResponse>(
+    `/documents/${docId}/duplicate-candidates`,
+  );
+  return data;
+}
+
+/**
+ * Fetch the docs the backend's dedup detector currently matches against
+ * `docId`. Use the `enabled` arg to only fire the query when the parent
+ * doc actually carries `ai-duplicate` — there's no point asking the
+ * detector to find duplicates of a doc that hasn't been flagged.
+ */
+export function useDuplicateCandidates(
+  docId: number | null,
+  enabled: boolean,
+) {
+  return useQuery<DuplicateCandidatesResponse, AxiosError<{ detail?: string }>>({
+    queryKey: ["duplicate-candidates", docId],
+    queryFn: () => fetchDuplicateCandidates(docId as number),
+    enabled: docId !== null && enabled,
+    staleTime: 30_000,
+  });
+}
 
 /** Sort tag chips so `wichtig` always renders first. */
 export function sortTagsImportantFirst(tags: readonly string[]): string[] {

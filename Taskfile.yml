@@ -26,15 +26,78 @@ tasks:
     cmds:
       - task --list
 
-  # ----- Stack lifecycle -----
+  # ----- Simple everyday commands -----
+  #
+  # These are the only commands you need for normal use.
+
+  start:
+    desc: "START aktenraum — picks up exactly where you left off"
+    cmds:
+      - "{{.COMPOSE}} up -d"
+      - |
+        echo ""
+        echo "✓ aktenraum is starting up."
+        echo "  Give it ~30 seconds, then open: http://localhost:8080"
+        echo "  Check status with: task status"
+
+  stop:
+    desc: "STOP aktenraum — all your data is safe (nothing is deleted)"
+    cmds:
+      - "{{.COMPOSE}} down"
+      - |
+        echo ""
+        echo "✓ aktenraum stopped. Your documents are safe at D:/aktenraum."
+        echo "  Run: task start   to bring it back up."
+
+  status:
+    desc: "Show which services are running and whether they are healthy"
+    cmds:
+      - "{{.COMPOSE}} ps"
+
+  recover:
+    desc: "Fix 401 / 'API rejected' errors after a database wipe — re-mints the Paperless token"
+    cmds:
+      - bash scripts/fix-token.sh
+
+  destroy:
+    desc: "DANGER — wipe ALL data (documents, database, backups) and start completely fresh"
+    cmds:
+      - |
+        echo ""
+        echo "╔══════════════════════════════════════════════════════════════╗"
+        echo "║  WARNING: This will permanently delete all your documents,  ║"
+        echo "║  the database, and all backups in D:/aktenraum.             ║"
+        echo "║  There is NO undo.                                           ║"
+        echo "╚══════════════════════════════════════════════════════════════╝"
+        echo ""
+        printf 'Type DELETE to confirm, or press Enter to cancel: '
+        read confirm
+        if [ "$confirm" != "DELETE" ]; then
+          echo "Cancelled."
+          exit 0
+        fi
+        echo "Stopping stack..."
+        {{.COMPOSE}} down
+        DATA_DIR=$(grep '^AKTENRAUM_DATA_DIR=' docker/.env 2>/dev/null | cut -d= -f2- || echo "")
+        if [ -z "$DATA_DIR" ]; then
+          echo "ERROR: AKTENRAUM_DATA_DIR not found in docker/.env." >&2
+          echo "Delete your data folder manually, then run: task setup" >&2
+          exit 1
+        fi
+        echo "Deleting $DATA_DIR ..."
+        rm -rf "$DATA_DIR"
+        echo ""
+        echo "✓ Data wiped. Run: task setup   to start fresh."
+
+  # ----- Stack lifecycle (lower-level) -----
 
   up:
-    desc: "Start the full Docker stack in the background"
+    desc: "Start the full Docker stack in the background (alias: task start)"
     cmds:
       - "{{.COMPOSE}} up -d"
 
   down:
-    desc: "Stop the full stack (data preserved)"
+    desc: "Stop the full stack — data preserved (alias: task stop)"
     cmds:
       - "{{.COMPOSE}} down"
 
@@ -44,7 +107,7 @@ tasks:
       - "{{.COMPOSE}} restart"
 
   ps:
-    desc: "Show container status"
+    desc: "Show container status (alias: task status)"
     cmds:
       - "{{.COMPOSE}} ps"
 
@@ -69,34 +132,38 @@ tasks:
 
   # ----- First-time setup -----
 
-  bootstrap:
-    desc: "First-time setup: create host dirs, generate secrets, start stack"
+  setup:
+    desc: "First-time setup — generates secrets, starts stack, wires everything up automatically"
     cmds:
       - bash scripts/setup.sh
       - bash scripts/bootstrap-secrets.sh
       - "{{.COMPOSE}} up -d"
+      - bash scripts/fix-token.sh
       - |
-        cat <<'EOF'
+        TOKEN=$(grep '^PAPERLESS_API_TOKEN=' docker/auto-tagger.env | cut -d= -f2-)
+        docker cp scripts/bootstrap-paperless.sh docker-paperless-1:/tmp/bootstrap-paperless.sh
+        docker compose --project-directory docker exec -T \
+          -e PAPERLESS_API_TOKEN="$TOKEN" \
+          paperless bash /tmp/bootstrap-paperless.sh
+      - |
+        {{.COMPOSE}} exec -T backup sh -c \
+          'restic -r /repo snapshots > /dev/null 2>&1 || restic -r /repo init'
+      - MSYS_NO_PATHCONV=1 {{.COMPOSE}} exec backup //usr/local/bin/entrypoint.sh
+      - |
+        echo ""
+        echo "╔══════════════════════════════════════════════════════════════╗"
+        echo "║  ✓ aktenraum is ready!                                      ║"
+        echo "║                                                              ║"
+        echo "║  Open: http://localhost:8080                                 ║"
+        echo "║                                                              ║"
+        echo "║  Your login password was printed above by bootstrap-secrets. ║"
+        echo "║  Write it down — it is not shown again.                      ║"
+        echo "╚══════════════════════════════════════════════════════════════╝"
 
-        Stack is up. Two manual steps remain:
-
-          1. Mint a Paperless API token (admin password printed by bootstrap-secrets):
-               TOKEN=$(curl -s -X POST http://localhost:8000/api/token/ \
-                 -H 'Content-Type: application/json' \
-                 -d '{"username":"admin","password":"<from-bootstrap>"}' \
-                 | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])")
-             then put it into BOTH docker/auto-tagger.env and docker/aktenraum-api.env
-             as PAPERLESS_API_TOKEN, and run:
-               task recreate SVC=auto-tagger
-               task recreate SVC=aktenraum-api
-
-          2. Bootstrap Paperless custom fields + lifecycle tags:
-               PAPERLESS_BASE_URL=http://localhost:8000 \
-               PAPERLESS_API_TOKEN=$TOKEN \
-               task paperless:bootstrap
-
-        SPA: http://localhost:8080 (or AKTENRAUM_WEB_PORT)
-        EOF
+  bootstrap:
+    desc: "Alias for: task setup (first-time setup)"
+    cmds:
+      - task: setup
 
   paperless:bootstrap:
     desc: "Create Paperless custom fields + lifecycle tags via REST API"

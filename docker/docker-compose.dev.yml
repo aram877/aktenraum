@@ -1,0 +1,73 @@
+# Dev overlay — applied on top of docker-compose.yml via:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+# (or `task dev:up` for the friendly form).
+#
+# What this changes vs prod:
+#   - aktenraum-api: source dirs are bind-mounted into the running
+#     container so file edits on the host show up immediately inside
+#     the container. The entrypoint is replaced to run Alembic THEN
+#     `uvicorn --reload`, so FastAPI hot-reloads on .py save.
+#   - auto-tagger: same bind-mount approach, with `watchfiles` (a dev
+#     dependency declared in services/auto-tagger/pyproject.toml)
+#     watching the source dirs and restarting the worker on save.
+#
+# Why this lives in a separate file:
+#   - The prod compose stays clean — no dev-only entrypoints in the
+#     image-bake path.
+#   - Both files can be checked into git so any machine with a
+#     checkout can switch into dev mode with one command, no host
+#     toolchain required (Python / uv / node not needed on the host —
+#     everything still runs inside the container).
+#
+# Caveats:
+#   - Edits to env files / Alembic migrations / lifespan startup code
+#     trigger a full reload (uvicorn restarts) but DB migrations are
+#     re-run on each container restart, not on each reload — change
+#     a migration → `task dev:up` again to pick it up.
+#   - The nginx + auto-tagger HTTP server stay on the same internal
+#     network. No port changes vs prod.
+
+services:
+  aktenraum-api:
+    volumes:
+      - ../services/aktenraum-api/src:/app/services/aktenraum-api/src:ro
+      - ../services/aktenraum-api/alembic:/app/services/aktenraum-api/alembic:ro
+      - ../services/aktenraum-api/alembic.ini:/app/services/aktenraum-api/alembic.ini:ro
+      - ../packages/aktenraum-core/src:/app/packages/aktenraum-core/src:ro
+    entrypoint: []
+    command:
+      - bash
+      - -c
+      - |
+        set -euo pipefail
+        cd /app/services/aktenraum-api
+        /app/.venv/bin/alembic upgrade head
+        cd /app
+        exec /app/.venv/bin/uvicorn aktenraum_api.main:create_app \
+          --factory \
+          --host 0.0.0.0 \
+          --port 8002 \
+          --reload \
+          --reload-dir /app/services/aktenraum-api/src \
+          --reload-dir /app/packages/aktenraum-core/src
+
+  auto-tagger:
+    volumes:
+      - ../services/auto-tagger/src:/app/services/auto-tagger/src:ro
+      - ../packages/aktenraum-core/src:/app/packages/aktenraum-core/src:ro
+    entrypoint: []
+    # `uv pip install` (no lockfile dance) drops watchfiles into the
+    # existing /app/.venv. Idempotent: subsequent runs detect the
+    # already-installed package and exit in ~100ms. Then watchfiles
+    # wraps the prod entrypoint binary and restarts it on .py edits.
+    command:
+      - bash
+      - -c
+      - |
+        set -euo pipefail
+        VIRTUAL_ENV=/app/.venv /usr/local/bin/uv pip install --quiet watchfiles
+        exec /app/.venv/bin/watchfiles \
+          --filter python \
+          "/app/.venv/bin/auto-tagger" \
+          /app/services/auto-tagger/src \
+          /app/packages/aktenraum-core/src

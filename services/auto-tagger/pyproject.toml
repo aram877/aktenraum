@@ -17,6 +17,11 @@ dev = [
     "pytest-asyncio>=0.23,<1.0",
     "pytest-aiohttp>=1.0",
     "ruff>=0.8.0",
+    # Hot-reload for the dev compose overlay (docker/docker-compose.dev.yml).
+    # `watchfiles "auto-tagger" <dirs>` watches for .py edits and restarts
+    # the worker. Not in prod deps — the prod image bakes the source and
+    # has no reason to ship a file watcher.
+    "watchfiles>=0.24",
 ]
 
 [project.scripts]

@@ -315,6 +315,7 @@ dev = [
     { name = "pytest-aiohttp" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
+    { name = "watchfiles" },
 ]
 
 [package.metadata]
@@ -332,6 +333,7 @@ dev = [
     { name = "pytest-aiohttp", specifier = ">=1.0" },
     { name = "pytest-asyncio", specifier = ">=0.23,<1.0" },
     { name = "ruff", specifier = ">=0.8.0" },
+    { name = "watchfiles", specifier = ">=0.24" },
 ]
 
 [[package]]

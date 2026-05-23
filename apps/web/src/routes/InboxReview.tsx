@@ -438,6 +438,13 @@ export function InboxReview({ id }: { id: number }) {
                         : null
                     }
                     fallbackDocumentType={detail.data.ai_document_type}
+                    // Inbox docs are by definition in-flight (ai-pending /
+                    // ai-approved). Keep polling so pass-2 results land
+                    // without a manual reload.
+                    pollUntilArrived={
+                      detail.data.tags.includes("ai-pending") ||
+                      detail.data.tags.includes("ai-approved")
+                    }
                   />
                 </div>
               </div>

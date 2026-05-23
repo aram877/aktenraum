@@ -53,6 +53,7 @@ export function TypeSpecificFieldsSection({
   docId,
   documentType,
   fallbackDocumentType,
+  pollUntilArrived = false,
 }: {
   docId: number;
   // Explicit user override: set when the dropdown was changed but not yet saved.
@@ -60,9 +61,14 @@ export function TypeSpecificFieldsSection({
   documentType: string | null | undefined;
   // Paperless-persisted type — last resort when there's no override and no DB row yet.
   fallbackDocumentType?: string | null;
+  // True when the parent doc is still in the AI pipeline (ai-pending /
+  // ai-approved, or just reprocessed) — keeps re-fetching the
+  // type-specific fields every few seconds until pass 2 lands them so
+  // the user sees the values without reloading.
+  pollUntilArrived?: boolean;
 }) {
   const schemaQuery = useDocumentTypeSchema();
-  const typeFieldsQuery = useTypeFields(docId);
+  const typeFieldsQuery = useTypeFields(docId, { pollUntilArrived });
   const patch = usePatchTypeFields(docId);
 
   const schema = schemaQuery.data;

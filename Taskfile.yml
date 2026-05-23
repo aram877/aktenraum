@@ -19,6 +19,10 @@ silent: true
 vars:
   DOCKER_DIR: docker
   COMPOSE: docker compose --project-directory docker
+  # Dev mode = prod compose + the dev overlay that bind-mounts source
+  # dirs and runs uvicorn/watchfiles with --reload. See
+  # docker/docker-compose.dev.yml for the override details.
+  COMPOSE_DEV: docker compose --project-directory docker -f docker/docker-compose.yml -f docker/docker-compose.dev.yml
 
 tasks:
   default:
@@ -106,6 +110,28 @@ tasks:
     cmds:
       - "{{.COMPOSE}} up -d --build nginx auto-tagger aktenraum-api"
       - 'echo "✓ Full rebuild done. Open http://localhost:8080"'
+
+  dev:up:
+    desc: "Dev mode — bind-mount source + hot-reload Python services (no rebuild per edit). After this, .py saves reload in ~1s."
+    cmds:
+      - "{{.COMPOSE_DEV}} up -d aktenraum-api auto-tagger"
+      - |
+        echo "✓ Dev mode active."
+        echo "  - aktenraum-api uses uvicorn --reload (FastAPI hot-reload on .py save)."
+        echo "  - auto-tagger uses watchfiles (worker restart on .py save)."
+        echo "  - Tail logs:    task dev:logs"
+        echo "  - Back to prod: task dev:down  (or: task up)"
+
+  dev:down:
+    desc: "Drop dev-mode overrides and bring services back up under the prod entrypoints"
+    cmds:
+      - "{{.COMPOSE}} up -d aktenraum-api auto-tagger"
+      - 'echo "✓ Prod-style services restored. (SPA / other services untouched.)"'
+
+  dev:logs:
+    desc: "Tail logs from aktenraum-api + auto-tagger (use during dev:up)"
+    cmds:
+      - "{{.COMPOSE_DEV}} logs -f --tail=50 aktenraum-api auto-tagger"
 
   # ----- Stack lifecycle (lower-level) -----
 

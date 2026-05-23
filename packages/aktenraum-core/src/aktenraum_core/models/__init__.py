@@ -1,3 +1,4 @@
+from .auto_approve import AutoApproveRule
 from .extraction import (
     CoercedList,
     CoercedStr,
@@ -10,6 +11,7 @@ from .extraction import (
 from .type_schema import TYPE_FIELD_SCHEMA
 
 __all__ = [
+    "AutoApproveRule",
     "CoercedList",
     "CoercedStr",
     "DocumentExtraction",

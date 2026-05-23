@@ -1,6 +1,7 @@
 from datetime import datetime
+from decimal import Decimal
 
-from sqlalchemy import JSON, DateTime, Integer, String, func
+from sqlalchemy import JSON, Boolean, DateTime, Integer, Numeric, String, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -60,3 +61,27 @@ class AppSettings(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
+
+class AutoApproveRuleRow(Base):
+    """Per-DocumentType auto-approve rule.
+
+    One row per `aktenraum_core.models.DocumentType` enum value (26 in
+    total). `enabled` and `min_confidence` together drive the auto-tagger
+    routing decision — see `auto_tagger.tagger._route_lifecycle_tags`.
+    Seeded by the Alembic migration; a startup reconciler inserts any
+    missing rows so adding a new DocumentType enum value never requires
+    a manual migration.
+    """
+
+    __tablename__ = "auto_approve_rules"
+
+    document_type: Mapped[str] = mapped_column(String(64), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    min_confidence: Mapped[Decimal] = mapped_column(
+        Numeric(3, 2), nullable=False, default=Decimal("0.90")
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)

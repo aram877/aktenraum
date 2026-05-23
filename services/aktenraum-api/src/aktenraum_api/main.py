@@ -20,6 +20,7 @@ from .library import router as library_router
 from .middleware import CSRFMiddleware, SecurityHeadersMiddleware
 from .paperless_gw import PaperlessGateway
 from .settings import router as settings_router
+from .settings.auto_approve_service import reconcile_missing_rules
 from .trash import router as trash_router
 from .type_fields import router as type_fields_router
 
@@ -50,6 +51,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 username=settings.bootstrap_username,
                 password=settings.bootstrap_password,
             )
+            await reconcile_missing_rules(session)
         if settings.paperless_api_token:
             app.state.paperless_gateway = PaperlessGateway(
                 base_url=settings.paperless_base_url,

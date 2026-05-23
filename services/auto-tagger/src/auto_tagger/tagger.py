@@ -8,6 +8,7 @@ from aktenraum_core.llm import LLMBackend, extract_type_specific
 from aktenraum_core.models import TYPE_FIELD_SCHEMA, DocumentExtraction, DocumentType
 from aktenraum_core.paperless import PaperlessClient
 
+from .auto_approve_config import RuleSet, get_rules
 from .config import Settings
 
 _GERMAN_MONTHS = (
@@ -493,7 +494,9 @@ async def _build_history_hint(paperless: PaperlessClient, text: str) -> str:
 
 
 def _route_lifecycle_tags(
-    extraction: DocumentExtraction, settings: Settings
+    extraction: DocumentExtraction,
+    settings: Settings,
+    rules: RuleSet,
 ) -> tuple[list[str], str]:
     """Decide which lifecycle/auxiliary tags to apply based on confidence routing.
 
@@ -503,33 +506,31 @@ def _route_lifecycle_tags(
     `docker compose logs auto-tagger | grep routing_decision` and instantly
     see why a doc didn't auto-approve.
 
-    Auto-approve requires BOTH:
-      * confidence ≥ AUTO_APPROVE_CONFIDENCE
-      * document_type ∈ AUTO_APPROVE_TYPES (non-empty list)
+    Rules are sourced from the aktenraum-api `auto_approve_rules` table
+    (edited in the SPA's Settings page, fetched here with a 60s TTL cache —
+    see `auto_approve_config.get_rules`). Each `DocumentType` carries an
+    `enabled` flag and a `min_confidence` threshold; auto-approve requires
+    BOTH `enabled=true` AND `confidence ≥ min_confidence`.
 
-    The type allowlist is the load-bearing gate: confidence alone can be
-    influenced by prompt injection in OCR text, but document_type is enum-
-    validated and the user opts in to which types may auto-approve. An empty
-    list (the default) disables auto-approve entirely. Auto-approved docs
-    also receive `ai-auto-approved` so the UI can render an "auto-genehmigt"
-    badge — the marker persists through propagation because the propagator
-    only strips `ai-approved`. Otherwise the doc lands in `ai-pending`; if
-    confidence is below LOW_CONFIDENCE_THRESHOLD we additionally tag
-    `ai-low-confidence` so the user can prioritise it.
+    The fail-closed branch fires when the rule store was unreachable at
+    cold start (the auto-tagger booted before aktenraum-api). Logged
+    distinctly from `type_disabled` so operators can tell "rules say no"
+    from "rules unreachable" without diff-reading the rule store.
 
     Reason values (closed enum, do not break compatibility with grep
     queries in runbooks):
-      * "auto_approved"               — both gates passed
-      * "allowlist_empty"             — AUTO_APPROVE_TYPES is empty (default)
-      * "type_not_in_allowlist"       — type gate non-empty but doc type missing
-      * "confidence_below_threshold"  — type allowed, confidence too low
+      * "auto_approved"                    — type enabled and confidence high
+      * "type_disabled"                    — type's rule.enabled is false
+      * "confidence_below_min"              — type enabled, confidence too low
+      * "rules_unreachable_fail_closed"    — rule store down at cold start
     """
-    if not settings.auto_approve_types:
-        return _pending(extraction, settings), "allowlist_empty"
-    if extraction.document_type.value not in settings.auto_approve_types:
-        return _pending(extraction, settings), "type_not_in_allowlist"
-    if extraction.confidence < settings.auto_approve_confidence:
-        return _pending(extraction, settings), "confidence_below_threshold"
+    if rules.fail_closed:
+        return _pending(extraction, settings), "rules_unreachable_fail_closed"
+    rule = rules.get(extraction.document_type)
+    if rule is None or not rule.enabled:
+        return _pending(extraction, settings), "type_disabled"
+    if extraction.confidence < rule.min_confidence:
+        return _pending(extraction, settings), "confidence_below_min"
     return ["ai-approved", "ai-auto-approved"], "auto_approved"
 
 
@@ -681,7 +682,10 @@ async def process_document(
 
     try:
         await paperless.patch_document_ai_fields(doc_id, extraction, backend.name, backend.model)
-        lifecycle_tags, routing_reason = _route_lifecycle_tags(extraction, settings)
+        rules = await get_rules(settings)
+        lifecycle_tags, routing_reason = _route_lifecycle_tags(
+            extraction, settings, rules
+        )
         await _apply_tags(paperless, doc, lifecycle_tags)
         logger.info(
             "routing_decision",

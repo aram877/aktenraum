@@ -1,8 +1,14 @@
 import json
 
 import pytest
-from aktenraum_core.models import DocumentExtraction, DocumentType, KeyDates
+from aktenraum_core.models import (
+    AutoApproveRule,
+    DocumentExtraction,
+    DocumentType,
+    KeyDates,
+)
 
+from auto_tagger.auto_approve_config import RuleSet
 from auto_tagger.tagger import (
     _example_payload,
     _extract_reference_numbers_from_text,
@@ -27,6 +33,27 @@ def _make_extraction(doc_type: str, confidence: float) -> DocumentExtraction:
         summary_de="Satz eins. Satz zwei. Satz drei.",
         confidence=confidence,
     )
+
+
+def _build_rules(
+    overrides: dict[DocumentType | str, tuple[bool, float]] | None = None,
+) -> RuleSet:
+    """Build a complete 26-entry RuleSet for tests. `overrides` maps a
+    DocumentType (or its string value) to (enabled, min_confidence)."""
+    overrides = overrides or {}
+    normalized = {
+        (k if isinstance(k, DocumentType) else DocumentType(k)): v
+        for k, v in overrides.items()
+    }
+    by_type = {
+        dt: AutoApproveRule(
+            document_type=dt,
+            enabled=normalized.get(dt, (False, 0.90))[0],
+            min_confidence=normalized.get(dt, (False, 0.90))[1],
+        )
+        for dt in DocumentType
+    }
+    return RuleSet(by_type=by_type, fail_closed=False)
 
 
 class TestSynthesizeSummaryDe:
@@ -161,59 +188,89 @@ class TestExtractReferenceNumbersFromText:
 
 
 class TestRouteLifecycleTags:
-    # Auto-approve now requires BOTH high confidence AND the doc's type
-    # being in AUTO_APPROVE_TYPES. The legacy "confidence alone is enough"
-    # path was a CSRF-injectable vector (a malicious PDF could emit
-    # confidence=0.99 to skip review); the allowlist gate is the
-    # load-bearing defence and the user explicitly opts in.
+    # Rules now come from a RuleSet (fetched from aktenraum-api with a
+    # 60s TTL cache). Tests inject hand-built rule sets directly to keep
+    # the routing logic decoupled from HTTP.
 
     @pytest.mark.parametrize(
-        "doc_type,confidence,allowlist,expected_tags,expected_reason",
+        "doc_type,confidence,rule_overrides,expected_tags,expected_reason",
         [
-            # Confidence above threshold AND type in allowlist → auto-approve.
-            ("Rechnung", 0.90, "Rechnung", ["ai-approved", "ai-auto-approved"], "auto_approved"),
+            # Type enabled and confidence at/above min → auto-approve.
+            (
+                "Rechnung",
+                0.90,
+                {"Rechnung": (True, 0.90)},
+                ["ai-approved", "ai-auto-approved"],
+                "auto_approved",
+            ),
             (
                 "Rechnung",
                 1.0,
-                "Rechnung,Kontoauszug",
+                {"Rechnung": (True, 0.95), "Kontoauszug": (True, 0.90)},
                 ["ai-approved", "ai-auto-approved"],
                 "auto_approved",
             ),
-            ("Vertrag", 0.95, "Vertrag", ["ai-approved", "ai-auto-approved"], "auto_approved"),
             (
-                "Versicherung",
-                0.99,
-                "Versicherung",
+                "Vertrag",
+                0.95,
+                {"Vertrag": (True, 0.95)},
                 ["ai-approved", "ai-auto-approved"],
                 "auto_approved",
             ),
-            # Confidence above threshold but type NOT in allowlist → pending,
-            # reason names the type gate so the user can grep the log and see
-            # exactly which gate blocked the doc.
-            ("Rechnung", 0.99, "Kontoauszug", ["ai-pending"], "type_not_in_allowlist"),
-            ("Sonstiges", 1.0, "Rechnung", ["ai-pending"], "type_not_in_allowlist"),
-            # Empty allowlist → never auto-approves even at confidence 1.0.
-            ("Rechnung", 1.0, "", ["ai-pending"], "allowlist_empty"),
-            # Below auto-approve threshold even with type in allowlist → pending.
-            ("Rechnung", 0.89, "Rechnung", ["ai-pending"], "confidence_below_threshold"),
-            ("Vertrag", 0.70, "Vertrag", ["ai-pending"], "confidence_below_threshold"),
-            # Below low-confidence threshold → pending + flag.
-            # Reason still names whichever gate blocked auto-approve;
-            # ai-low-confidence is orthogonal review-queue signal.
+            # Type disabled regardless of confidence.
+            (
+                "Rechnung",
+                0.99,
+                {"Rechnung": (False, 0.90)},
+                ["ai-pending"],
+                "type_disabled",
+            ),
+            (
+                "Sonstiges",
+                1.0,
+                {"Rechnung": (True, 0.90)},  # Sonstiges remains disabled
+                ["ai-pending"],
+                "type_disabled",
+            ),
+            # Default (no overrides) — every type disabled → type_disabled.
+            ("Rechnung", 1.0, {}, ["ai-pending"], "type_disabled"),
+            # Enabled but confidence below per-type threshold.
+            (
+                "Rechnung",
+                0.89,
+                {"Rechnung": (True, 0.90)},
+                ["ai-pending"],
+                "confidence_below_min",
+            ),
+            (
+                "Vertrag",
+                0.70,
+                {"Vertrag": (True, 0.85)},
+                ["ai-pending"],
+                "confidence_below_min",
+            ),
+            # Below low-confidence threshold → pending + ai-low-confidence
+            # aux. Reason names whichever gate blocked auto-approve.
             (
                 "Rechnung",
                 0.50,
-                "Rechnung",
+                {"Rechnung": (True, 0.90)},
                 ["ai-pending", "ai-low-confidence"],
-                "confidence_below_threshold",
+                "confidence_below_min",
             ),
-            ("Sonstiges", 0.30, "", ["ai-pending", "ai-low-confidence"], "allowlist_empty"),
+            (
+                "Sonstiges",
+                0.30,
+                {},
+                ["ai-pending", "ai-low-confidence"],
+                "type_disabled",
+            ),
             (
                 "Vertrag",
                 0.10,
-                "Vertrag",
+                {"Vertrag": (True, 0.50)},
                 ["ai-pending", "ai-low-confidence"],
-                "confidence_below_threshold",
+                "confidence_below_min",
             ),
         ],
     )
@@ -222,46 +279,61 @@ class TestRouteLifecycleTags:
         make_settings,
         doc_type,
         confidence,
-        allowlist,
+        rule_overrides,
         expected_tags,
         expected_reason,
     ):
-        settings = make_settings(AUTO_APPROVE_TYPES=allowlist)
+        settings = make_settings()
         extraction = _make_extraction(doc_type, confidence)
-        tags, reason = _route_lifecycle_tags(extraction, settings)
+        rules = _build_rules(rule_overrides)
+        tags, reason = _route_lifecycle_tags(extraction, settings, rules)
         assert tags == expected_tags
         assert reason == expected_reason
 
-    def test_empty_allowlist_blocks_auto_approve(self, make_settings):
-        # Default install: AUTO_APPROVE_TYPES unset means no type can
-        # auto-approve. Pure confidence-only auto-approve is disabled.
-        settings = make_settings(AUTO_APPROVE_TYPES="")
+    def test_empty_ruleset_blocks_auto_approve(self, make_settings):
+        # Default install: every type disabled (the seed default).
+        settings = make_settings()
         extraction = _make_extraction("Vertrag", 1.0)
-        tags, reason = _route_lifecycle_tags(extraction, settings)
+        rules = _build_rules()
+        tags, reason = _route_lifecycle_tags(extraction, settings, rules)
         assert tags == ["ai-pending"]
-        assert reason == "allowlist_empty"
+        assert reason == "type_disabled"
 
     def test_threshold_at_exact_boundary_auto_approves(self, make_settings):
-        settings = make_settings(
-            AUTO_APPROVE_CONFIDENCE="0.90",
-            AUTO_APPROVE_TYPES="Rechnung",
-        )
+        settings = make_settings()
         extraction = _make_extraction("Rechnung", 0.90)
-        tags, reason = _route_lifecycle_tags(extraction, settings)
+        rules = _build_rules({"Rechnung": (True, 0.90)})
+        tags, reason = _route_lifecycle_tags(extraction, settings, rules)
         assert tags == ["ai-approved", "ai-auto-approved"]
         assert reason == "auto_approved"
 
     def test_low_confidence_flag_skipped_when_auto_approving(self, make_settings):
         # Defensive: when both gates pass, low_confidence flag is dropped —
         # the doc skips review entirely and the flag is review-queue signal.
-        settings = make_settings(
-            LOW_CONFIDENCE_THRESHOLD="0.99",
-            AUTO_APPROVE_TYPES="Rechnung",
-        )
+        settings = make_settings(LOW_CONFIDENCE_THRESHOLD="0.99")
         extraction = _make_extraction("Rechnung", 0.96)
-        tags, reason = _route_lifecycle_tags(extraction, settings)
+        rules = _build_rules({"Rechnung": (True, 0.90)})
+        tags, reason = _route_lifecycle_tags(extraction, settings, rules)
         assert tags == ["ai-approved", "ai-auto-approved"]
         assert reason == "auto_approved"
+
+    def test_fail_closed_rules_route_to_pending(self, make_settings):
+        # Cold start: rule store unreachable. Every doc → pending with the
+        # rules_unreachable_fail_closed reason for operator visibility.
+        settings = make_settings()
+        extraction = _make_extraction("Rechnung", 0.99)
+        rules = RuleSet(by_type={}, fail_closed=True)
+        tags, reason = _route_lifecycle_tags(extraction, settings, rules)
+        assert tags == ["ai-pending"]
+        assert reason == "rules_unreachable_fail_closed"
+
+    def test_fail_closed_low_confidence_still_appends_aux_tag(self, make_settings):
+        settings = make_settings()
+        extraction = _make_extraction("Rechnung", 0.3)
+        rules = RuleSet(by_type={}, fail_closed=True)
+        tags, reason = _route_lifecycle_tags(extraction, settings, rules)
+        assert tags == ["ai-pending", "ai-low-confidence"]
+        assert reason == "rules_unreachable_fail_closed"
 
 
 class TestSplitCsv:

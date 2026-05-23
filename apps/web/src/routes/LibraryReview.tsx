@@ -54,6 +54,7 @@ const DOC_TYPES = [
   "Zeugnis",
   "Arbeitszeugnis",
   "Mitgliedschaft",
+  "Beleg",
   "Sonstiges",
 ] as const;
 

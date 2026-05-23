@@ -99,6 +99,7 @@ async def _find_duplicate_ids(
         issue_date=ai_fields.get("ai_issue_date"),
         monetary_amount=ai_fields.get("ai_monetary_amount"),
         reference_numbers=ai_fields.get("ai_reference_numbers"),
+        document_type=ai_fields.get("ai_document_type"),
     )
     candidate_fields = [
         _doc_to_fields(c, field_name_by_id) for c in candidates
@@ -153,6 +154,7 @@ def _doc_to_fields(doc: dict, field_name_by_id: dict[int, str]) -> DocFields:
         issue_date=values.get("ai_issue_date"),
         monetary_amount=values.get("ai_monetary_amount"),
         reference_numbers=values.get("ai_reference_numbers"),
+        document_type=values.get("ai_document_type"),
     )
 
 

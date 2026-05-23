@@ -28,7 +28,7 @@ from .prompt_modules import module_for
 # tighter version here because the search task only needs disambiguation, not
 # extraction guidance.
 _DOC_TYPE_HINTS: dict[str, str] = {
-    "Rechnung": "Rechnungen, Quittungen, Kaufbelege",
+    "Rechnung": "Rechnungen / Forderungen zur Zahlung (noch nicht bezahlt)",
     "Gehaltsabrechnung": "Lohn-/Gehaltsabrechnungen, Bezügemitteilungen",
     "Kontoauszug": "Bank-, Kreditkarten-, Sparkontoauszüge",
     "Nebenkostenabrechnung": "Mieter-seitige Nebenkostenabrechnung",
@@ -53,6 +53,10 @@ _DOC_TYPE_HINTS: dict[str, str] = {
     "Zeugnis": "Schul-, Hochschulzeugnisse",
     "Arbeitszeugnis": "Arbeits- und Praktikumszeugnisse",
     "Mitgliedschaft": "Mitgliedsbescheinigungen, Vereinsausweise",
+    "Beleg": (
+        "Zahlungsbestätigung / Quittung / Kassenbon / Receipt — "
+        "beweist BEZAHLT (im Gegensatz zur Rechnung)"
+    ),
     "Sonstiges": "Alles andere ohne klare Kategorie",
 }
 

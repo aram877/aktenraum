@@ -184,5 +184,15 @@ TYPE_FIELD_SCHEMA: dict[DocumentType, list[FieldDef]] = {
         FieldDef("mitgliedsnummer", "Mitgliedsnummer", "string"),
         FieldDef("jahresbeitrag", "Jahresbeitrag", "money"),
     ],
+    DocumentType.Beleg: [
+        # Zahlungsbeleg / Quittung / Kassenbon — proof that a payment
+        # was made. Distinct from Rechnung (which asks for payment) and
+        # from Kontoauszug (which lists many transactions). Belegnummer
+        # is often a transaction id from the payment provider.
+        FieldDef("belegnummer", "Belegnummer / Transaktions-Nr.", "string"),
+        FieldDef("gesamtbetrag", "Bezahlter Betrag", "money"),
+        FieldDef("zahlungsart", "Zahlungsart (z.B. Kreditkarte, PayPal, Bar)", "string"),
+        FieldDef("bezogene_rechnung", "Bezugnehmende Rechnungsnummer (falls genannt)", "string"),
+    ],
     DocumentType.Sonstiges: [],
 }

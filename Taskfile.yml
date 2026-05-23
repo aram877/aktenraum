@@ -89,6 +89,24 @@ tasks:
         echo ""
         echo "✓ Data wiped. Run: task setup   to start fresh."
 
+  build:fe:
+    desc: "Rebuild the frontend — bakes the SPA into the nginx image and restarts it"
+    cmds:
+      - "{{.COMPOSE}} up -d --build nginx"
+      - 'echo "✓ Frontend rebuilt. Open http://localhost:8080"'
+
+  build:be:
+    desc: "Rebuild the backend — recompiles and restarts auto-tagger + aktenraum-api"
+    cmds:
+      - "{{.COMPOSE}} up -d --build auto-tagger aktenraum-api"
+      - 'echo "✓ Backend rebuilt."'
+
+  build:
+    desc: "Rebuild everything — frontend (nginx/SPA) + backend (auto-tagger + aktenraum-api)"
+    cmds:
+      - "{{.COMPOSE}} up -d --build nginx auto-tagger aktenraum-api"
+      - 'echo "✓ Full rebuild done. Open http://localhost:8080"'
+
   # ----- Stack lifecycle (lower-level) -----
 
   up:

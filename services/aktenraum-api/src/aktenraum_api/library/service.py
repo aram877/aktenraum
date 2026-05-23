@@ -287,6 +287,7 @@ def _project(
         title=doc.get("title") or f"Dokument #{doc['id']}",
         original_file_name=doc.get("original_file_name"),
         created=_parse_date(doc.get("created_date") or doc.get("created")),
+        added=_parse_date(doc.get("added")),
         correspondent=correspondent_by_id.get(doc.get("correspondent"))
         or custom_fields.get("ai_correspondent"),
         document_type=document_type_by_id.get(doc.get("document_type"))

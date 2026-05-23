@@ -12,7 +12,10 @@ export type InboxItem = {
   id: number;
   title: string;
   original_file_name: string | null;
+  /** The document's own date (e.g. an invoice's issue date). */
   created: string | null;
+  /** When Paperless ingested the file (Posteingang). */
+  added: string | null;
   ai_correspondent: string | null;
   ai_document_type: string | null;
   ai_title: string | null;

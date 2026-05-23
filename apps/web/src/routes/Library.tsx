@@ -463,7 +463,7 @@ export function Library({ search }: { search: Search }) {
                         <th className="px-3 py-2.5">Titel</th>
                         <th className="px-3 py-2.5">Typ</th>
                         <th className="px-3 py-2.5">Korrespondent</th>
-                        <th className="px-3 py-2.5">Datum</th>
+                        <th className="px-3 py-2.5">Daten</th>
                         <th className="px-3 py-2.5">Status</th>
                       </tr>
                     </thead>
@@ -679,7 +679,15 @@ function Row({
         {row.correspondent ?? "—"}
       </td>
       <td onClick={onClick} className="cursor-pointer px-3 py-2.5 text-ink-muted">
-        {row.created ?? "—"}
+        <div className="flex flex-col gap-0.5 leading-tight">
+          <span title="Dokumentdatum">Dok.: {row.created ?? "—"}</span>
+          <span
+            className="text-[11px] text-ink-subtle"
+            title="Hinzugefügt am (Posteingang)"
+          >
+            Hinzu.: {row.added ?? "—"}
+          </span>
+        </div>
       </td>
       <td onClick={onClick} className="cursor-pointer px-3 py-2.5">
         <ProcessingBadge
@@ -766,7 +774,18 @@ function LibraryCard({
             {row.created && (
               <>
                 <span aria-hidden className="text-ink-faint">·</span>
-                <span>{row.created}</span>
+                <span title="Dokumentdatum">{row.created}</span>
+              </>
+            )}
+            {row.added && (
+              <>
+                <span aria-hidden className="text-ink-faint">·</span>
+                <span
+                  className="text-ink-subtle"
+                  title="Hinzugefügt am (Posteingang)"
+                >
+                  hinzu. {row.added}
+                </span>
               </>
             )}
           </div>
@@ -984,7 +1003,7 @@ function ZurPruefungTab() {
                   <th className="px-3 py-2.5">Titel</th>
                   <th className="px-3 py-2.5">Typ</th>
                   <th className="px-3 py-2.5">Korrespondent</th>
-                  <th className="px-3 py-2.5">Datum</th>
+                  <th className="px-3 py-2.5">Daten</th>
                   <th className="px-3 py-2.5 text-right">Konfidenz</th>
                 </tr>
               </thead>
@@ -1079,7 +1098,17 @@ function ReviewRow({
         {row.ai_correspondent ?? "—"}
       </td>
       <td onClick={onOpen} className="cursor-pointer px-3 py-2.5 text-ink-muted">
-        {row.ai_issue_date ?? row.created ?? "—"}
+        <div className="flex flex-col gap-0.5 leading-tight">
+          <span title="Dokumentdatum">
+            Dok.: {row.ai_issue_date ?? row.created ?? "—"}
+          </span>
+          <span
+            className="text-[11px] text-ink-subtle"
+            title="Hinzugefügt am (Posteingang)"
+          >
+            Hinzu.: {row.added ?? "—"}
+          </span>
+        </div>
       </td>
       <td onClick={onOpen} className="cursor-pointer px-3 py-2.5 text-right text-ink-muted">
         {row.ai_confidence != null
@@ -1132,7 +1161,20 @@ function ReviewCard({
             {(row.ai_issue_date || row.created) && (
               <>
                 <span aria-hidden className="text-ink-faint">·</span>
-                <span>{row.ai_issue_date ?? row.created}</span>
+                <span title="Dokumentdatum">
+                  {row.ai_issue_date ?? row.created}
+                </span>
+              </>
+            )}
+            {row.added && (
+              <>
+                <span aria-hidden className="text-ink-faint">·</span>
+                <span
+                  className="text-ink-subtle"
+                  title="Hinzugefügt am (Posteingang)"
+                >
+                  hinzu. {row.added}
+                </span>
               </>
             )}
           </div>

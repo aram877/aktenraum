@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Nav } from "../components/Nav";
 import { NeighborNav } from "../components/NeighborNav";
 import { CheckIcon, XIcon } from "../components/Icons";
+import { useDeleteDocument, useReprocess } from "../lib/documents";
 import type { InboxFieldUpdate } from "../lib/inbox";
 import {
   useApprove,
@@ -93,9 +94,13 @@ export function InboxReview({ id }: { id: number }) {
   const list = useInboxList({ pageSize: 50 });
   const approve = useApprove(id);
   const reject = useReject(id);
+  const reprocess = useReprocess();
+  const deleteDoc = useDeleteDocument();
 
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [mobilePane, setMobilePane] = useState<"pdf" | "form">("form");
+  const [confirmingReprocess, setConfirmingReprocess] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const lastHydratedRef = useRef<FormState | null>(null);
   const lastHydratedIdRef = useRef<number | null>(null);
 
@@ -194,6 +199,24 @@ export function InboxReview({ id }: { id: number }) {
     }
   };
 
+  const onReprocess = async () => {
+    try {
+      await reprocess.mutateAsync(id);
+      advance("next");
+    } catch {
+      // surfaced via reprocessError below
+    }
+  };
+
+  const onDelete = async () => {
+    try {
+      await deleteDoc.mutateAsync(id);
+      advance("next");
+    } catch {
+      // surfaced via deleteError below
+    }
+  };
+
   useKeyboardShortcuts(
     {
       a: onApprove,
@@ -205,7 +228,19 @@ export function InboxReview({ id }: { id: number }) {
     detail.isSuccess,
   );
 
-  const errorDetail = approve.error?.message || reject.error?.message;
+  const errorDetail =
+    approve.error?.message ||
+    reject.error?.message ||
+    reprocess.error?.response?.data?.detail ||
+    reprocess.error?.message ||
+    deleteDoc.error?.response?.data?.detail ||
+    deleteDoc.error?.message ||
+    undefined;
+  const anyPending =
+    approve.isPending ||
+    reject.isPending ||
+    reprocess.isPending ||
+    deleteDoc.isPending;
 
   const neighborIds = list.data?.results.map((r) => r.id) ?? [];
   const neighborPos = neighborIds.indexOf(id);
@@ -307,7 +342,14 @@ export function InboxReview({ id }: { id: number }) {
                       </div>
                     )}
                   <div className="text-xs text-ink-subtle">
-                    {detail.data.created ?? "—"} ·{" "}
+                    <span title="Dokumentdatum">
+                      Dok.: {detail.data.created ?? "—"}
+                    </span>
+                    {" · "}
+                    <span title="Hinzugefügt am (Posteingang in der Bibliothek)">
+                      Hinzugefügt: {detail.data.added ?? "—"}
+                    </span>
+                    {" · "}
                     {detail.data.ai_confidence != null
                       ? `${Math.round(detail.data.ai_confidence * 100)}% Konfidenz`
                       : "Konfidenz unbekannt"}
@@ -401,27 +443,89 @@ export function InboxReview({ id }: { id: number }) {
                 </p>
               )}
 
-              <footer className="flex items-center justify-end gap-2 border-t border-hairline px-4 py-3">
-                <button
-                  type="button"
-                  onClick={onReject}
-                  disabled={reject.isPending || approve.isPending}
-                  title="Ablehnen (R)"
-                  className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-hairline bg-canvas px-3 py-2 text-sm font-medium text-ink-muted hover:bg-surface-raised disabled:opacity-60 sm:flex-initial sm:text-xs"
-                >
-                  <XIcon className="h-3.5 w-3.5" />
-                  Ablehnen
-                </button>
-                <button
-                  type="button"
-                  onClick={onApprove}
-                  disabled={reject.isPending || approve.isPending}
-                  title="Genehmigen (A)"
-                  className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md bg-ink px-3 py-2 text-sm font-medium text-on-inverse hover:opacity-80 disabled:opacity-60 sm:flex-initial sm:text-xs"
-                >
-                  <CheckIcon className="h-3.5 w-3.5" />
-                  {approve.isPending ? "…" : "Genehmigen"}
-                </button>
+              <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-hairline px-4 py-3">
+                {confirmingReprocess ? (
+                  <div className="flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-900">
+                    <span>Sicher? Lifecycle-Tags werden gelöscht.</span>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingReprocess(false)}
+                      disabled={anyPending}
+                      className="rounded px-2 py-0.5 hover:bg-amber-100"
+                    >
+                      Abbrechen
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onReprocess}
+                      disabled={anyPending}
+                      className="rounded bg-amber-600 px-2 py-0.5 font-medium text-white hover:bg-amber-700 disabled:opacity-60"
+                    >
+                      {reprocess.isPending ? "…" : "Ja, neu verarbeiten"}
+                    </button>
+                  </div>
+                ) : confirmingDelete ? (
+                  <div className="flex items-center gap-1 rounded-md border border-red-300 bg-red-50 px-2 py-1 text-xs text-red-900">
+                    <span>In den Papierkorb verschieben?</span>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingDelete(false)}
+                      disabled={anyPending}
+                      className="rounded px-2 py-0.5 hover:bg-red-100"
+                    >
+                      Abbrechen
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onDelete}
+                      disabled={anyPending}
+                      className="rounded bg-red-600 px-2 py-0.5 font-medium text-white hover:bg-red-700 disabled:opacity-60"
+                    >
+                      {deleteDoc.isPending ? "…" : "Ja, in Papierkorb"}
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingDelete(true)}
+                      disabled={anyPending}
+                      title="In den Papierkorb verschieben (30 Tage wiederherstellbar)"
+                      className="inline-flex items-center justify-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-60"
+                    >
+                      Löschen
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingReprocess(true)}
+                      disabled={anyPending}
+                      title="Lifecycle-Tags löschen, Auto-Tagger neu starten"
+                      className="inline-flex items-center justify-center gap-1.5 rounded-md border border-hairline bg-canvas px-3 py-2 text-xs font-medium text-ink-muted hover:bg-surface-raised disabled:opacity-60"
+                    >
+                      Erneut verarbeiten
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onReject}
+                      disabled={anyPending}
+                      title="Ablehnen (R)"
+                      className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-hairline bg-canvas px-3 py-2 text-sm font-medium text-ink-muted hover:bg-surface-raised disabled:opacity-60 sm:flex-initial sm:text-xs"
+                    >
+                      <XIcon className="h-3.5 w-3.5" />
+                      Ablehnen
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onApprove}
+                      disabled={anyPending}
+                      title="Genehmigen (A)"
+                      className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md bg-ink px-3 py-2 text-sm font-medium text-on-inverse hover:opacity-80 disabled:opacity-60 sm:flex-initial sm:text-xs"
+                    >
+                      <CheckIcon className="h-3.5 w-3.5" />
+                      {approve.isPending ? "…" : "Genehmigen"}
+                    </button>
+                  </>
+                )}
               </footer>
             </section>
             </div>

@@ -7,7 +7,10 @@ export type LibraryItem = {
   id: number;
   title: string;
   original_file_name: string | null;
+  /** The document's own date (e.g. an invoice's issue date). */
   created: string | null;
+  /** When Paperless ingested the file. */
+  added: string | null;
   correspondent: string | null;
   document_type: string | null;
   lifecycle_tags: string[];

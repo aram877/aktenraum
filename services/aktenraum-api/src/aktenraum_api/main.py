@@ -14,6 +14,7 @@ from .auth import router as auth_router
 from .config import Settings
 from .db.session import build_engine_and_sessionmaker
 from .documents import router as documents_router
+from .events import router as events_router
 from .health import router as health_router
 from .inbox import router as inbox_router
 from .library import router as library_router
@@ -146,4 +147,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(trash_router, prefix="/api")
     app.include_router(type_fields_router, prefix="/api")
     app.include_router(settings_router, prefix="/api")
+    app.include_router(events_router, prefix="/api")
     return app

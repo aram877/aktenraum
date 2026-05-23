@@ -1,34 +1,17 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 import { Nav } from "../components/Nav";
 import {
-  fetchDocumentStatus,
-  fetchTaskStatus,
-  uploadDocument,
-} from "../lib/documents";
+  clearAll,
+  enqueue,
+  startUpload as startUploadDriver,
+  useUploads,
+  type UploadEntry,
+  type UploadPhase,
+} from "../lib/upload-store";
 
-type Phase =
-  | "queued"
-  | "uploading"
-  | "consuming"
-  | "ai"
-  | "inbox"
-  | "library"
-  | "error";
-
-type FileState = {
-  id: string;
-  file: File;
-  phase: Phase;
-  progress: number;
-  taskId: string | null;
-  docId: number | null;
-  detail: string | null;
-  pollHandle?: number;
-};
-
-const PHASE_COPY: Record<Phase, { label: string; tone: string }> = {
+const PHASE_COPY: Record<UploadPhase, { label: string; tone: string }> = {
   queued: { label: "Bereit", tone: "text-ink-subtle" },
   uploading: { label: "Wird hochgeladen", tone: "text-ink-muted" },
   consuming: { label: "Paperless verarbeitet…", tone: "text-accent" },
@@ -38,156 +21,24 @@ const PHASE_COPY: Record<Phase, { label: string; tone: string }> = {
   error: { label: "✗ Fehler", tone: "text-red-700" },
 };
 
-const TASK_POLL_MS = 1500;
-const DOC_POLL_MS = 3000;
-const MAX_POLL_MS = 120_000;
-
 export function Upload() {
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const [files, setFiles] = useState<FileState[]>([]);
   const [dragOver, setDragOver] = useState(false);
-  const pollTimers = useRef<Map<string, number>>(new Map());
-
-  useEffect(() => {
-    const timers = pollTimers.current;
-    return () => {
-      for (const t of timers.values()) clearTimeout(t);
-      timers.clear();
-    };
-  }, []);
-
-  const queueFiles = (incoming: File[]) => {
-    if (incoming.length === 0) return;
-    const next: FileState[] = incoming.map((f) => ({
-      id: `${f.name}-${f.size}-${f.lastModified}-${Math.random()}`,
-      file: f,
-      phase: "queued",
-      progress: 0,
-      taskId: null,
-      docId: null,
-      detail: null,
-    }));
-    setFiles((cur) => [...cur, ...next]);
-  };
+  // Upload state lives in a module-level store so it survives route
+  // changes — open /upload, queue 100 files, navigate to /library, come
+  // back, the list is still there and the polls are still ticking.
+  const files = useUploads();
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
-    queueFiles(Array.from(e.dataTransfer.files));
+    enqueue(Array.from(e.dataTransfer.files));
   };
 
   const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
-    queueFiles(Array.from(e.target.files ?? []));
+    enqueue(Array.from(e.target.files ?? []));
     if (inputRef.current) inputRef.current.value = "";
-  };
-
-  const setFileState = (id: string, patch: Partial<FileState>) => {
-    setFiles((cur) => cur.map((f) => (f.id === id ? { ...f, ...patch } : f)));
-  };
-
-  const startUpload = async () => {
-    const queued = files.filter((f) => f.phase === "queued");
-    for (const item of queued) {
-      setFileState(item.id, { phase: "uploading", progress: 0 });
-      try {
-        const resp = await uploadDocument({
-          file: item.file,
-          onProgress: (pct) => setFileState(item.id, { progress: pct }),
-        });
-        const result = resp.results[0];
-        if (result?.status === "accepted" && result.task_id) {
-          setFileState(item.id, {
-            phase: "consuming",
-            taskId: result.task_id,
-            progress: 100,
-          });
-          startTaskPoll(item.id, result.task_id, Date.now());
-        } else {
-          setFileState(item.id, {
-            phase: "error",
-            detail: result?.detail ?? "Unbekannter Fehler",
-          });
-        }
-      } catch (e) {
-        const err = e as {
-          response?: { data?: { detail?: string } };
-          message?: string;
-        };
-        setFileState(item.id, {
-          phase: "error",
-          detail:
-            err.response?.data?.detail ?? err.message ?? "Upload fehlgeschlagen",
-        });
-      }
-    }
-  };
-
-  const startTaskPoll = (id: string, taskId: string, startedAt: number) => {
-    const tick = async () => {
-      if (Date.now() - startedAt > MAX_POLL_MS) {
-        setFileState(id, { phase: "error", detail: "Zeitüberschreitung" });
-        return;
-      }
-      try {
-        const status = await fetchTaskStatus(taskId);
-        if (status.status === "SUCCESS" && status.doc_id) {
-          setFileState(id, { phase: "ai", docId: status.doc_id });
-          startDocPoll(id, status.doc_id, startedAt);
-          return;
-        }
-        if (status.status === "FAILURE") {
-          setFileState(id, {
-            phase: "error",
-            detail: status.result ?? "Paperless-Konsumierung fehlgeschlagen",
-          });
-          return;
-        }
-      } catch {
-        // transient — retry
-      }
-      const handle = window.setTimeout(tick, TASK_POLL_MS);
-      pollTimers.current.set(id, handle);
-    };
-    const handle = window.setTimeout(tick, TASK_POLL_MS);
-    pollTimers.current.set(id, handle);
-  };
-
-  const startDocPoll = (id: string, docId: number, startedAt: number) => {
-    const tick = async () => {
-      if (Date.now() - startedAt > MAX_POLL_MS) {
-        setFileState(id, {
-          phase: "error",
-          detail: "KI-Pipeline reagiert langsam — schau in die Bibliothek.",
-        });
-        return;
-      }
-      try {
-        const status = await fetchDocumentStatus(docId);
-        const tags = new Set(status.lifecycle_tags);
-        if (tags.has("ai-pending")) {
-          setFileState(id, { phase: "inbox" });
-          return;
-        }
-        if (tags.has("ai-propagated") || tags.has("ai-approved")) {
-          setFileState(id, { phase: "library" });
-          return;
-        }
-        if (tags.has("ai-error") || tags.has("ai-propagation-error")) {
-          setFileState(id, {
-            phase: "error",
-            detail: "KI-Klassifizierung fehlgeschlagen",
-          });
-          return;
-        }
-      } catch {
-        // ignore transient
-      }
-      const handle = window.setTimeout(tick, DOC_POLL_MS);
-      pollTimers.current.set(id, handle);
-    };
-    const handle = window.setTimeout(tick, DOC_POLL_MS);
-    pollTimers.current.set(id, handle);
   };
 
   const allTerminal =
@@ -258,7 +109,7 @@ export function Upload() {
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
           <button
             type="button"
-            onClick={() => setFiles([])}
+            onClick={clearAll}
             disabled={files.length === 0 || uploading}
             className="rounded-md border border-hairline bg-surface px-3 py-2 text-sm font-medium text-ink-muted hover:bg-canvas disabled:opacity-50"
           >
@@ -287,7 +138,7 @@ export function Upload() {
             )}
             <button
               type="button"
-              onClick={startUpload}
+              onClick={() => void startUploadDriver()}
               disabled={queuedCount === 0 || uploading}
               className="rounded-md bg-ink px-4 py-2 text-sm font-medium text-on-inverse hover:opacity-80 disabled:opacity-60"
             >
@@ -304,7 +155,7 @@ export function Upload() {
   );
 }
 
-function FileRow({ state }: { state: FileState }) {
+function FileRow({ state }: { state: UploadEntry }) {
   const { tone, label } = PHASE_COPY[state.phase];
   const showProgress = state.phase === "uploading";
   const showDocLink =

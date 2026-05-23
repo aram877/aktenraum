@@ -5,6 +5,7 @@ import { TypeSpecificFieldsSection } from "../components/TypeSpecificFieldsSecti
 
 import { Nav } from "../components/Nav";
 import { NeighborNav } from "../components/NeighborNav";
+import { DocumentMarkers } from "../components/DocumentMarkers";
 import { ProcessingBadge } from "../components/ProcessingBadge";
 import {
   CheckIcon,
@@ -379,6 +380,11 @@ export function LibraryReview({ id }: { id: number }) {
                     </div>
                   )}
                 </div>
+                <DocumentMarkers
+                  docId={detail.data.id}
+                  tags={detail.data.tags}
+                  className="shrink-0"
+                />
               </header>
 
               <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3 text-sm">

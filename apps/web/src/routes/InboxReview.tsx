@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Nav } from "../components/Nav";
 import { NeighborNav } from "../components/NeighborNav";
 import { CheckIcon, XIcon } from "../components/Icons";
+import { DocumentMarkers } from "../components/DocumentMarkers";
 import { useDeleteDocument, useReprocess } from "../lib/documents";
 import type { InboxFieldUpdate } from "../lib/inbox";
 import {
@@ -368,11 +369,17 @@ export function InboxReview({ id }: { id: number }) {
                     </div>
                   )}
                 </div>
-                {detail.data.low_confidence && (
-                  <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
-                    Niedrige Konfidenz
-                  </span>
-                )}
+                <div className="flex shrink-0 flex-col items-end gap-1.5">
+                  <DocumentMarkers
+                    docId={detail.data.id}
+                    tags={detail.data.tags}
+                  />
+                  {detail.data.low_confidence && (
+                    <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
+                      Niedrige Konfidenz
+                    </span>
+                  )}
+                </div>
               </header>
 
               <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3 text-sm">

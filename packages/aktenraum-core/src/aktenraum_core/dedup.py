@@ -19,10 +19,16 @@ considered duplicates:
      If either side has no type, the type check is skipped (backward
      compat with corpora indexed before this signal existed).
   4. At least one of:
-     a. Both `ai_monetary_amount` values exist and parse to numbers
-        differing by ≤ 0.01 after stripping the Paperless ISO prefix
-        (e.g. `EUR149.99` → 149.99).
-     b. The intersection of `ai_reference_numbers` (comma-split,
+     a. Both `monetary_amount` values parse to numbers differing by
+        ≤ 0.01 after stripping the ISO prefix (e.g. `EUR149.99` →
+        149.99). NOTE: the generic `ai_monetary_amount` Paperless field
+        was RETIRED (money now lives on per-type schemas), so the value
+        read back in production is always empty and this branch is
+        currently INERT — dedup keys on (1)+(2)+(3)+(4b) in practice.
+        The mechanism (and its unit tests) are retained so a future
+        repoint to the type-specific monetary fields is a one-line
+        change at the call sites, not a rewrite.
+     b. The intersection of `reference_numbers` (comma-split,
         case-folded, trimmed) is non-empty.
 
 If the NEW doc lacks either anchor (correspondent or issue_date) the

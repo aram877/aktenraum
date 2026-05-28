@@ -97,6 +97,9 @@ async def _find_duplicate_ids(
         id=new_doc_id,
         correspondent=ai_fields.get("ai_correspondent"),
         issue_date=ai_fields.get("ai_issue_date"),
+        # ai_monetary_amount is retired in prod (always None here) so the
+        # amount branch is inert; dedup keys on corr+date+type+refs. Kept
+        # wired for a future repoint to type-specific money. See dedup.py.
         monetary_amount=ai_fields.get("ai_monetary_amount"),
         reference_numbers=ai_fields.get("ai_reference_numbers"),
         document_type=ai_fields.get("ai_document_type"),
@@ -152,6 +155,7 @@ def _doc_to_fields(doc: dict, field_name_by_id: dict[int, str]) -> DocFields:
         id=int(doc["id"]),
         correspondent=values.get("ai_correspondent"),
         issue_date=values.get("ai_issue_date"),
+        # ai_monetary_amount is retired in prod (always None here); see dedup.py.
         monetary_amount=values.get("ai_monetary_amount"),
         reference_numbers=values.get("ai_reference_numbers"),
         document_type=values.get("ai_document_type"),

@@ -8,8 +8,10 @@
  * Keep in sync with the Python-side LIFECYCLE_TAGS in
  * packages/aktenraum-core/src/aktenraum_core/paperless/client.py, plus
  * the auxiliary names (ai-auto-approved / ai-low-confidence /
- * ai-index-error) that aren't in LIFECYCLE_TAGS but are equally
- * internal-only.
+ * ai-index-error / ai-duplicate / ai-duplicate-dismissed) that aren't in
+ * LIFECYCLE_TAGS but are equally internal-only. The duplicate signal is
+ * surfaced via its own purple badge + "Mögliches Duplikat" links, never as
+ * a raw topical tag.
  */
 export const LIFECYCLE_TAG_NAMES = new Set<string>([
   "ai-pending",
@@ -21,6 +23,8 @@ export const LIFECYCLE_TAG_NAMES = new Set<string>([
   "ai-auto-approved",
   "ai-low-confidence",
   "ai-index-error",
+  "ai-duplicate",
+  "ai-duplicate-dismissed",
 ]);
 
 /** Filter a list of tag names down to the user-facing topical subset. */

@@ -47,7 +47,7 @@ docker compose up -d --build backup
 ```
 **Pass:** step 3 produces visible entrypoint logs within ~70s (previously:
 total silence).
-**Status:** ⬜ not tested
+**Status:** ✅ passed (2026-05-28) — crond fires, env vars (RESTIC_PASSWORD, PAPERLESS_DBPASS) pass through, output appears in `docker compose logs backup` via `/proc/1/fd/1`. Note: wait up to 70s from the `crontab -` step for the first minute boundary to fire.
 
 ---
 
@@ -81,7 +81,7 @@ docker compose exec backup sh -c \
 ```
 **Pass A:** a snapshot exists under tag `postgres-aktenraum` and its dump
 shows SQL (`CREATE TABLE` / `COPY` for `users`, `auto_approve_rules`).
-**Status:** ⬜ not tested
+**Status:** ✅ passed (2026-05-28) — `postgres-aktenraum` snapshot exists; dump header confirms `-- PostgreSQL database dump` with valid pg_dump SQL.
 
 **Test B — full restore rehearsal (the real DR gate; optional but recommended):**
 Follow [`docs/runbooks/restore.md`](../runbooks/restore.md) end-to-end into a
@@ -121,7 +121,7 @@ task backup:verify
 **Pass:** `task backup:verify` ends with `PASS`. If it fails on the
 `aktenraum` DB dump, you're running against a backup taken before Phase 0.2
 — run `task backup:run` once first, then re-verify.
-**Status:** ⬜ not tested
+**Status:** ✅ passed (2026-05-28) — `task backup:check` reports "no errors were found"; `task backup:verify` ends with "PASS — repo integrity OK, filesystem restorable, both DB dumps valid." Bug found and fixed: `task backup:check/verify/snapshots` were missing `-e RESTIC_REPOSITORY=/repo` (the repo env var is set inside entrypoint.sh, not the container env); Taskfile updated.
 
 ---
 
@@ -145,7 +145,7 @@ docker compose exec -e RESTIC_REPOSITORY=/tmp/newrepo -e BACKUP_AUTO_INIT=true b
 ```
 **Pass:** missing repo without the flag → loud error + non-zero exit; with
 `BACKUP_AUTO_INIT=true` → proceeds. Your real `/repo` is untouched.
-**Status:** ⬜ not tested
+**Status:** ✅ passed (2026-05-28) — missing repo → "ERROR: no restic repository at /tmp/does-not-exist" + exit=1. Bug found and fixed: entrypoint.sh hardcoded `export RESTIC_REPOSITORY=/repo` which overrode the `-e` flag; changed to `: "${RESTIC_REPOSITORY:=/repo}"` so the env override works.
 
 ---
 
@@ -164,7 +164,7 @@ docker compose exec backup //usr/local/bin/entrypoint.sh 2>&1 | grep -i b2
 ```
 **Pass:** the "B2 copy verified" line appears with matching counts. (Skip if
 you don't use B2.)
-**Status:** ⬜ not tested / N/A
+**Status:** ✅ N/A — B2 not configured.
 
 ---
 

@@ -358,17 +358,17 @@ tasks:
   backup:snapshots:
     desc: "List restic snapshots"
     cmds:
-      - MSYS_NO_PATHCONV=1 {{.COMPOSE}} exec backup restic snapshots --tag aktenraum
+      - MSYS_NO_PATHCONV=1 {{.COMPOSE}} exec -e RESTIC_REPOSITORY=/repo backup restic snapshots --tag aktenraum
 
   backup:check:
     desc: "Verify restic repo integrity (structure + 5% data sample)"
     cmds:
-      - MSYS_NO_PATHCONV=1 {{.COMPOSE}} exec backup restic check --read-data-subset=5%
+      - MSYS_NO_PATHCONV=1 {{.COMPOSE}} exec -e RESTIC_REPOSITORY=/repo backup restic check --read-data-subset=5%
 
   backup:verify:
     desc: "Non-destructive DR rehearsal: restic check + filesystem restore to staging + validate both DB dumps"
     cmds:
-      - MSYS_NO_PATHCONV=1 {{.COMPOSE}} exec backup //usr/local/bin/verify-backup.sh
+      - MSYS_NO_PATHCONV=1 {{.COMPOSE}} exec -e RESTIC_REPOSITORY=/repo backup //usr/local/bin/verify-backup.sh
 
   # ----- Tailscale remote access (see docs/runbooks/tailscale-remote-access.md) -----
 

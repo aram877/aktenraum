@@ -5,7 +5,8 @@ set -euo pipefail
 : "${PAPERLESS_DBPASS:?PAPERLESS_DBPASS is required}"
 
 DBUSER="${PAPERLESS_DBUSER:-paperless}"
-export RESTIC_REPOSITORY=/repo
+: "${RESTIC_REPOSITORY:=/repo}"
+export RESTIC_REPOSITORY
 export PGPASSWORD="${PAPERLESS_DBPASS}"
 
 log() { echo "[$(date -Iseconds)] $*"; }

@@ -52,17 +52,44 @@ Use the **same** `PAPERLESS_DBPASS` and `PAPERLESS_SECRET_KEY` as the original i
 
 ## Step 4 — Restore filesystem data
 
+> **Important — confirm the paths first.** The default deployment backs up
+> through the `backup` container, which records the in-container mount
+> paths `/backup/data`, `/backup/media`, `/backup/export` (NOT
+> `~/aktenraum/...`). The host-side `scripts/backup.sh` instead records
+> `~/aktenraum/data` etc. Always check what the snapshot actually contains
+> before restoring:
+>
+> ```bash
+> restic ls latest --tag filesystem | head
+> ```
+>
+> The examples below assume the **container** layout (`/backup/*`). If your
+> snapshot shows `~/aktenraum/*`, substitute those paths.
+
+restic always recreates the snapshot's absolute paths under `--target`, so
+restore into a staging dir and then move the trees into your data directory
+(`AKTENRAUM_DATA_DIR`, e.g. `~/aktenraum` on Linux/macOS or `D:/aktenraum`
+on Windows):
+
 ```bash
 SNAPSHOT=latest  # or a specific snapshot ID
+DATA_DIR="${HOME}/aktenraum"   # set to your AKTENRAUM_DATA_DIR
 
-restic restore "${SNAPSHOT}" \
-  --target / \
-  --include /home/<user>/aktenraum/data \
-  --include /home/<user>/aktenraum/media \
-  --include /home/<user>/aktenraum/export
+restic restore "${SNAPSHOT}" --tag filesystem \
+  --target /tmp/aktenraum-restore \
+  --include /backup/data \
+  --include /backup/media \
+  --include /backup/export
+
+# Move the restored trees into place
+mv /tmp/aktenraum-restore/backup/data   "${DATA_DIR}/data"
+mv /tmp/aktenraum-restore/backup/media  "${DATA_DIR}/media"
+mv /tmp/aktenraum-restore/backup/export "${DATA_DIR}/export"
 ```
 
-Replace `<user>` with your Linux username.
+On Windows (Git Bash / PowerShell) set `DATA_DIR` to the `AKTENRAUM_DATA_DIR`
+you configured in `docker/.env` (e.g. `D:/aktenraum`) and use a staging path
+on the same drive.
 
 ---
 
@@ -77,19 +104,35 @@ docker compose ps postgres
 
 ---
 
-## Step 6 — Restore the postgres dump
+## Step 6 — Restore the databases
 
-Find the snapshot ID for the postgres dump (it was backed up separately with `--stdin-filename postgres.dump`):
+There are **two** databases, each dumped to its own restic stream. Both must
+be restored, or you will lose data silently:
+
+- `paperless` (`postgres.dump`, tag `postgres`) — all documents, OCR, metadata
+- `aktenraum` (`aktenraum.dump`, tag `postgres-aktenraum`) — SPA users and
+  the per-type auto-approve rules. **Skipping this re-seeds the SPA to a
+  single bootstrap user and resets all auto-approve config.**
+
+Both target databases are created automatically on a fresh postgres volume
+(`paperless` by the postgres image, `aktenraum` by
+`docker/postgres-init/01-create-aktenraum-db.sh`), so they exist empty and
+ready before you restore into them.
 
 ```bash
-restic snapshots --tag postgres
-```
-
-```bash
-restic dump "${SNAPSHOT}" postgres.dump \
+# Paperless DB
+restic dump --tag postgres latest postgres.dump \
   | docker compose exec -T postgres \
       psql -U paperless paperless
+
+# aktenraum DB (SPA users + auto-approve rules)
+restic dump --tag postgres-aktenraum latest aktenraum.dump \
+  | docker compose exec -T postgres \
+      psql -U paperless aktenraum
 ```
+
+(The `--tag` filters scope `latest` to the right DB stream — without them
+`latest` may resolve to the filesystem snapshot, which contains no dump.)
 
 ---
 
@@ -115,5 +158,7 @@ Verify Paperless loads at `http://localhost:8000` and documents are present.
 
 - [ ] Paperless UI loads and shows expected document count
 - [ ] A document with AI custom fields still shows those fields
+- [ ] **aktenraum SPA (`http://localhost:8080`) login works with your original credentials** (confirms the `aktenraum` DB restored)
+- [ ] **`/settings → Auto-Genehmigung` shows your configured per-type rules** (not the seeded defaults)
 - [ ] Drop a test PDF into `~/aktenraum/consume/` and confirm it is ingested and tagged within 90 seconds
 - [ ] Run `bash scripts/backup.sh` to create a fresh snapshot from the restored state

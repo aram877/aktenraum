@@ -47,7 +47,7 @@ restic backup \
 # --------------------------------------------------------------------------
 # Backup postgres (piped directly — no temp file on disk)
 # --------------------------------------------------------------------------
-log "Backing up postgres database..."
+log "Backing up paperless database..."
 docker compose -f "${COMPOSE_DIR}/docker-compose.yml" exec -T postgres \
   pg_dump -U "${DBUSER}" paperless \
   | restic backup \
@@ -55,6 +55,15 @@ docker compose -f "${COMPOSE_DIR}/docker-compose.yml" exec -T postgres \
       --stdin-filename postgres.dump \
       --tag aktenraum \
       --tag postgres
+
+log "Backing up aktenraum database..."
+docker compose -f "${COMPOSE_DIR}/docker-compose.yml" exec -T postgres \
+  pg_dump -U "${DBUSER}" aktenraum \
+  | restic backup \
+      --stdin \
+      --stdin-filename aktenraum.dump \
+      --tag aktenraum \
+      --tag postgres-aktenraum
 
 # --------------------------------------------------------------------------
 # Apply retention policy

@@ -2,7 +2,7 @@
 
 The durable, prioritized plan for fixing the findings from the 2026-05-28 full-app audit (four read-only dimension reviews + one adversarially-verified backup/restore workflow). Findings are grouped into phases by **blast radius first, effort second**: a phase is "done" only when its items are fixed, tested, and — where they touch a documented behaviour — the docs are corrected in the same commit (per the binding documentation cadence in `CLAUDE.md`).
 
-**Status**: Not started. This document is the spec. Phases 0–2 are the load-bearing ones; 3–5 are hardening and tech-debt.
+**Status**: Phase 0 (disaster recovery) implemented and pushed — awaiting end-to-end verification on the data machine (see `docs/testing/audit-remediation-tests.md`). Phases 1–5 not started. Phases 0–2 are the load-bearing ones; 3–5 are hardening and tech-debt.
 
 > **Severity legend**: 🔴 CRITICAL (data loss / security / silently broken) · 🟠 HIGH · 🟡 MEDIUM · ⚪ LOW.
 > Severities reflect the **adversarially-verified** outcome — where the verification workflow refuted or re-rated a first-pass finding, the corrected rating is used and the correction is noted.

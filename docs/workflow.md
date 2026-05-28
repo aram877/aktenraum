@@ -8,7 +8,7 @@ The deeper architectural reference is in [`docs/architecture.md`](architecture.m
 
 ## The cast of services
 
-There are eight services that always run together. Each does exactly one job:
+There are ten containers that run together. Eight of them carry the application logic you reason about; the other two are helpers you rarely touch.
 
 | Service | Job in one line |
 | --- | --- |
@@ -16,12 +16,13 @@ There are eight services that always run together. Each does exactly one job:
 | **SPA** (the website) | What you see in the browser. Buttons, lists, the inbox. Doesn't talk to Paperless directly — only to aktenraum-api. |
 | **aktenraum-api** | The trusted middleman. Holds the Paperless password, checks your login, exposes friendly endpoints to the website. |
 | **Paperless** | The file cabinet. Stores the PDF, runs OCR, holds metadata. The boring-but-load-bearing piece. |
-| **auto-tagger** | The AI worker. Watches Paperless for new files; calls the LLM to extract data; later writes the approved data back. |
+| **auto-tagger** | The AI worker. Watches Paperless for new files; calls the LLM to extract data; later writes the approved data back. Also indexes paragraphs into Qdrant. |
 | **Postgres** | The database. Holds Paperless's metadata + a small aktenraum table for users and settings. |
 | **Qdrant** | The smart search index. Stores searchable embeddings of every paragraph for "ask the AI" questions. |
-| **Ollama / Anthropic** | The brain. The LLM that reads documents and answers questions. |
+| **backup** | A cron container that runs `restic` nightly against the data dirs + a live Postgres dump. |
+| **Ollama / Anthropic** | The brain. The LLM that reads documents and answers questions. Ollama runs on the host (not in a container); Anthropic is a cloud API. |
 
-(There are two more containers — `redis`, `tika`, `gotenberg`, `backup` — but they're Paperless's helpers and the backup cron. You don't interact with them.)
+Plus three Paperless helpers (`redis` for its task queue, `tika` for document parsing, `gotenberg` for Office-to-PDF) — you don't interact with them directly, but they have to be up for Paperless to work.
 
 ---
 
@@ -135,10 +136,15 @@ ai-propagation-error → AI ok but native-fields write failed
 
 That tag is the **single source of truth** for "where is this doc in the pipeline". Every workflow above is just code that watches for one tag and produces another.
 
-Two auxiliary markers that live alongside, not instead:
+Several auxiliary markers live alongside the lifecycle tag, not instead:
 
 - `ai-auto-approved` — pinned permanently to docs the AI was so confident about that they skipped the review queue. The UI renders "Auto-genehmigt" wherever you see one.
 - `ai-low-confidence` — pinned to docs in the review queue where the AI flagged itself as uncertain. The UI puts them at the top of the queue.
+- `ai-duplicate` — set by the propagator when a newly-propagated doc looks like a duplicate of another (same correspondent + issue date + doc type + matching amount or reference number). The Library row shows a purple badge.
+- `ai-duplicate-dismissed` — sticky flag added when you click "Kein Duplikat" on the detail page. Suppresses re-flagging on future propagations against the same cluster.
+- `ai-index-error` — set if the RAG indexer (chunk + embed + Qdrant upsert) failed. Auxiliary, not lifecycle. Clears itself on the next successful indexing.
+- `email-ingested` — provenance flag: this doc arrived via IMAP (see `AKTENRAUM_MAIL_*`) instead of the upload page or the consume folder.
+- `wichtig` — user marker for important docs. Sorts first in tag chips and renders as a gold star.
 
 ---
 

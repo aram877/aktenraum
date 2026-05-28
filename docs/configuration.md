@@ -13,7 +13,7 @@ Three rules that bite:
   The bootstrap script reconciles them; if you edit by hand, do the same.
 - Empty value ≠ unset. `KEY=` is treated as empty string by most readers
   here. The places where empty disables a feature (`QDRANT_URL`,
-  `WEBHOOK_SECRET`, `AUTO_APPROVE_TYPES`) are flagged below.
+  `WEBHOOK_SECRET`) are flagged below.
 
 ---
 
@@ -106,11 +106,23 @@ Loaded only by the `auto-tagger` service.
 | `POLL_INTERVAL_SECONDS` | `30` | How often the poller scans for missed webhook triggers. |
 | `BATCH_SIZE` | `5` | Max docs the poller enqueues per scan. |
 | `ENABLE_PROPAGATION` | `true` | Second polling loop that finds `ai-approved` → writes native fields → tag swap `ai-propagated`. |
-| `AUTO_APPROVE_CONFIDENCE` | `0.90` | Confidence threshold for skipping the review queue. |
-| `AUTO_APPROVE_TYPES` | empty | **Deprecated.** Legacy filter that gated auto-approve to specific doc types. The current code auto-approves on confidence alone; the env var is kept for legacy deployments and ignored by the routing logic. |
-| `LOW_CONFIDENCE_THRESHOLD` | `0.6` | Extractions below this also get `ai-low-confidence` alongside `ai-pending`. |
+| `LOW_CONFIDENCE_THRESHOLD` | `0.6` | Extractions below this also get `ai-low-confidence` alongside `ai-pending` (when the doc didn't auto-approve). |
 | `FEW_SHOT_EXAMPLES` | `3` | Number of recently-propagated docs prepended as `(text excerpt, expected JSON)` examples. 0 disables. Each example adds ~500–700 tokens. |
 | `USE_CORRESPONDENT_HISTORY` | `true` | When the doc mentions a known sender, prepend a hint naming the dominant past doc_type for that sender. |
+
+**Auto-approve routing is no longer env-driven.** Per-`DocumentType`
+`enabled` + `min_confidence` rules live in the aktenraum-api
+`auto_approve_rules` Postgres table, edited from
+`/settings → Auto-Genehmigung` in the SPA. The auto-tagger fetches them
+over HTTP (`GET /api/settings/active-auto-approve-rules`, secret-gated
+via `WEBHOOK_SECRET`) with a 60-second TTL cache in
+[`services/auto-tagger/src/auto_tagger/auto_approve_config.py`](../services/auto-tagger/src/auto_tagger/auto_approve_config.py).
+The legacy `AUTO_APPROVE_CONFIDENCE` env var is still read **once** by
+the Alembic migration as the seed `min_confidence` for all 27 rows on a
+fresh install; afterwards the table is the source of truth.
+`AUTO_APPROVE_TYPES` is no longer read at all. Fail-closed: if the api
+is unreachable AND no cache is populated yet, every doc routes to
+`ai-pending` with reason `rules_unreachable_fail_closed`.
 
 ### Webhook listener
 

@@ -79,15 +79,15 @@ Plain-language definitions for every acronym, framework, and piece of jargon tha
 - **Qdrant** — open-source vector database. Stores the embeddings + chunk metadata. Runs as a Docker service; the SPA never talks to it directly.
 - **vector store** — generic name for "thing that stores embeddings and answers similarity queries." Qdrant is our vector store.
 - **prompt** — the text we send to the LLM. Has a system part ("Du bist ein Assistent …") and a user part (the doc text or the question).
-- **prompt injection** — when content inside the input (a malicious PDF's OCR text) overrides our system prompt and makes the LLM emit something we didn't want (e.g. fake `confidence=0.99` to skip review). Mitigated by `AUTO_APPROVE_TYPES` allowlist; see ADR-003 context section.
+- **prompt injection** — when content inside the input (a malicious PDF's OCR text) overrides our system prompt and makes the LLM emit something we didn't want (e.g. fake `confidence=0.99` to skip review). Mitigated by the per-type `auto_approve_rules` table (the user has to enable each type before any doc of that type can auto-approve, regardless of how high a confidence the LLM emits); see ADR-003 context section.
 - **system prompt** — the part of the prompt that defines the LLM's role / rules. Our extraction system prompt lives in `services/auto-tagger/src/auto_tagger/tagger.py` as `SYSTEM_PROMPT`.
 - **few-shot exemplars** — past documents + their extractions, prepended to the system prompt so the LLM mimics the user's vetted style. Configured via `FEW_SHOT_EXAMPLES` env var.
 - **history hint** — short German line prepended to the system prompt naming the dominant past document_type for a known sender. Drives corpus-driven classification without retraining.
-- **lifecycle tag** — one of `ai-pending`, `ai-approved`, `ai-rejected`, `ai-propagated`, `ai-propagation-error`, `ai-error`. Tracks where a doc is in the AI pipeline. See the lifecycle-tag table in `CLAUDE.md`.
+- **lifecycle tag** — one of `ai-pending`, `ai-approved`, `ai-rejected`, `ai-propagated`, `ai-propagation-error`, `ai-error`. Tracks where a doc is in the AI pipeline. The canonical list lives in `aktenraum_core.paperless.client.LIFECYCLE_TAGS`. **Auxiliary** flags (`ai-auto-approved`, `ai-low-confidence`, `ai-duplicate`, `ai-duplicate-dismissed`, `ai-index-error`, plus the user-facing `email-ingested` and `wichtig`) coexist with a lifecycle tag; they are NOT lifecycle states on their own. See the lifecycle-tag table in `docs/architecture.md`.
 - **propagation / propagator** — the second worker that copies the AI-extracted fields onto Paperless's *native* fields (correspondent FK, document_type FK, created_date) once the user approves. Runs in the auto-tagger container.
 - **extraction / extractor** — the first worker that calls the LLM to get structured fields out of OCR'd text. Also in the auto-tagger.
 - **indexer** — the third worker. Once a doc is propagated, the indexer chunks it, embeds each chunk via bge-m3, and upserts into Qdrant.
-- **auto-approve** — the routing decision that skips human review for high-confidence docs of allowlisted types. Gated by `AUTO_APPROVE_CONFIDENCE` *and* `AUTO_APPROVE_TYPES` (both required).
+- **auto-approve** — the routing decision that skips human review for high-confidence docs. Gated per-`DocumentType` by the `auto_approve_rules` table in the aktenraum Postgres database — each row holds `enabled` (boolean) and `min_confidence` (float). The user edits the rules at `/settings → Auto-Genehmigung`; the auto-tagger fetches them over HTTP with a 60-second TTL cache. Fail-closed when the rule store is unreachable on cold start.
 - **custom field** — Paperless's mechanism for adding extra metadata to a doc beyond its built-in fields. Every `ai_*` field (`ai_confidence`, `ai_summary_de`, `ai_correspondent`, …) is a Paperless custom field.
 
 ---
@@ -141,7 +141,7 @@ Plain-language definitions for every acronym, framework, and piece of jargon tha
 - **async / await** — Python keywords for cooperative multitasking. An `async def` function returns a coroutine; `await` pauses until the awaited operation completes.
 - **asyncio** — Python's built-in async event-loop library. Everything in aktenraum-api and the auto-tagger is asyncio.
 - **coroutine** — the return value of an `async def`. Has to be `await`ed (or scheduled via `asyncio.create_task`) to actually run.
-- **task** — a coroutine wrapped in `asyncio.create_task(...)` so it runs in the background. The auto-tagger gathers 4-5 tasks (extraction worker, poller, propagation, indexer, HTTP server) in one `asyncio.gather`.
+- **task** — a coroutine wrapped in `asyncio.create_task(...)` so it runs in the background. The auto-tagger gathers up to six tasks (extraction worker + poller, propagation worker + poller, indexer, HTTP server) in one `asyncio.gather`.
 - **event loop** — the asyncio scheduler. Picks the next ready coroutine, runs it until it awaits, switches.
 - **gather** — `asyncio.gather(t1, t2, t3)` runs multiple tasks concurrently and waits for all to finish. If any raises, the others get cancelled.
 - **shield** — `asyncio.shield(...)` wraps a coroutine so that a cancellation of the *outer* task doesn't cancel the wrapped operation. We use it on the propagator's lifecycle-flipping PATCH so SIGTERM can't tear it apart mid-swap.
@@ -214,11 +214,12 @@ Plain-language definitions for every acronym, framework, and piece of jargon tha
 
 ---
 
-## Domain-specific German terms (the 26 document types)
+## Domain-specific German terms (the 27 document types)
 
 These are the document_type values the AI extracts and routes on. Most are self-explanatory; the disambiguation rules live in `services/auto-tagger/src/auto_tagger/tagger.py` SYSTEM_PROMPT and `docs/document-types.md`.
 
-- **Rechnung** — invoice / bill.
+- **Rechnung** — invoice / bill (asks for payment).
+- **Beleg** — payment proof: Quittung, Kassenbon, Zahlungsbestätigung. Distinct from Rechnung (which asks for payment) and from Kontoauszug (which lists many transactions).
 - **Gehaltsabrechnung** — monthly payslip.
 - **Kontoauszug** — bank/credit-card statement.
 - **Nebenkostenabrechnung** — annual heat/water/utilities statement issued by a landlord (tenant-side).

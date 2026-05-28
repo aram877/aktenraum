@@ -1,6 +1,6 @@
 # Document type reference
 
-26 German document types. The auto-tagger picks one per document on
+27 German document types. The auto-tagger picks one per document on
 extraction; pass 2 then extracts type-specific structured fields based
 on the choice. Both the enum and per-type fields are canonical at
 [`packages/aktenraum-core/src/aktenraum_core/models/`](../packages/aktenraum-core/src/aktenraum_core/models/) —
@@ -30,7 +30,7 @@ For the prompt-side definitions and templates, see `SYSTEM_PROMPT` in
 
 ---
 
-## The 26 types
+## The 27 types
 
 Grouped by life area so you can find them by what they're about, not by
 alphabet. The "Aliases" column lists the German names a user might call
@@ -41,14 +41,15 @@ prompt's disambiguation rules recognise.
 
 | Type | Definition | Aliases / signals |
 |---|---|---|
-| **Rechnung** | Invoices, receipts, purchase records for goods or services (not insurance, not authority). | Rechnung, Quittung, Kaufbeleg |
+| **Rechnung** | Invoices that ask for payment for goods or services (not insurance, not authority). | Rechnung |
+| **Beleg** | Proof a payment was made — Quittung, Kassenbon, Zahlungsbestätigung, PayPal/Kreditkarten-Abrechnungsbeleg. Distinct from Rechnung (which asks for payment) and from Kontoauszug (which lists many transactions). | Quittung, Kassenbon, Zahlungsbeleg |
 | **Mahnung** | Payment reminder, dunning letter, Inkassoschreiben, Vollstreckungsbescheid. | Zahlungserinnerung, Mahnbescheid |
 | **Kontoauszug** | Bank, credit-card, brokerage, savings statements. | Kontoauszug, Depotauszug |
 | **Vertrag** | Employment, rental, purchase, services, loan agreements. | Arbeitsvertrag, Mietvertrag, Darlehensvertrag |
 | **Kündigung** | Termination letters and contract revocations. | Kündigungsschreiben, Widerruf |
 | **Versicherung** | Insurance policies, coverage confirmations, claim regulation. | Police, Versicherungsschein |
 | **Garantie** | Warranty/guarantee certificates for products. | Garantieurkunde, Gewährleistungsnachweis |
-| **Mitgliesschaft** | GEZ, sports club, ADAC, gym, streaming subscriptions. | Mitgliedsbeitrag, Vereinsbeitrag |
+| **Mitgliedschaft** | GEZ, sports club, ADAC, gym, streaming subscriptions. | Mitgliedsbeitrag, Vereinsbeitrag |
 
 ### Employment & social insurance
 
@@ -129,6 +130,12 @@ each one represents a real misclassification we saw in production.
 6. **Spendenbescheinigung is not Rechnung.** Even though it shows a
    sum + recipient, the §50 EStDV character makes it a tax-relevant
    doc with different fields than an invoice.
+7. **Beleg is not Rechnung.** A Rechnung *asks* for payment ("Bitte
+   überweisen Sie …"); a Beleg *confirms* a payment was made (Quittung,
+   Kassenbon, PayPal-Bestätigung). Same vendor on the same day for the
+   same amount is the canonical Rechnung+Beleg pair — the type
+   discriminator is what stops the duplicate-detection helper from
+   flagging that pair.
 
 ---
 
@@ -141,6 +148,10 @@ Field types: `string`, `date`, `month`, `year`, `money`.
 ### Rechnung
 `rechnungsnummer` · `gesamtbetrag` (money) · `nettobetrag` (money) ·
 `mwst_satz` · `mwst_betrag` (money) · `iban` · `bestellnummer`
+
+### Beleg
+`belegnummer` · `gesamtbetrag` (money) · `zahlungsart` ·
+`bezogene_rechnung`
 
 ### Gehaltsabrechnung
 `abrechnungsmonat` (month) · `bruttogehalt` (money) · `nettogehalt` (money) ·

@@ -103,8 +103,10 @@ A `WEBHOOK_SECRET` shared between Paperless and the auto-tagger is sent in
 
 ### 2. Extraction
 
-The auto-tagger runs four concurrent asyncio tasks via `asyncio.gather`
+The auto-tagger runs up to six concurrent asyncio tasks via `asyncio.gather`
 in [`services/auto-tagger/src/auto_tagger/main.py`](../services/auto-tagger/src/auto_tagger/main.py):
+the extraction worker + poller, the propagation worker + poller, the
+RAG indexer, and the aiohttp webhook server.
 
 ```
                   Paperless's post_consume_script
@@ -112,7 +114,8 @@ in [`services/auto-tagger/src/auto_tagger/main.py`](../services/auto-tagger/src/
                                 ▼
                   POST /trigger/extract (port 8001)
                                 │
-   poller ─────────▶ asyncio.Queue[int] ◀───── webhook handler
+   extraction
+   poller ────────▶ extraction_queue ◀───── webhook handler
    (every 30s,                  │
    safety net)                  ▼
                        extraction worker
@@ -122,8 +125,14 @@ in [`services/auto-tagger/src/auto_tagger/main.py`](../services/auto-tagger/src/
                                 ▼
                        process_document → LLM → PATCH + tag
 
-   propagation loop (every 30s, finds ai-approved → writes native fields)
-   indexer worker  (drains indexing_queue, runs chunk+embed+upsert)
+   propagation
+   poller   ─────▶ propagation_queue ─────▶ propagation worker
+   (every 30s)                              (writes native fields,
+                                             enqueues indexing)
+                                                   │
+                                                   ▼
+                                            indexer worker
+                                            (chunk + embed + Qdrant upsert)
 ```
 
 For each document the worker does:
@@ -136,19 +145,41 @@ For each document the worker does:
    `DocumentExtraction` Pydantic schema. The schema has coercion validators
    (`CoercedList`, `CoercedStr`) for the things small local models routinely
    get wrong (null instead of `[]`, ints in string lists).
-4. Synthesize `ai_title` if the LLM dropped it (gemma4 8B does this).
-5. PATCH the 10 `ai_*` custom fields onto the Paperless document in one
+4. Synthesize `ai_title`, `ai_summary_de`, `ai_confidence_reason`, and
+   `ai_reference_numbers` if the LLM dropped them (small models ≤8B
+   routinely do). Summary + title + confidence-reason fall back to
+   deterministic German prose composed from the structured fields; the
+   reference-number sweep is a regex over the OCR text (Aktenzeichen,
+   Rechnungsnr., Vertragsnr., …).
+5. PATCH the 12 `ai_*` custom fields onto the Paperless document in one
    request. Date strings get normalised to `YYYY-MM-DD`, monetary values
    to `<ISO><amount>`, strings truncated to 128 chars (the Paperless field
-   limit) unless they are `longtext` fields (`ai_summary_de`).
-6. Apply lifecycle tag(s) based on confidence:
-   - confidence ≥ `AUTO_APPROVE_CONFIDENCE` → `ai-approved` +
-     `ai-auto-approved` (skip review, propagation will fire)
-   - else → `ai-pending` (queue for human review)
+   limit) unless they are `longtext` fields (currently `ai_summary_de`,
+   `ai_confidence_reason`, `ai_error_message`).
+6. Apply lifecycle tag(s) based on the per-`DocumentType` auto-approve
+   rule + the doc's confidence (see
+   [`services/auto-tagger/src/auto_tagger/auto_approve_config.py`](../services/auto-tagger/src/auto_tagger/auto_approve_config.py)
+   and [`services/aktenraum-api/src/aktenraum_api/settings/auto_approve_service.py`](../services/aktenraum-api/src/aktenraum_api/settings/auto_approve_service.py)):
+   - `rule.enabled = true` AND `confidence ≥ rule.min_confidence` →
+     `ai-approved` + `ai-auto-approved` (skip review, propagation will fire)
+   - `rule.enabled = false` for this type → `ai-pending` with reason
+     `type_disabled`
+   - `rule.enabled = true` but confidence below the per-type threshold
+     → `ai-pending` with reason `confidence_below_min`
+   - rules unreachable at cold start (api down before the auto-tagger
+     boots) → fail-closed: `ai-pending` with reason
+     `rules_unreachable_fail_closed`
    - additionally `ai-low-confidence` if confidence <
-     `LOW_CONFIDENCE_THRESHOLD`
+     `LOW_CONFIDENCE_THRESHOLD` (and the doc didn't auto-approve)
+
+   Rules live in the aktenraum-api `auto_approve_rules` table, are
+   edited from `/settings → Auto-Genehmigung` in the SPA, and the
+   auto-tagger fetches them over HTTP (`GET /api/settings/active-auto-approve-rules`,
+   secret-gated via `WEBHOOK_SECRET`) with a 60-second in-process TTL
+   cache. Changes saved in the SPA take up to one minute to take effect
+   on the next routing decision.
 7. **Pass 2** — type-specific extraction. The generic pass extracts the
-   same 10 fields for every document; pass 2 calls the LLM again with a
+   same 12 fields for every document; pass 2 calls the LLM again with a
    per-type schema (Rechnung has `rechnungsnummer`/`gesamtbetrag`/…,
    Krankschreibung has `au_von`/`au_bis`/…) and stores results in the
    `aktenraum` database via `aktenraum-api`. Non-fatal: failures don't
@@ -158,7 +189,7 @@ For each document the worker does:
 
 `ai-pending` documents appear in the SPA's review queue at
 `/library?tab=review` (legacy `/inbox` redirects there). The two-pane view
-shows the PDF on the left and the 10 editable AI fields on the right.
+shows the PDF on the left and the 12 editable AI fields on the right.
 Keyboard shortcuts: `a` Approve, `r` Reject, `j/k` next/prev, `Esc` back to
 list. Multi-select bulk approve is available from the list.
 
@@ -239,8 +270,17 @@ retrieval, so extraction + propagation still work in a RAG-less deployment.
 
 If RAG is disabled or any stage fails, the pipeline degrades gracefully —
 the answer step falls back to AI-metadata-only. `bge-reranker-v2-m3` is
-lazy-loaded; the first `/ask` after a fresh container blocks ~5 min on
-the HuggingFace download.
+**pre-warmed in lifespan** as a background task (`aktenraum_api.main._warm_reranker`)
+and cached in the `aktenraum-hf-cache` named volume, so the first `/ask`
+after a rebuild does NOT block on the ~2.1 GB HuggingFace download. A
+fresh-host cold start takes ~80s; rebuilds reuse the volume and are
+instant. An `asyncio.Lock` makes concurrent requests during warm-up
+wait on the in-flight load instead of double-downloading.
+
+Denial suppression: when the answer LLM emits the "I couldn't find that"
+template (`_DENIAL_RE` in `ai/router.py`), the back-fill rule that
+would otherwise attach the retrieved set as citations is skipped — so
+a "nicht gefunden" message doesn't render with source cards beneath it.
 
 ---
 
@@ -280,29 +320,60 @@ unauthenticated requests redirect to `/login`.
 | `/library` | `Library` | Filterable list. `?tab=review` shows pending; default shows archive |
 | `/library/$id` | `LibraryReview` | Two-pane review/edit on any non-pending doc |
 | `/upload` | `Upload` | Drag-and-drop, per-file progress, lifecycle polling |
+| `/scan` | `Scan` | Mobile camera capture + client-side PDF composition via `pdf-lib` |
+| `/trash` | `Trash` | Papierkorb — restore / Endgültig löschen / Empty trash |
+| `/settings` | `Settings` | LLM model picker, per-type Auto-Genehmigung rules, password change |
 | `/inbox` | (redirect) | Legacy — redirects to `/library?tab=review` |
-| `/inbox/$id` | `InboxReview` | Two-pane review on a pending doc (keyboard shortcuts, bulk approve) |
+| `/inbox/$id` | `InboxReview` | Two-pane review on a pending doc (keyboard shortcuts) |
+
+The Review tab inside `/library?tab=review` supports multi-select bulk
+approve via a sticky action bar and uses TanStack `useInfiniteQuery`
+(pageSize=50) instead of page-jump pagination so selections span
+already-loaded chunks naturally.
 
 A global Nav ([`apps/web/src/components/Nav.tsx`](../apps/web/src/components/Nav.tsx))
-shows an "N in Bearbeitung" pill (auto-tagger backlog) and an inbox count
-badge, both refetched every 30s.
+shows an "N in Bearbeitung" pill (auto-tagger backlog), an inbox count
+badge, and a Papierkorb badge. They are driven by a single
+`GET /api/events/counts` SSE stream so changes show up within ~3s of
+backend state without per-badge polling.
+
+The SPA is mobile-responsive: below `md:` (768px) the Nav collapses to a
+hamburger drawer, the Library table swaps to a card list, detail pages
+get a "PDF / Bearbeiten" tab toggle, and `DocumentPreviewModal` goes
+full-screen.
 
 ---
 
 ## Lifecycle tags
 
-Eight tags defined in [`scripts/bootstrap-paperless.sh`](../scripts/bootstrap-paperless.sh). Six are core lifecycle states; two are auxiliary flags.
+Bootstrapped by [`scripts/bootstrap-paperless.sh`](../scripts/bootstrap-paperless.sh).
+Six tags are core lifecycle states (the canonical list lives in
+`packages/aktenraum-core/src/aktenraum_core/paperless/client.py`
+`LIFECYCLE_TAGS`); the rest are auxiliary flags that coexist with a
+lifecycle tag and never appear alone in the state machine.
+
+### Lifecycle states
 
 | Tag | Colour | State |
 |---|---|---|
 | `ai-pending` | amber | Extracted, waiting for human review |
 | `ai-approved` | green | User approved → propagation watcher will copy to native fields |
-| `ai-auto-approved` | emerald | Auxiliary — set alongside `ai-approved` when confidence ≥ `AUTO_APPROVE_CONFIDENCE` so the SPA can show "Auto-genehmigt" |
 | `ai-rejected` | grey | User rejected → no propagation, doc untouched |
 | `ai-propagated` | blue | Native correspondent/document_type/tags/title written; final success state |
 | `ai-propagation-error` | red | Propagation failed mid-run; manual intervention needed |
-| `ai-low-confidence` | orange | Auxiliary — set alongside `ai-pending` when confidence < `LOW_CONFIDENCE_THRESHOLD` |
 | `ai-error` | red | Extraction failed (LLM error, schema validation, etc.) |
+
+### Auxiliary flags
+
+| Tag | Colour | Meaning |
+|---|---|---|
+| `ai-auto-approved` | emerald | Set alongside `ai-approved` when the per-type auto-approve rule fires (rule.enabled + confidence ≥ rule.min_confidence). The SPA renders "Auto-genehmigt". Persists through propagation. |
+| `ai-low-confidence` | orange | Set alongside `ai-pending` when confidence < `LOW_CONFIDENCE_THRESHOLD`. SPA pins these to the top of the review queue. |
+| `ai-duplicate` | purple | Set by the propagator's dedup helper when the new doc matches another propagated doc on correspondent + issue_date + doc_type + (amount or reference number). |
+| `ai-duplicate-dismissed` | grey | Sticky: added when the user clicks "Kein Duplikat". Suppresses re-flagging on future propagations against the same cluster. |
+| `ai-index-error` | red | RAG indexer (chunk + embed + Qdrant upsert) failed. Self-heals on the next successful indexing. NOT a lifecycle state. |
+| `email-ingested` | sky | Provenance flag: arrived via IMAP (`AKTENRAUM_MAIL_*`). |
+| `wichtig` | amber | User marker: starred / important. Sorted first in tag chips, rendered as a gold star pill. |
 
 The poller excludes the six lifecycle tags from its scan; the worker
 re-checks on dequeue and logs `skip_already_processed` if any lifecycle
@@ -312,25 +383,28 @@ tag is set (handles webhook+poller race).
 
 ## AI custom fields (Paperless)
 
-10 fields written by the auto-tagger on every successful extraction.
+12 fields written by the auto-tagger on every successful extraction.
 Created by `scripts/bootstrap-paperless.sh`:
 
 | Name | Type | Purpose |
 |---|---|---|
-| `ai_document_type` | string | One of the 26 enum values (see [document-types.md](document-types.md)) |
+| `ai_document_type` | string | One of the 27 enum values (see [document-types.md](document-types.md)) |
 | `ai_correspondent` | string | Sender / counterparty / issuing authority |
 | `ai_title` | string | German display title (~5–8 words). Synthesized server-side if the LLM drops it |
 | `ai_issue_date` | date | YYYY-MM-DD, the document's own issue date (not birthdays / employment ranges) |
 | `ai_reference_numbers` | string | Comma-joined reference / contract / file numbers |
 | `ai_suggested_tags` | string | Comma-joined tags the LLM proposes (merged into Paperless tags on propagation) |
-| `ai_summary_de` | longtext | Exactly 3 German sentences |
-| `ai_confidence` | float | 0.0–1.0; drives routing |
+| `ai_summary_de` | longtext | Exactly 3 German sentences. Synthesized deterministically if the LLM drops it |
+| `ai_confidence` | float | 0.0–1.0; drives auto-approve routing per-type |
+| `ai_confidence_reason` | longtext | One German sentence explaining what drove the confidence value. Synthesized if dropped |
 | `ai_backend` | string | `ollama` or `anthropic` |
-| `ai_model` | string | Specific model id used (`gemma4:latest`, `claude-sonnet-4-6`, …) |
+| `ai_model` | string | Specific model id used (`qwen2.5:32b-instruct-q8_0`, `claude-sonnet-4-6`, …) |
+| `ai_error_message` | longtext | Set on extraction or propagation failure with a German one-liner the SPA renders |
 
 Paperless's `data_type=string` has a hard 128-char limit; `data_type=longtext`
-has no cap. The `truncate_for_field` helper at the PATCH boundary skips
-truncation for fields in `LONGTEXT_FIELDS = {"ai_summary_de"}`.
+has no cap. The `truncate_for_field` helper at the PATCH boundary
+consults `LONGTEXT_FIELDS = {"ai_summary_de", "ai_confidence_reason",
+"ai_error_message"}` and skips truncation for those.
 
 Per-type ("pass 2") extracted fields are stored in the `aktenraum`
 database, not Paperless, so they don't bloat the Paperless custom-field

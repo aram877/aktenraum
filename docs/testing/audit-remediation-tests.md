@@ -97,6 +97,87 @@ at the bottom of that runbook:
 
 ---
 
+## Phase 0.3 — Integrity check + DR rehearsal tooling
+**Commit:** _(see git log: "feat(backup): integrity check, DR rehearsal, init guard, B2 verify")_
+**Files:** `docker/backup/entrypoint.sh`, `docker/backup/verify-backup.sh` (new),
+`docker/backup/Dockerfile` (adds `jq`), `scripts/backup.sh`, `Taskfile.yml`
+**What changed:** added a weekly `restic check` inside the backup job, a
+non-destructive DR rehearsal (`task backup:verify`), and an on-demand
+integrity check (`task backup:check`).
+
+**Test:**
+```bash
+cd docker
+docker compose up -d --build backup          # rebuild (now includes jq + verify-backup.sh)
+
+# integrity check
+task backup:check
+#   expect: "no errors were found"
+
+# full DR rehearsal — restic check + filesystem restore to staging + both DB dumps
+task backup:verify
+#   expect final line: "[verify] PASS — repo integrity OK, filesystem restorable, both DB dumps valid."
+```
+**Pass:** `task backup:verify` ends with `PASS`. If it fails on the
+`aktenraum` DB dump, you're running against a backup taken before Phase 0.2
+— run `task backup:run` once first, then re-verify.
+**Status:** ⬜ not tested
+
+---
+
+## Phase 0.4 — Repo auto-init guard (no silent abandon on data-dir drift)
+**Commit:** _(same as 0.3)_ · **Files:** `docker/backup/entrypoint.sh`, `scripts/backup.sh`
+**What changed:** the backup no longer silently creates a new repo when one is
+missing (which, on an `AKTENRAUM_DATA_DIR` drift, would abandon the real
+backup history). It now fails loudly unless `BACKUP_AUTO_INIT=true`.
+
+**Test (safe — uses a throwaway repo path, never your real one):**
+```bash
+cd docker
+# point at a guaranteed-empty repo path and confirm it REFUSES to init
+docker compose exec -e RESTIC_REPOSITORY=/tmp/does-not-exist backup \
+  //usr/local/bin/entrypoint.sh ; echo "exit=$?"
+#   expect: "ERROR: no restic repository at /tmp/does-not-exist" + exit=1
+
+# and that the opt-in still works
+docker compose exec -e RESTIC_REPOSITORY=/tmp/newrepo -e BACKUP_AUTO_INIT=true backup \
+  sh -c 'restic snapshots >/dev/null 2>&1 || echo "would init (BACKUP_AUTO_INIT honoured)"'
+```
+**Pass:** missing repo without the flag → loud error + non-zero exit; with
+`BACKUP_AUTO_INIT=true` → proceeds. Your real `/repo` is untouched.
+**Status:** ⬜ not tested
+
+---
+
+## Phase 0.5 — B2 offsite copy verification
+**Commit:** _(same as 0.3)_ · **Files:** `docker/backup/entrypoint.sh`, `scripts/backup.sh`
+**What changed:** after the optional B2 `restic copy`, the job now compares
+local vs remote snapshot counts and fails if the remote has fewer (previously
+a partial/zero copy went undetected). Only relevant if you use B2
+(`BACKUP_B2_BUCKET` set).
+
+**Test (only if B2 is configured):**
+```bash
+cd docker
+docker compose exec backup //usr/local/bin/entrypoint.sh 2>&1 | grep -i b2
+#   expect: "B2 copy verified: N snapshots on remote (local N)."
+```
+**Pass:** the "B2 copy verified" line appears with matching counts. (Skip if
+you don't use B2.)
+**Status:** ⬜ not tested / N/A
+
+---
+
+## Phase 0.6 — Doc correction (no test)
+**Commit:** _(same as 0.3)_ · **Files:** `CLAUDE.md`
+**What changed:** corrected the stale "restic init missing" gotcha (the
+entrypoint self-inits; the real historical cause was the 0.1 cron bug) and
+flipped the "Backup integrity checks" row to ✅. Documentation only — nothing
+to test.
+**Status:** ✅ n/a (doc-only)
+
+---
+
 ## How this file is maintained
 
 Every remediation commit appends (or updates) a section here with its test

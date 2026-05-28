@@ -32,6 +32,7 @@ the source of truth for shape.**
 | POST | `/api/auth/login` | — | Body `{username, password}`. Sets the session cookie. Returns `UserResponse`. |
 | POST | `/api/auth/logout` | — | Clears the session cookie. 204 No Content. |
 | GET  | `/api/auth/me` | 🔒 | Returns the current `UserResponse`. The SPA's router uses this to decide whether to redirect to `/login`. |
+| POST | `/api/auth/change-password` | 🔒 | Body `{current_password, new_password}`. Verifies current + enforces min 8 chars + `new != current`. On success, clears the session cookie so the current device re-logs in (other devices' JWTs expire on their own). 204 No Content. |
 
 `UserResponse`: `{id, username}`.
 
@@ -56,7 +57,7 @@ type AskRequest =
 
 ```ts
 {
-  document_type?: DocumentType         // one of the 26 enum values
+  document_type?: DocumentType         // one of the 27 enum values
   correspondent?: string               // free text, exact-match against Paperless
   date_from?: date                     // ISO YYYY-MM-DD
   date_to?: date
@@ -124,8 +125,11 @@ extracted post-hoc and intersected with the retrieved set.
 When `QDRANT_URL` is unset (or any RAG stage errors), the pipeline
 degrades gracefully to the AI-metadata-only path.
 
-`bge-reranker-v2-m3` is lazy-loaded — the first `/ask` after a fresh
-container blocks ~5 minutes downloading the model from HuggingFace.
+`bge-reranker-v2-m3` is **pre-warmed in lifespan** as a background task
+and cached in the `aktenraum-hf-cache` named volume. A fresh-host cold
+start takes ~80s; rebuilds reuse the cache and are instant. Concurrent
+requests during warm-up wait on an `asyncio.Lock` instead of
+double-downloading.
 
 ---
 
@@ -136,13 +140,18 @@ container blocks ~5 minutes downloading the model from HuggingFace.
 | POST | `/api/documents/upload` | 🔒 | Multipart `files` (one or many). Streams each through to Paperless's `/api/documents/post_document/`. Per-file failure is isolated. Returns `{results: [{filename, status, task_id, detail}]}`. |
 | POST | `/api/documents/{id}/reprocess` | 🔒 | Clears every lifecycle tag and pings the auto-tagger webhook. Falls back to the 30s poller if the webhook is unreachable. |
 | GET  | `/api/documents/{id}/detail` | 🔒 | Full review payload (same shape as `/api/inbox/{id}`) — works on any doc, not just `ai-pending`. |
-| PATCH | `/api/documents/{id}/fields` | 🔒 | Partial update of the 10 AI fields. Body `InboxFieldUpdate`. |
-| GET  | `/api/documents/in-flight` | 🔒 | `{count: number}` — docs carrying `ai-pending` or `ai-approved`. The Nav badge polls this every 30s. |
+| PATCH | `/api/documents/{id}/fields` | 🔒 | Partial update of the 12 AI fields. Body `InboxFieldUpdate`. |
+| GET  | `/api/documents/processing` | 🔒 | Current auto-tagger work in flight — extraction / propagation / indexer slot occupants. Used by the Library page to pin in-flight docs to the top of page 1. |
+| GET  | `/api/documents/in-flight` | 🔒 | `{count: number}` — docs carrying `ai-pending` or `ai-approved`. The Nav badge consumes this via the `/api/events/counts` SSE stream. |
 | GET  | `/api/documents/task/{uuid}` | 🔒 | Proxies Paperless's task lookup. `{task_id, status, doc_id?, result?}`. `doc_id` is regex-fallback parsed from the result string for older Paperless versions. |
 | GET  | `/api/documents/{id}/status` | 🔒 | Lightweight `{id, lifecycle_tags}` lookup used by the upload-page poller. |
 | GET  | `/api/documents/{id}/preview` | 🔒 | Inline PDF stream (`Content-Type: application/pdf`, `Cache-Control: private, max-age=300`). |
 | GET  | `/api/documents/{id}/download` | 🔒 | Original file with upstream `Content-Disposition` forwarded. |
-| DELETE | `/api/documents/{id}` | 🔒 | 204 No Content. Invalidates the SPA's library + inbox caches. |
+| POST | `/api/documents/{id}/star` | 🔒 | Adds the `wichtig` user tag (auto-creates the tag on first call). The SPA renders a gold star pill and sorts `wichtig` first in tag chips. |
+| DELETE | `/api/documents/{id}/star` | 🔒 | Removes the `wichtig` tag. |
+| POST | `/api/documents/{id}/dismiss-duplicate` | 🔒 | Removes the `ai-duplicate` tag and adds the sticky `ai-duplicate-dismissed` aux tag so future propagations against the same cluster don't re-flag the doc. |
+| GET  | `/api/documents/{id}/duplicate-candidates` | 🔒 | Re-runs the field-based dedup detector (`packages/aktenraum-core/src/aktenraum_core/dedup.py`) against the live corpus and returns the matching propagated docs so the detail page can render "Mögliches Duplikat von #N" links. |
+| DELETE | `/api/documents/{id}` | 🔒 | **Soft-delete** (moves the doc to Paperless's trash). Recoverable for `PAPERLESS_EMPTY_TRASH_DELAY` days (default 30) until the trash is emptied. 204 No Content. Invalidates the SPA's library + inbox caches. Hard-delete + Qdrant chunk purge happens via `/api/trash/*`. |
 
 ---
 
@@ -178,7 +187,7 @@ gotcha and is handled by `_merge_custom_fields`.
 
 | Param | Type | Notes |
 |---|---|---|
-| `document_type` | enum | One of the 26 `DocumentType` values. |
+| `document_type` | enum | One of the 27 `DocumentType` values. |
 | `correspondent` | string | Exact match against Paperless. |
 | `date_from` / `date_to` | date | ISO YYYY-MM-DD. |
 | `text` | string | Full-text content search. |
@@ -194,6 +203,50 @@ correspondent / doc_type FK is unset.
 
 ---
 
+## Trash — `/api/trash/*`
+
+Two-step delete model: `DELETE /api/documents/{id}` soft-deletes (moves
+to Paperless's trash, recoverable). These endpoints hard-delete or
+restore. Hard-delete (`/{id}/delete` + `/empty`) ALSO purges the doc's
+Qdrant chunks via the vector store's `delete_by_doc_id`; failures log
+`trash_qdrant_purge_failed` but never fail the user request (best-effort).
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| GET  | `/api/trash/` | 🔒 | Paginated list of trashed docs. Query: `page`, `page_size`, `ordering` (`deleted_at`/`-deleted_at`/`created`/`-created`/`title`/`-title`). |
+| POST | `/api/trash/{id}/restore` | 🔒 | Restore from trash. 204 No Content. |
+| POST | `/api/trash/{id}/delete` | 🔒 | Hard-delete one doc + purge Qdrant chunks. 204 No Content. |
+| POST | `/api/trash/empty` | 🔒 | Empty the trash (hard-delete every trashed doc + purge Qdrant chunks). Returns `EmptyTrashResponse` with the count. |
+
+---
+
+## Settings — `/api/settings/*`
+
+The SPA's `/settings` page consumes the auth-gated endpoints. The
+`active-*` variants are internal — the auto-tagger reads them with a
+short TTL cache, secret-gated via `WEBHOOK_SECRET` when set.
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| GET  | `/api/settings/llm` | 🔒 | Current LLM quality choice for extraction. `{quality, ollama_model}`. |
+| PATCH | `/api/settings/llm` | 🔒 | Update the extraction LLM quality. |
+| GET  | `/api/settings/answer-llm` | 🔒 | Current LLM quality choice for the answer step in `/api/ai/answer/stream`. |
+| PATCH | `/api/settings/answer-llm` | 🔒 | Update the answer LLM quality. |
+| GET  | `/api/settings/active-llm-model` | secret | Internal: auto-tagger reads the active extraction model. Authless by design (in-network only); `X-Aktenraum-Secret` required when `WEBHOOK_SECRET` is set. |
+| GET  | `/api/settings/auto-approve` | 🔒 | Per-`DocumentType` rules (`enabled`, `min_confidence`). One row per enum value. |
+| PUT  | `/api/settings/auto-approve` | 🔒 | Replace the full rule set (transactional). Body validates against the closed enum so unknown types are rejected. |
+| GET  | `/api/settings/active-auto-approve-rules` | secret | Internal: auto-tagger reads the rules every 60s (TTL cache). Authless by design (in-network only); `X-Aktenraum-Secret` required when `WEBHOOK_SECRET` is set. |
+
+---
+
+## Events — `/api/events/*`
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| GET | `/api/events/counts` | 🔒 | Server-Sent Events stream of `{inbox, in_flight, trash}` counts. Emits one event on connect (initial snapshot) and one per change. Heartbeat every 25s to survive nginx's 60s `proxy_read_timeout`. Drives every Nav badge — replaces three independent polling timers. |
+
+---
+
 ## Type-specific fields (pass 2)
 
 These endpoints serve the SPA's "Typenspezifische Felder" section
@@ -202,7 +255,7 @@ These endpoints serve the SPA's "Typenspezifische Felder" section
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| GET | `/api/document-types/schema` | 🔒 | The full `TYPE_FIELD_SCHEMA` for all 26 doc types. The SPA caches this and renders inputs based on the field's `kind` (`string`, `date`, `month`, `year`, `money`). |
+| GET | `/api/document-types/schema` | 🔒 | The full `TYPE_FIELD_SCHEMA` for all 27 doc types. The SPA caches this and renders inputs based on the field's `kind` (`string`, `date`, `month`, `year`, `money`). |
 | GET | `/api/documents/{id}/type-fields` | 🔒 | Current values for one doc — `{document_type, fields: {name: value}}`. |
 | PATCH | `/api/documents/{id}/type-fields` | 🔒 | Partial update. Unknown field names → 422. |
 

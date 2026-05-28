@@ -14,8 +14,17 @@ log() { echo "[$(date -Iseconds)] $*"; }
 # Init repo if needed
 # --------------------------------------------------------------------------
 if ! restic snapshots &>/dev/null; then
-    log "Initialising restic repository..."
-    restic init
+    if [ "${BACKUP_AUTO_INIT:-false}" = "true" ]; then
+        log "No repository at ${RESTIC_REPOSITORY} — BACKUP_AUTO_INIT=true, initialising..."
+        restic init
+    else
+        log "ERROR: no restic repository at ${RESTIC_REPOSITORY}."
+        log "Refusing to auto-create one: if AKTENRAUM_DATA_DIR drifted to a new path,"
+        log "auto-init would silently abandon the existing repo and start a fresh, empty"
+        log "backup history. First-time setup: run 'task setup', or set BACKUP_AUTO_INIT=true"
+        log "for this one run if you really intend to create a new repository here."
+        exit 1
+    fi
 fi
 
 # --------------------------------------------------------------------------
@@ -73,7 +82,25 @@ if [ -n "${BACKUP_B2_BUCKET:-}" ]; then
         restic forget \
             --keep-daily 7 --keep-weekly 4 --keep-monthly 12 \
             --prune --tag aktenraum
+
+        log "Verifying B2 copy..."
+        local_n="$(restic -r /repo snapshots --tag aktenraum --json | jq 'length')"
+        b2_n="$(restic -r "${RESTIC_REPOSITORY_2}" snapshots --tag aktenraum --json | jq 'length')"
+        if [ "${b2_n}" -lt "${local_n}" ]; then
+            log "ERROR: B2 has ${b2_n} aktenraum snapshots but local has ${local_n} — remote copy is incomplete."
+            exit 1
+        fi
+        log "B2 copy verified: ${b2_n} snapshots on remote (local ${local_n})."
     fi
+fi
+
+# --------------------------------------------------------------------------
+# Integrity check — weekly (Sundays) to bound cost; structure + 5% of data
+# --------------------------------------------------------------------------
+if [ "$(date +%u)" = "7" ] || [ "${BACKUP_FORCE_CHECK:-false}" = "true" ]; then
+    log "Running restic check (structure + 5% data sample)..."
+    restic check --read-data-subset=5%
+    log "restic check passed."
 fi
 
 log "Backup complete."

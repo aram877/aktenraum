@@ -29,8 +29,16 @@ log() { echo "[$(date -Iseconds)] $*"; }
 # Initialise local repo if needed
 # --------------------------------------------------------------------------
 if ! restic snapshots &>/dev/null; then
-  log "Initialising restic repository at ${LOCAL_REPO}..."
-  restic init
+  if [ "${BACKUP_AUTO_INIT:-false}" = "true" ]; then
+    log "No repository at ${LOCAL_REPO} — BACKUP_AUTO_INIT=true, initialising..."
+    restic init
+  else
+    log "ERROR: no restic repository at ${LOCAL_REPO}."
+    log "Refusing to auto-create one: if the data dir drifted, auto-init would silently"
+    log "abandon the existing repo. First-time setup: run 'task setup', or set"
+    log "BACKUP_AUTO_INIT=true for this run if you really intend a new repository here."
+    exit 1
+  fi
 fi
 
 # --------------------------------------------------------------------------
@@ -96,6 +104,19 @@ if [ -n "${BACKUP_B2_BUCKET:-}" ]; then
       --keep-monthly 12 \
       --prune \
       --tag aktenraum
+
+    log "Verifying B2 copy..."
+    if command -v jq >/dev/null 2>&1; then
+      local_n="$(restic -r "${LOCAL_REPO}" snapshots --tag aktenraum --json | jq 'length')"
+      b2_n="$(RESTIC_REPOSITORY="${RESTIC_REPOSITORY_2}" restic snapshots --tag aktenraum --json | jq 'length')"
+      if [ "${b2_n}" -lt "${local_n}" ]; then
+        log "ERROR: B2 has ${b2_n} aktenraum snapshots but local has ${local_n} — remote copy is incomplete."
+        exit 1
+      fi
+      log "B2 copy verified: ${b2_n} snapshots on remote (local ${local_n})."
+    else
+      log "jq not found — skipping B2 snapshot-count verification."
+    fi
   fi
 else
   log "BACKUP_B2_BUCKET not set — skipping remote backup."

@@ -32,13 +32,21 @@ restic backup \
 # --------------------------------------------------------------------------
 # Backup postgres via direct connection
 # --------------------------------------------------------------------------
-log "Backing up postgres database..."
+log "Backing up paperless database..."
 pg_dump -h postgres -U "${DBUSER}" paperless \
     | restic backup \
         --stdin \
         --stdin-filename postgres.dump \
         --tag aktenraum \
         --tag postgres
+
+log "Backing up aktenraum database..."
+pg_dump -h postgres -U "${DBUSER}" aktenraum \
+    | restic backup \
+        --stdin \
+        --stdin-filename aktenraum.dump \
+        --tag aktenraum \
+        --tag postgres-aktenraum
 
 # --------------------------------------------------------------------------
 # Retention policy

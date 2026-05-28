@@ -448,9 +448,7 @@ export function LibraryReview({ id }: { id: number }) {
                   </div>
                   <div className="mt-1">
                     <span className="text-ink-subtle">Tags:</span>{" "}
-                    {detail.data.tags.length > 0
-                      ? detail.data.tags.join(", ")
-                      : "—"}
+                    {userFacingTags(detail.data.tags).join(", ") || "—"}
                   </div>
                   <p className="mt-2 text-[11px] leading-snug text-ink-subtle">
                     Bearbeitungen ändern nur die KI-Felder. Wenn auch die

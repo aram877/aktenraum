@@ -441,7 +441,7 @@ export function InboxReview({ id }: { id: number }) {
                   </div>
                   <div className="mt-1">
                     <span className="text-ink-subtle">Tags:</span>{" "}
-                    {detail.data.tags.length ? detail.data.tags.join(", ") : "—"}
+                    {userFacingTags(detail.data.tags).join(", ") || "—"}
                   </div>
                   <TypeSpecificFieldsSection
                     docId={detail.data.id}

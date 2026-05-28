@@ -435,6 +435,7 @@ def _project_doc_fields(
         id=int(doc["id"]),
         correspondent=values.get("ai_correspondent"),
         issue_date=values.get("ai_issue_date"),
+        # ai_monetary_amount is retired in prod (always None here); see dedup.py.
         monetary_amount=values.get("ai_monetary_amount"),
         reference_numbers=values.get("ai_reference_numbers"),
         document_type=values.get("ai_document_type"),
@@ -835,11 +836,15 @@ async def delete_document(
     _user: User = Depends(get_current_user),
     gateway: PaperlessGateway = Depends(get_paperless_gateway),
 ) -> None:
-    """Permanently remove a document from Paperless.
+    """Soft-delete a document (move it to Paperless's trash).
 
-    No soft-delete: the PDF, OCR, custom fields, and any Qdrant chunks for
-    the doc are gone. The SPA wraps this in a confirm step; on success it
-    invalidates the library / inbox / in-flight caches so the row disappears.
+    Paperless 2.x always soft-deletes: the doc moves to /api/trash/ and is
+    recoverable for PAPERLESS_EMPTY_TRASH_DELAY days (default 30). The PDF,
+    OCR, custom fields, and Qdrant chunks are NOT removed here — hard-delete
+    + chunk purge happen only via /api/trash/* (Endgültig löschen / Empty).
+    A soft-deleted doc's chunks stay in Qdrant until the trash is emptied,
+    so RAG can still surface it until then. The SPA wraps this in a confirm
+    step; on success it invalidates the library / inbox / in-flight caches.
     """
     try:
         await gateway.delete_document(doc_id)

@@ -252,6 +252,101 @@ recreate — then restore it.)
 
 ---
 
+## Phase 2.1 — Memory limits (prevent OOM cascade)
+**Commit:** _(see git log: "feat(infra): mem limits + data-dir fail-closed; correctness fixes")_
+**Files:** `docker/docker-compose.yml`
+**What changed:** `aktenraum-api` (6g) and `auto-tagger` (3g) now have
+`mem_limit` caps (env-overridable via `AKTENRAUM_API_MEM_LIMIT` /
+`AUTO_TAGGER_MEM_LIMIT`) so a runaway can't OOM-kill postgres mid-write.
+
+**Test:**
+```bash
+cd docker
+AKTENRAUM_DATA_DIR=$(grep AKTENRAUM_DATA_DIR .env | cut -d= -f2) docker compose config | grep -i mem_limit
+#   expect two mem_limit lines (api ~6 GiB, auto-tagger ~3 GiB)
+docker compose up -d
+docker stats --no-stream aktenraum-api auto-tagger
+#   confirm both run comfortably under their caps; if either sits near the
+#   cap on your host, raise it via AKTENRAUM_API_MEM_LIMIT / AUTO_TAGGER_MEM_LIMIT in .env
+```
+**Pass:** both services run well under the cap; no OOM-kill restart loop
+(`docker compose ps` shows them Up, not Restarting).
+**Status:** ⬜ not tested
+
+---
+
+## Phase 2.4 — AKTENRAUM_DATA_DIR fail-closed (⚠️ action may be required)
+**Commit:** _(same as 2.1)_ · **Files:** `docker/docker-compose.yml`, `docker/.env.example`
+**What changed:** compose no longer falls back to `${HOME}/aktenraum` when
+`AKTENRAUM_DATA_DIR` is unset/empty — it now **aborts `compose up` loudly**.
+This prevents the documented silent-data-loss footgun (the dir silently
+changing between runs and initialising a fresh empty DB).
+
+> **⚠️ ACTION:** make sure `docker/.env` on the data machine has
+> `AKTENRAUM_DATA_DIR=` set to your real absolute path (the one your data is
+> already under). If it was relying on the `${HOME}` default, set it
+> explicitly to that resolved path BEFORE `compose up`, or compose will refuse
+> to start.
+
+**Test:**
+```bash
+cd docker
+grep '^AKTENRAUM_DATA_DIR=' .env       # must be a non-empty absolute path
+docker compose config -q && echo "config OK"   # should succeed
+# (negative check — proves the guard works:)
+AKTENRAUM_DATA_DIR= docker compose config -q    # should ERROR loudly
+```
+**Pass:** with the var set → `config OK` and the stack starts against your
+existing data; empty → loud error. Your documents/DB must still be present
+after `docker compose up -d` (same data dir as before).
+**Status:** ⬜ not tested
+
+---
+
+## Phase 2.2 / 2.3 — Backend correctness (docs honesty; no behaviour change)
+**Commit:** _(same as 2.1)_
+**Files:** `packages/.../dedup.py`, `services/auto-tagger/.../propagator.py`,
+`services/aktenraum-api/.../documents/router.py`
+**What changed:** (2.2) the dedup docstring + call sites now state honestly
+that the `ai_monetary_amount` field is retired so the amount-match branch is
+**inert in prod** (dedup keys on correspondent+date+type+reference-numbers);
+the mechanism + tests are kept for a future type-specific repoint. (2.3) the
+`DELETE /api/documents/{id}` docstring is corrected — it's a **soft-delete**
+to trash (recoverable; Qdrant chunks retained until the trash is emptied),
+not the permanent delete it previously claimed.
+**Test:** covered by unit tests (647 pass). No runtime behaviour change —
+nothing to click. Optional: confirm deleting a doc moves it to `/trash` (it
+already did; only the docstring was wrong).
+**Status:** ✅ n/a (docs + tests only)
+
+---
+
+## Phase 2.5 — SPA fixes (tag leak + query retries)
+**Commit:** _(same as 2.1)_
+**Files:** `apps/web/src/lib/lifecycleTags.ts`, `routes/InboxReview.tsx`,
+`routes/LibraryReview.tsx`, `main.tsx`
+**What changed:** (a) the "Tags:" footer on inbox/library detail pages no
+longer shows internal `ai-duplicate` / `ai-duplicate-dismissed` state (the
+duplicate signal still shows via its purple badge + "Mögliches Duplikat"
+links); (b) failed queries now retry once instead of 3×, and never retry
+401/403 (faster login redirect, no 7s hang on a hard 500).
+
+**Test (rebuild the SPA first):**
+```bash
+cd docker && docker compose up -d --build nginx   # or: task web:deploy
+```
+- Open a doc in `/library/$id` or `/inbox/$id` that is flagged as a duplicate
+  → the "Tags:" line should NOT list `ai-duplicate` / `ai-duplicate-dismissed`
+  (the purple "Duplikat" badge + "Mögliches Duplikat von #N" links still show).
+- Normal browsing works; on a transient error the UI fails fast (no long hang).
+**Pass:** internal dedup tags hidden from the Tags footer; app behaves normally.
+**Status:** ⬜ not tested
+
+> **Deferred from Phase 2:** 2.6 (extraction N+1 fetch — perf nit, touches the
+> hot path) and 2.5(b) (j/k neighbor-nav ordering divergence). Tracked in the plan.
+
+---
+
 ## How this file is maintained
 
 Every remediation commit appends (or updates) a section here with its test

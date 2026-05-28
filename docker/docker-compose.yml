@@ -18,10 +18,10 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
-      - ${AKTENRAUM_DATA_DIR:-${HOME}/aktenraum}/data:/usr/src/paperless/data
-      - ${AKTENRAUM_DATA_DIR:-${HOME}/aktenraum}/media:/usr/src/paperless/media
-      - ${AKTENRAUM_DATA_DIR:-${HOME}/aktenraum}/export:/usr/src/paperless/export
-      - ${AKTENRAUM_DATA_DIR:-${HOME}/aktenraum}/consume:/usr/src/paperless/consume
+      - ${AKTENRAUM_DATA_DIR:?must be set to an absolute path in docker/.env (see .env.example) - unset/empty risks silent data loss}/data:/usr/src/paperless/data
+      - ${AKTENRAUM_DATA_DIR:?must be set to an absolute path in docker/.env (see .env.example) - unset/empty risks silent data loss}/media:/usr/src/paperless/media
+      - ${AKTENRAUM_DATA_DIR:?must be set to an absolute path in docker/.env (see .env.example) - unset/empty risks silent data loss}/export:/usr/src/paperless/export
+      - ${AKTENRAUM_DATA_DIR:?must be set to an absolute path in docker/.env (see .env.example) - unset/empty risks silent data loss}/consume:/usr/src/paperless/consume
       - ./paperless-scripts:/usr/src/paperless/scripts:ro
     env_file:
       - path: .env
@@ -41,7 +41,7 @@ services:
     image: postgres:15
     restart: unless-stopped
     volumes:
-      - ${AKTENRAUM_DATA_DIR:-${HOME}/aktenraum}/pgdata:/var/lib/postgresql/data
+      - ${AKTENRAUM_DATA_DIR:?must be set to an absolute path in docker/.env (see .env.example) - unset/empty risks silent data loss}/pgdata:/var/lib/postgresql/data
       # Init scripts run only on a fresh data dir; existing installs need to
       # `CREATE DATABASE aktenraum` once by hand (see docs/runbooks/operations.md).
       - ./postgres-init:/docker-entrypoint-initdb.d:ro
@@ -98,7 +98,7 @@ services:
     image: qdrant/qdrant:v1.17.1
     restart: unless-stopped
     volumes:
-      - ${AKTENRAUM_DATA_DIR:-${HOME}/aktenraum}/qdrant:/qdrant/storage
+      - ${AKTENRAUM_DATA_DIR:?must be set to an absolute path in docker/.env (see .env.example) - unset/empty risks silent data loss}/qdrant:/qdrant/storage
     ports:
       - "127.0.0.1:${AKTENRAUM_QDRANT_PORT:-6333}:6333"
     expose:
@@ -123,6 +123,10 @@ services:
       context: ..
       dockerfile: services/auto-tagger/Dockerfile
     restart: unless-stopped
+    # Cap RAM so a runaway extraction/indexing job can't OOM-kill postgres
+    # mid-write. Tune per host via AUTO_TAGGER_MEM_LIMIT. ADR-004 calls for
+    # independent caps on the two Python services.
+    mem_limit: ${AUTO_TAGGER_MEM_LIMIT:-3g}
     depends_on:
       paperless:
         condition: service_started
@@ -153,6 +157,10 @@ services:
       context: ..
       dockerfile: services/aktenraum-api/Dockerfile
     restart: unless-stopped
+    # Cap RAM so a runaway (reranker ~2.1 GB load + concurrent requests)
+    # can't OOM-kill postgres mid-write. Tune per host via
+    # AKTENRAUM_API_MEM_LIMIT. ADR-004 calls for independent caps.
+    mem_limit: ${AKTENRAUM_API_MEM_LIMIT:-6g}
     volumes:
       # RAG eval cases (Phase 1.10). Bind-mounted instead of baked into
       # the image so editing golden-questions.yaml doesn't require a
@@ -214,10 +222,10 @@ services:
       - path: backup.env
         required: false
     volumes:
-      - ${AKTENRAUM_DATA_DIR:-${HOME}/aktenraum}/data:/backup/data:ro
-      - ${AKTENRAUM_DATA_DIR:-${HOME}/aktenraum}/media:/backup/media:ro
-      - ${AKTENRAUM_DATA_DIR:-${HOME}/aktenraum}/export:/backup/export:ro
-      - ${AKTENRAUM_DATA_DIR:-${HOME}/aktenraum}/backup/restic-repo:/repo
+      - ${AKTENRAUM_DATA_DIR:?must be set to an absolute path in docker/.env (see .env.example) - unset/empty risks silent data loss}/data:/backup/data:ro
+      - ${AKTENRAUM_DATA_DIR:?must be set to an absolute path in docker/.env (see .env.example) - unset/empty risks silent data loss}/media:/backup/media:ro
+      - ${AKTENRAUM_DATA_DIR:?must be set to an absolute path in docker/.env (see .env.example) - unset/empty risks silent data loss}/export:/backup/export:ro
+      - ${AKTENRAUM_DATA_DIR:?must be set to an absolute path in docker/.env (see .env.example) - unset/empty risks silent data loss}/backup/restic-repo:/repo
     networks:
       - internal
 

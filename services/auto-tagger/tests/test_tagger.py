@@ -335,6 +335,30 @@ class TestRouteLifecycleTags:
         assert tags == ["ai-pending", "ai-low-confidence"]
         assert reason == "rules_unreachable_fail_closed"
 
+    def test_untrusted_source_never_auto_approves(self, make_settings):
+        # A doc from an untrusted ingestion path (e.g. IMAP) must stay pending
+        # even when its type is enabled and confidence clears the threshold —
+        # the sender controls the OCR text, which is the prompt-injection
+        # surface. See docs/plans/audit-remediation.md 1.2.
+        settings = make_settings()
+        extraction = _make_extraction("Rechnung", 1.0)
+        rules = _build_rules({"Rechnung": (True, 0.90)})
+        tags, reason = _route_lifecycle_tags(
+            extraction, settings, rules, untrusted_source=True
+        )
+        assert tags == ["ai-pending"]
+        assert reason == "untrusted_source_no_auto_approve"
+
+    def test_untrusted_source_still_appends_low_confidence_aux_tag(self, make_settings):
+        settings = make_settings()
+        extraction = _make_extraction("Rechnung", 0.3)
+        rules = _build_rules({"Rechnung": (True, 0.90)})
+        tags, reason = _route_lifecycle_tags(
+            extraction, settings, rules, untrusted_source=True
+        )
+        assert tags == ["ai-pending", "ai-low-confidence"]
+        assert reason == "untrusted_source_no_auto_approve"
+
 
 class TestSplitCsv:
     @pytest.mark.parametrize(

@@ -43,6 +43,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        if not settings.webhook_secret:
+            structlog.get_logger().warning(
+                "webhook_secret_unset",
+                detail=(
+                    "WEBHOOK_SECRET is empty — the internal /api/settings/active-* "
+                    "endpoints are unauthenticated and rely on Docker network "
+                    "isolation alone. Set WEBHOOK_SECRET (bootstrap-secrets.sh "
+                    "generates one) in docker/aktenraum-api.env AND "
+                    "docker/auto-tagger.env (must match)."
+                ),
+            )
         engine, SessionLocal = build_engine_and_sessionmaker(settings.database_url)
         app.state.engine = engine
         app.state.session_factory = SessionLocal

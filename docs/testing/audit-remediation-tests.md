@@ -178,6 +178,80 @@ to test.
 
 ---
 
+## Phase 1.1 — Secure cookie default (fresh installs)
+**Commit:** _(see git log: "feat(security): secure cookie default, prompt-injection hardening, webhook-secret warning")_
+**Files:** `docker/aktenraum-api.env.example`
+**What changed:** the example no longer ships `COOKIE_SECURE=false`; it's
+commented out so the code default (`true`) applies. **Does NOT affect your
+existing `docker/aktenraum-api.env`** — only new installs that copy the
+example. Your current deployment keeps whatever you already set.
+
+**Test (only relevant for a brand-new install):**
+```bash
+grep COOKIE_SECURE docker/aktenraum-api.env.example
+#   expect: the line is commented (# COOKIE_SECURE=false)
+```
+**Pass:** fresh installs default to a Secure cookie; over Tailscale HTTPS
+login still works. (Your existing env is untouched — no action needed.)
+**Status:** ⬜ not tested
+
+---
+
+## Phase 1.2 — Prompt-injection hardening
+**Commit:** _(same as 1.1)_
+**Files:** `services/auto-tagger/src/auto_tagger/tagger.py`,
+`services/auto-tagger/tests/test_tagger.py`
+**What changed:** (a) added a SICHERHEIT clause to `SYSTEM_PROMPT` telling the
+LLM that document text is data, never instructions (so a PDF can't say "set
+confidence 1.0" to skip review); (b) docs arriving via an untrusted path
+(`email-ingested` tag) now **never auto-approve** regardless of confidence/
+rules — they always route to `ai-pending` with reason
+`untrusted_source_no_auto_approve`.
+
+**Test A — covered by unit tests (already run in CI/local):**
+`test_untrusted_source_never_auto_approves` + the low-confidence variant.
+
+**Test B — live (only if you have auto-approve enabled for some type):**
+```bash
+# Enable auto-approve for, say, Rechnung in /settings → Auto-Genehmigung, then
+# ingest a Rechnung VIA EMAIL (so it gets the email-ingested tag).
+# It must land in the review queue, NOT auto-approved.
+docker compose logs auto-tagger | grep routing_decision | tail
+#   expect reason=untrusted_source_no_auto_approve for the email-ingested doc
+```
+**Pass:** an email-ingested doc never auto-approves; an uploaded doc of the
+same type still can. (Skip B if you don't use email ingestion or auto-approve.)
+**Status:** ⬜ not tested
+
+---
+
+## Phase 1.3 — WEBHOOK_SECRET startup warning
+**Commit:** _(same as 1.1)_
+**Files:** `services/aktenraum-api/src/aktenraum_api/main.py`,
+`services/auto-tagger/src/auto_tagger/main.py`
+**What changed:** both services now log a loud `webhook_secret_unset` WARNING
+at startup if `WEBHOOK_SECRET` is empty (the internal endpoints would then be
+unauthenticated, relying on Docker network isolation alone). Non-breaking — a
+warning, not a hard fail, so it can't brick an existing stack.
+
+**Test:**
+```bash
+cd docker
+docker compose up -d --build aktenraum-api auto-tagger
+# If your WEBHOOK_SECRET is set (the normal case), you should see NO warning:
+docker compose logs aktenraum-api auto-tagger | grep webhook_secret_unset || echo "no warning — secret is set (good)"
+```
+**Pass:** with a configured secret → no warning. (If you want to see the
+warning fire, temporarily blank `WEBHOOK_SECRET` in both env files and
+recreate — then restore it.)
+**Status:** ⬜ not tested
+
+> **Deferred this round:** 1.4 (upload magic-byte sniffing — adds a dependency,
+> low real impact) and 1.5 (JWT revocation — optional). Tracked in
+> `docs/plans/audit-remediation.md`.
+
+---
+
 ## How this file is maintained
 
 Every remediation commit appends (or updates) a section here with its test

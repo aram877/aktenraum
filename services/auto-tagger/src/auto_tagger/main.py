@@ -227,6 +227,16 @@ async def run() -> None:
         propagation_enabled=settings.enable_propagation,
         http_server_enabled=settings.enable_http_server,
     )
+    if not settings.webhook_secret:
+        log.warning(
+            "webhook_secret_unset",
+            detail=(
+                "WEBHOOK_SECRET is empty — the /trigger/* endpoints accept "
+                "unauthenticated requests and rely on Docker network isolation "
+                "alone. Set WEBHOOK_SECRET (bootstrap-secrets.sh generates one) "
+                "in docker/auto-tagger.env AND docker/aktenraum-api.env (must match)."
+            ),
+        )
 
     # The extraction worker rebuilds the backend per doc via
     # build_active_backend(settings), consulting aktenraum-api for the

@@ -50,6 +50,7 @@ backup           Daily restic backup via crond
 Detailed walkthroughs:
 
 - **[`docs/architecture.md`](docs/architecture.md)** — services, data flow, lifecycle, RAG pipeline
+- **[`docs/architecture-diagram.md`](docs/architecture-diagram.md)** — the same stack as diagrams (Mermaid, D2, ASCII, C4) with a shared legend
 - **[`docs/development.md`](docs/development.md)** — start/build/test/debug + common tasks
 - **[`docs/document-types.md`](docs/document-types.md)** — the 26 German doc types + disambiguation + per-type fields
 - **[`docs/configuration.md`](docs/configuration.md)** — every env var, organised by file

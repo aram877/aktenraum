@@ -93,6 +93,54 @@ export function ArrowDownIcon({ className }: IconProps) {
   );
 }
 
+export function HomeIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M2.5 7.5 8 3l5.5 4.5" />
+      <path d="M4 7v6h8V7" />
+    </svg>
+  );
+}
+
+export function SparklesIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M8 2.2l1.4 3.4L12.8 7l-3.4 1.4L8 11.8 6.6 8.4 3.2 7l3.4-1.4z" />
+      <path d="M12.5 11.5l.5 1.2 1.2.5-1.2.5-.5 1.2-.5-1.2-1.2-.5 1.2-.5z" />
+    </svg>
+  );
+}
+
+export function LibraryIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M2 3.5h12v3H2z" />
+      <path d="M3 6.5v6h10v-6" />
+      <path d="M6.5 9h3" />
+    </svg>
+  );
+}
+
+export function UploadIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M8 10V2.5M5 5l3-3 3 3" />
+      <path d="M2.5 10v3.5h11V10" />
+    </svg>
+  );
+}
+
+export function SettingsIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M3 5h6M11.5 5H13" />
+      <path d="M3 11h2.5M8 11h5" />
+      <circle cx="10" cy="5" r="1.6" />
+      <circle cx="6" cy="11" r="1.6" />
+    </svg>
+  );
+}
+
 export function MenuIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden>

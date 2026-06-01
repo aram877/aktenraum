@@ -12,9 +12,6 @@ import {
 // the SettingsPage, InboxReview, Ask, etc. The Suspense fallback below
 // renders during the per-chunk fetch — under 100ms on a warm cache.
 const Ask = lazy(() => import("./routes/Ask").then((m) => ({ default: m.Ask })));
-const Find = lazy(() =>
-  import("./routes/Find").then((m) => ({ default: m.Find })),
-);
 const Home = lazy(() =>
   import("./routes/Home").then((m) => ({ default: m.Home })),
 );
@@ -109,17 +106,6 @@ const askRoute = createRoute({
   component: () => (
     <RouteSuspense>
       <Ask />
-    </RouteSuspense>
-  ),
-});
-
-const findRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/find",
-  beforeLoad: ({ context }) => ensureLoggedIn(context),
-  component: () => (
-    <RouteSuspense>
-      <Find />
     </RouteSuspense>
   ),
 });
@@ -309,7 +295,6 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
   askRoute,
-  findRoute,
   libraryRoute,
   libraryReviewRoute,
   trashRoute,

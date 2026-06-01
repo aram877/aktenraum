@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { DocumentCard } from "../components/DocumentCard";
@@ -163,10 +164,14 @@ function AnswerPanel({
 
       {state.phase === "done" && state.total > state.citations.length && (
         <p className="text-xs text-ink-subtle">
-          {state.total} weitere Treffer ohne direkten Bezug zur Frage. Probiere die{" "}
-          <a className="text-ink-muted underline hover:text-ink" href="/find">
-            Dokumentensuche
-          </a>
+          {state.total} weitere Treffer ohne direkten Bezug zur Frage. Stöbere in der{" "}
+          <Link
+            to="/library"
+            search={{ tab: "archive" }}
+            className="text-ink-muted underline hover:text-ink"
+          >
+            Bibliothek
+          </Link>
           , um sie zu sehen.
         </p>
       )}

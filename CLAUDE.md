@@ -11,6 +11,7 @@ Self-hosted personal DMS built on Paperless-ngx with an AI classification layer.
 - [`docs/configuration.md`](docs/configuration.md) — every env var, organised by file
 - [`docs/api-reference.md`](docs/api-reference.md) — endpoint catalog with auth + shapes
 - [`docs/glossary.md`](docs/glossary.md) — every acronym + framework + piece of jargon used in this repo, plain-language
+- [`docs/architecture-diagram.md`](docs/architecture-diagram.md) — the stack as diagrams (Mermaid topology + lifecycle, D2, ASCII, simplified, C4 L1/L2) with a shared legend
 - [`Taskfile.yml`](Taskfile.yml) — every common workflow as a `task <name>` shortcut
 
 ---

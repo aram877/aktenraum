@@ -7,12 +7,21 @@ import { useLiveCounts, useLiveCountsSubscription } from "../lib/live";
 import { useLogout, useMe } from "../lib/auth";
 import { useTrashCount } from "../lib/trash";
 import { isUploadInFlight, useUploads } from "../lib/upload-store";
-import { MenuIcon, XIcon } from "./Icons";
+import {
+  CameraIcon,
+  HomeIcon,
+  LibraryIcon,
+  MenuIcon,
+  SettingsIcon,
+  SparklesIcon,
+  TrashIcon,
+  UploadIcon,
+  XIcon,
+} from "./Icons";
 
 type NavKey =
   | "home"
   | "ask"
-  | "find"
   | "library"
   | "upload"
   | "scan"
@@ -71,11 +80,15 @@ export function Nav({ active }: { active: NavKey }) {
   const processingCount = Math.max(0, inFlightCount - (inboxCount ?? 0));
   const trashTotal = live.data?.trash ?? trashCount.data?.total ?? 0;
 
-  const linkCls = (key: NavKey) =>
-    `text-sm transition-colors ${
+  // Desktop nav is icon-only: each item is a 36px square button with a
+  // native tooltip (title) + aria-label for screen readers. Active state
+  // is a raised pill rather than a font-weight bump so the row reads as a
+  // single premium control strip.
+  const iconCls = (key: NavKey) =>
+    `relative inline-flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
       active === key
-        ? "font-medium text-ink"
-        : "text-ink-muted hover:text-ink"
+        ? "bg-surface-raised text-ink"
+        : "text-ink-muted hover:bg-surface-raised hover:text-ink"
     }`;
 
   const drawerLinkCls = (key: NavKey) =>
@@ -85,16 +98,27 @@ export function Nav({ active }: { active: NavKey }) {
         : "text-ink-muted hover:bg-surface-raised hover:text-ink"
     }`;
 
+  // Count badge anchored to the top-right of an icon button. The
+  // ring-2 ring-canvas punches a clean gap between badge and icon.
+  const iconBadge = (tone: "amber" | "zinc") =>
+    `absolute -right-1 -top-1 inline-flex min-w-[1.05rem] justify-center rounded-full px-1 py-px text-[10px] font-semibold leading-tight text-white ring-2 ring-canvas ${
+      tone === "amber" ? "bg-amber-500" : "bg-zinc-500"
+    }`;
+  // Drawer badges keep the original inline-pill look (text labels remain).
   const badgeAmber =
     "inline-flex min-w-[1.25rem] justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-semibold text-white";
   const badgeZinc =
     "inline-flex min-w-[1.25rem] justify-center rounded-full bg-zinc-500 px-1.5 py-0.5 text-[10px] font-semibold text-white";
 
+  const divider = (
+    <span className="mx-1.5 h-5 w-px bg-hairline" aria-hidden />
+  );
+
   return (
     <header className="relative border-b border-hairline bg-canvas">
-      <div className="flex items-center justify-between px-4 py-3 md:px-6">
+      <div className="flex items-center justify-between px-4 py-2 md:px-6">
         {/* Brand + desktop nav */}
-        <div className="flex min-w-0 items-center gap-7">
+        <div className="flex min-w-0 items-center gap-5">
           <Link
             to="/"
             className="text-sm font-semibold tracking-tight text-ink"
@@ -102,47 +126,49 @@ export function Nav({ active }: { active: NavKey }) {
           >
             aktenraum
           </Link>
-          <nav className="hidden items-center gap-5 md:flex">
-            <Link to="/" className={linkCls("home")}>
-              Start
+          <nav className="hidden items-center gap-0.5 md:flex">
+            <Link to="/" className={iconCls("home")} title="Start" aria-label="Start">
+              <HomeIcon className="h-[18px] w-[18px]" />
             </Link>
-            <Link to="/ask" className={linkCls("ask")}>
-              Ask AI
-            </Link>
-            <Link to="/find" className={linkCls("find")}>
-              Dokumente finden
+            <Link to="/ask" className={iconCls("ask")} title="Ask AI" aria-label="Ask AI">
+              <SparklesIcon className="h-[18px] w-[18px]" />
             </Link>
             <Link
               to="/library"
               search={{ tab: "archive" }}
-              className={`${linkCls("library")} flex items-center gap-1.5`}
+              className={iconCls("library")}
+              title="Bibliothek"
+              aria-label="Bibliothek"
             >
-              <span>Bibliothek</span>
+              <LibraryIcon className="h-[18px] w-[18px]" />
               {inboxCount !== null && inboxCount > 0 && (
-                <span title="Dokumente zur Prüfung" className={badgeAmber}>
+                <span title="Dokumente zur Prüfung" className={iconBadge("amber")}>
                   {inboxCount}
                 </span>
               )}
             </Link>
-            <Link to="/upload" className={linkCls("upload")}>
-              + Hochladen
+
+            {divider}
+
+            <Link to="/upload" className={iconCls("upload")} title="Hochladen" aria-label="Hochladen">
+              <UploadIcon className="h-[18px] w-[18px]" />
             </Link>
-            <Link to="/scan" className={linkCls("scan")}>
-              Scannen
+            <Link to="/scan" className={iconCls("scan")} title="Scannen" aria-label="Scannen">
+              <CameraIcon className="h-[18px] w-[18px]" />
             </Link>
-            <Link
-              to="/trash"
-              className={`${linkCls("trash")} flex items-center gap-1.5`}
-            >
-              <span>Papierkorb</span>
+
+            {divider}
+
+            <Link to="/trash" className={iconCls("trash")} title="Papierkorb" aria-label="Papierkorb">
+              <TrashIcon className="h-[18px] w-[18px]" />
               {trashTotal > 0 && (
-                <span title="Im Papierkorb" className={badgeZinc}>
+                <span title="Im Papierkorb" className={iconBadge("zinc")}>
                   {trashTotal}
                 </span>
               )}
             </Link>
-            <Link to="/settings" className={linkCls("settings")}>
-              Einstellungen
+            <Link to="/settings" className={iconCls("settings")} title="Einstellungen" aria-label="Einstellungen">
+              <SettingsIcon className="h-[18px] w-[18px]" />
             </Link>
           </nav>
         </div>
@@ -228,13 +254,16 @@ export function Nav({ active }: { active: NavKey }) {
             aria-label="Hauptnavigation"
           >
             <Link to="/" className={drawerLinkCls("home")} onClick={() => setMenuOpen(false)}>
-              <span>Start</span>
+              <span className="flex items-center gap-3">
+                <HomeIcon className="h-[18px] w-[18px]" />
+                <span>Start</span>
+              </span>
             </Link>
             <Link to="/ask" className={drawerLinkCls("ask")} onClick={() => setMenuOpen(false)}>
-              <span>Ask AI</span>
-            </Link>
-            <Link to="/find" className={drawerLinkCls("find")} onClick={() => setMenuOpen(false)}>
-              <span>Dokumente finden</span>
+              <span className="flex items-center gap-3">
+                <SparklesIcon className="h-[18px] w-[18px]" />
+                <span>Ask AI</span>
+              </span>
             </Link>
             <Link
               to="/library"
@@ -242,23 +271,38 @@ export function Nav({ active }: { active: NavKey }) {
               className={drawerLinkCls("library")}
               onClick={() => setMenuOpen(false)}
             >
-              <span>Bibliothek</span>
+              <span className="flex items-center gap-3">
+                <LibraryIcon className="h-[18px] w-[18px]" />
+                <span>Bibliothek</span>
+              </span>
               {inboxCount !== null && inboxCount > 0 && (
                 <span className={badgeAmber}>{inboxCount}</span>
               )}
             </Link>
             <Link to="/upload" className={drawerLinkCls("upload")} onClick={() => setMenuOpen(false)}>
-              <span>+ Hochladen</span>
+              <span className="flex items-center gap-3">
+                <UploadIcon className="h-[18px] w-[18px]" />
+                <span>Hochladen</span>
+              </span>
             </Link>
             <Link to="/scan" className={drawerLinkCls("scan")} onClick={() => setMenuOpen(false)}>
-              <span>Scannen</span>
+              <span className="flex items-center gap-3">
+                <CameraIcon className="h-[18px] w-[18px]" />
+                <span>Scannen</span>
+              </span>
             </Link>
             <Link to="/trash" className={drawerLinkCls("trash")} onClick={() => setMenuOpen(false)}>
-              <span>Papierkorb</span>
+              <span className="flex items-center gap-3">
+                <TrashIcon className="h-[18px] w-[18px]" />
+                <span>Papierkorb</span>
+              </span>
               {trashTotal > 0 && <span className={badgeZinc}>{trashTotal}</span>}
             </Link>
             <Link to="/settings" className={drawerLinkCls("settings")} onClick={() => setMenuOpen(false)}>
-              <span>Einstellungen</span>
+              <span className="flex items-center gap-3">
+                <SettingsIcon className="h-[18px] w-[18px]" />
+                <span>Einstellungen</span>
+              </span>
             </Link>
 
             <div className="mt-3 flex items-center justify-between border-t border-hairline pt-3 text-sm">

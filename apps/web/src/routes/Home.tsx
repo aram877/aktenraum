@@ -30,15 +30,15 @@ export function Home() {
             </Link>
 
             <Link
-              to="/find"
+              to="/scan"
               className="group flex flex-col gap-1.5 rounded-lg border border-hairline bg-surface p-5 transition-colors hover:border-hairline-soft hover:bg-surface"
             >
               <span className="text-xs font-medium uppercase tracking-wide text-ink-subtle">
-                Suche
+                Scannen
               </span>
-              <span className="text-sm font-medium text-ink">Dokumente finden →</span>
+              <span className="text-sm font-medium text-ink">Dokument scannen →</span>
               <span className="text-xs text-ink-subtle">
-                Filtere nach Typ, Korrespondent oder Zeitraum.
+                Mit der Kamera erfassen — direkt als PDF ablegen.
               </span>
             </Link>
 

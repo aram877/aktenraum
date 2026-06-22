@@ -12,9 +12,12 @@ from typing import Literal
 Quality = Literal["high", "medium"]
 
 # Ordered for UI rendering: highest first.
+# Both tiers currently point at the only instruct model pulled on this host
+# (qwen2.5:14b-instruct-q8_0). To make "high" meaningfully better, pull a
+# larger instruct model (e.g. qwen2.5:32b-instruct-q8_0) and set it here.
 QUALITY_TO_MODEL: dict[str, str] = {
-    "high": "gemma4:26b",
-    "medium": "gemma4:e4b",
+    "high": "qwen2.5:14b-instruct-q8_0",
+    "medium": "qwen2.5:14b-instruct-q8_0",
 }
 
 QUALITIES: tuple[str, ...] = tuple(QUALITY_TO_MODEL.keys())

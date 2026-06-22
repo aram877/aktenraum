@@ -189,7 +189,7 @@ async def _indexer_worker(
 ) -> None:
     """Drain the indexing queue, RAG-index one doc at a time.
 
-    Sequential rather than concurrent: bge-m3 inference is the
+    Sequential rather than concurrent: embedding inference is the
     bottleneck and Ollama already manages batching internally — adding
     a layer of asyncio fan-out wouldn't increase throughput on a
     single-GPU host. If/when this changes (multi-GPU, dedicated
@@ -269,12 +269,10 @@ async def run() -> None:
         # `async with` shutdown.
         vector_store: QdrantVectorStore | None = None
         if settings.qdrant_url:
-            vector_store = QdrantVectorStore(
-                url=settings.qdrant_url,
-                # bge-m3 dense dim. The wrapper has the same default but
-                # surfacing it here makes the dependency explicit for ops.
-                dense_dim=1024,
-            )
+            # dense_dim defaults to aktenraum_core.rag.DENSE_DIM (the
+            # configured embedding model's dimension) — the single source
+            # of truth shared with the embedder.
+            vector_store = QdrantVectorStore(url=settings.qdrant_url)
             await vector_store.ensure_collection()
             indexer_deps = IndexingDeps(
                 paperless=paperless,

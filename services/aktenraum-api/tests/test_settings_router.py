@@ -28,8 +28,8 @@ async def test_get_returns_high_default_on_fresh_db(client_factory):
             resp = await c.get("/api/settings/llm")
     assert resp.status_code == 200
     body = resp.json()
-    # `high` is the seeded default; the resolver maps it to gemma4:26b.
-    assert body == {"quality": "high", "ollama_model": "gemma4:26b"}
+    # `high` is the seeded default; the resolver maps it to the instruct model.
+    assert body == {"quality": "high", "ollama_model": "qwen2.5:14b-instruct-q8_0"}
 
 
 async def test_patch_to_medium_persists(client_factory):
@@ -43,7 +43,7 @@ async def test_patch_to_medium_persists(client_factory):
             assert resp.status_code == 200
             assert resp.json() == {
                 "quality": "medium",
-                "ollama_model": "gemma4:e4b",
+                "ollama_model": "qwen2.5:14b-instruct-q8_0",
             }
             # Second GET reflects the persisted choice.
             resp = await c.get("/api/settings/llm")

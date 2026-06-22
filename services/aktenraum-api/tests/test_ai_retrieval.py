@@ -56,10 +56,10 @@ def _make_deps(
         embedder.embed_dense = AsyncMock(side_effect=embed_response)
     else:
         embedder.embed_dense = AsyncMock(
-            return_value=embed_response if embed_response is not None else [[0.1] * 1024]
+            return_value=embed_response if embed_response is not None else [[0.1] * 2560]
         )
-    embedder.dense_dim = 1024
-    embedder.model = "bge-m3"
+    embedder.dense_dim = 2560
+    embedder.model = "qwen3-embedding:4b"
 
     vector_store = MagicMock()
     if isinstance(search_response, Exception):
@@ -149,7 +149,7 @@ async def test_full_pipeline_returns_reranker_ordered_chunks():
 async def test_pipeline_passes_query_vec_to_qdrant():
     """The vector handed to Qdrant is the embedder's first row."""
     deps = _make_deps(
-        embed_response=[[0.5] * 1024],
+        embed_response=[[0.5] * 2560],
         search_response=[_hit(1)],
         rerank_response=[_RR(id="1:0", score=0.8)],
     )
@@ -157,7 +157,7 @@ async def test_pipeline_passes_query_vec_to_qdrant():
     await retrieve_chunks_for_question("die frage", deps=deps)
 
     search_kwargs = deps.vector_store.search.await_args.kwargs
-    assert search_kwargs["query_vector"] == [0.5] * 1024
+    assert search_kwargs["query_vector"] == [0.5] * 2560
 
 
 async def test_pipeline_passes_top_k_through():

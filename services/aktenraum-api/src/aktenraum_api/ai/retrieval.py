@@ -3,7 +3,7 @@
 Composes the four primitives shipped earlier in Phase 1 into a single
 coherent path:
 
-    embed query (bge-m3 via Ollama)
+    embed query (configured embedding model via Ollama)
         ↓
     Qdrant search top-K with payload filter (doc_type / correspondent
     / tags / doc_ids derived from the SearchFilter the LLM emitted)

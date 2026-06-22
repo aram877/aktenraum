@@ -10,7 +10,7 @@ class LLMSettings(BaseModel):
 
     `quality` is the symbolic label the SPA renders ("high" / "medium").
     `ollama_model` is the resolved Ollama tag, surfaced so the SPA can
-    show "currently using: gemma4:26b" without duplicating the mapping.
+    show the resolved model name (e.g. qwen2.5:14b-instruct-q8_0) without duplicating the mapping.
     """
 
     quality: str

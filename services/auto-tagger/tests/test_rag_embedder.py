@@ -37,7 +37,7 @@ class _FakeOllamaClient:
         return {"embeddings": self._embeddings[: len(input)]}
 
 
-def _vec(prefix: float, *, dim: int = 1024) -> list[float]:
+def _vec(prefix: float, *, dim: int = 2560) -> list[float]:
     """Build a deterministic vector for assertion. The first entry is the
     `prefix` value and the rest are zeros — easier to eyeball than
     actual embeddings while staying the right shape."""
@@ -61,7 +61,7 @@ async def test_embed_dense_returns_one_vector_per_input():
     assert out[2][0] == 3.0
     # Single batched call — no client-side mini-batching.
     assert len(fake.calls) == 1
-    assert fake.calls[0]["model"] == "bge-m3"
+    assert fake.calls[0]["model"] == "qwen3-embedding:4b"
     assert fake.calls[0]["input"] == ["alpha", "beta", "gamma"]
 
 
@@ -96,9 +96,9 @@ async def test_embed_dense_returns_fresh_lists_not_upstream_references():
 # ---- model + dim properties ----------------------------------------------
 
 
-async def test_default_model_is_bge_m3():
+async def test_default_model_is_qwen3_embedding():
     embedder = OllamaEmbedder(base_url="http://x", client=_FakeOllamaClient(embeddings=[]))
-    assert embedder.model == "bge-m3"
+    assert embedder.model == "qwen3-embedding:4b"
 
 
 async def test_model_override_passed_through_to_upstream():
@@ -112,9 +112,9 @@ async def test_model_override_passed_through_to_upstream():
     assert fake.calls[0]["model"] == "nomic-embed-text"
 
 
-async def test_dense_dim_matches_bge_m3_constant():
+async def test_dense_dim_matches_configured_constant():
     embedder = OllamaEmbedder(base_url="http://x", client=_FakeOllamaClient(embeddings=[]))
-    assert embedder.dense_dim == 1024
+    assert embedder.dense_dim == 2560
 
 
 # ---- error propagation ---------------------------------------------------

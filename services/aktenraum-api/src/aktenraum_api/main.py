@@ -84,10 +84,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # asyncio.Lock inside the reranker, but they no longer block
         # other handlers' event-loop slots.
         if settings.qdrant_url:
-            vector_store = QdrantVectorStore(
-                url=settings.qdrant_url,
-                dense_dim=1024,
-            )
+            vector_store = QdrantVectorStore(url=settings.qdrant_url)
             try:
                 await vector_store.ensure_collection()
                 reranker = LocalReranker(model_name=settings.reranker_model)

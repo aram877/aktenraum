@@ -127,12 +127,13 @@ class Settings(BaseSettings):
         ),
     )
     embedding_model: str = Field(
-        "bge-m3",
+        "qwen3-embedding:4b",
         description=(
             "Ollama-served embedding model used to embed the user's query "
             "at retrieval time. Must match the model that produced the chunk "
             "embeddings during indexing — different models / dims cannot "
-            "share a Qdrant collection."
+            "share a Qdrant collection. Its dimension must also match "
+            "aktenraum_core.rag.DENSE_DIM (2560 for qwen3-embedding:4b)."
         ),
     )
     reranker_model: str = Field(

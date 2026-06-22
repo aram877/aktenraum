@@ -8,7 +8,7 @@ Qdrant vector store wrapper (1.3) into a single coherent flow:
         ↓
     chunk into ~500-token paragraph-aware windows (with overlap)
         ↓
-    batch-embed each chunk via Ollama bge-m3
+    batch-embed each chunk via the configured Ollama embedding model
         ↓
     delete any existing chunks for this doc_id (idempotent reindex)
         ↓
@@ -27,7 +27,7 @@ Design choices captured here:
   store, runs no indexer task, and the propagator does not enqueue.
   This keeps the existing extraction + propagation path working when
   the RAG infra is intentionally disabled (developer hacking, a
-  buyer who hasn't pulled bge-m3 yet).
+  buyer who hasn't pulled the embedding model yet).
 - **Errors do not bubble out of `index_document`.** The worker
   catches everything, tags `ai-index-error`, and returns — the
   asyncio.gather in main.py must keep running across per-doc

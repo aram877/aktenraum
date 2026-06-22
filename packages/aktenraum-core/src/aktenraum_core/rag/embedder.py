@@ -1,13 +1,13 @@
 """Embedding backend for the RAG indexing pipeline.
 
 Today this module ships dense-only embeddings via Ollama's `/api/embed`
-endpoint. Per `docs/plans/rag-phase-1.md` the long-term design uses
-`bge-m3`'s hybrid output (dense + sparse SPLADE-like vectors) for
-better retrieval on exact-string queries (invoice numbers, German
-company names). Ollama does not yet expose sparse output for any
-model, so v1 is dense-only; the `Embedder` Protocol is written so the
-sparse implementation can be added later without breaking the
-indexing or query-time call sites.
+endpoint, using Qwen3-Embedding-4B (2560-dim) by default. Ollama does
+not expose sparse / SPLADE-style output for any embedding model, so the
+retrieval stack is dense-only; the `Embedder` Protocol is written so a
+hybrid (dense + sparse) implementation can be added later without
+breaking the indexing or query-time call sites. See
+`docs/plans/rag-phase-1.md` for the original bge-m3 hybrid design that
+this dense-only path descends from.
 
 Design choices worth flagging:
 
@@ -36,11 +36,15 @@ import structlog
 log = structlog.get_logger()
 
 
-# bge-m3 dense vector dimension. The collection in Qdrant is configured
-# against this; changing the embedding model requires deleting and
-# recreating the collection (vectors of different dims can't coexist),
-# so leaving this as a per-class constant is operationally honest.
-_BGE_M3_DENSE_DIM = 1024
+# Dense vector dimension of the configured embedding model
+# (Qwen3-Embedding-4B → 2560). The Qdrant collection is created against
+# this value, so it is the single source of truth: `QdrantVectorStore`
+# imports it as its default `dense_dim`. Switching to a model with a
+# different dimension requires deleting and recreating the collection
+# (vectors of different dims can't coexist) plus a full re-index — keep
+# this in lockstep with the model named in `EMBEDDING_MODEL` / the
+# `OllamaEmbedder` default below.
+DENSE_DIM = 2560
 
 
 @runtime_checkable
@@ -63,7 +67,7 @@ class Embedder(Protocol):
 
 
 class OllamaEmbedder:
-    """Ollama-backed dense embedder targeting `bge-m3` by default.
+    """Ollama-backed dense embedder targeting `qwen3-embedding:4b` by default.
 
     Wraps `ollama.AsyncClient.embed` for batched dense embeddings.
     Ollama internally batches the input list in a single inference
@@ -78,7 +82,7 @@ class OllamaEmbedder:
     def __init__(
         self,
         base_url: str,
-        model: str = "bge-m3",
+        model: str = "qwen3-embedding:4b",
         *,
         client: ollama.AsyncClient | None = None,
     ) -> None:
@@ -95,7 +99,7 @@ class OllamaEmbedder:
 
     @property
     def dense_dim(self) -> int:
-        return _BGE_M3_DENSE_DIM
+        return DENSE_DIM
 
     async def embed_dense(self, texts: list[str]) -> list[list[float]]:
         """Embed a batch of texts. Returns one dense vector per input

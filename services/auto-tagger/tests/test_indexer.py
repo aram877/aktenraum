@@ -95,7 +95,7 @@ def _make_embedder(*, dim: int = 4) -> MagicMock:
 
     embedder.embed_dense = AsyncMock(side_effect=_embed)
     embedder.dense_dim = dim
-    embedder.model = "bge-m3"
+    embedder.model = "qwen3-embedding:4b"
     return embedder
 
 

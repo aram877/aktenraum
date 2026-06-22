@@ -104,9 +104,7 @@ def build_deps_from_settings(settings: Settings) -> RetrievalDeps:
             base_url=settings.ollama_base_url,
             model=settings.embedding_model,
         ),
-        vector_store=QdrantVectorStore(
-            url=settings.qdrant_url, dense_dim=1024
-        ),
+        vector_store=QdrantVectorStore(url=settings.qdrant_url),
         reranker=LocalReranker(model_name=settings.reranker_model),
     )
 

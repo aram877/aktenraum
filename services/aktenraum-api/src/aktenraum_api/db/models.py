@@ -48,7 +48,7 @@ class AppSettings(Base):
     __tablename__ = "app_settings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    # "high" → gemma4:26b, "medium" → qwen2.5vl:7b. Stored as the symbolic
+    # "high"/"medium" → an Ollama model tag (see settings/quality.py). Stored as the symbolic
     # quality name (not the model tag) so we can swap the underlying
     # models later without a migration.
     llm_quality: Mapped[str] = mapped_column(String(16), nullable=False, default="high")

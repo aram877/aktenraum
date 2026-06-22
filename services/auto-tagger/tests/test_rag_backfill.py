@@ -101,8 +101,8 @@ def _make_deps(
 
     embedder = MagicMock()
     embedder.embed_dense = AsyncMock(return_value=[])
-    embedder.dense_dim = 1024
-    embedder.model = "bge-m3"
+    embedder.dense_dim = 2560
+    embedder.model = "qwen3-embedding:4b"
 
     deps = IndexingDeps(
         paperless=paperless, embedder=embedder, vector_store=vector_store

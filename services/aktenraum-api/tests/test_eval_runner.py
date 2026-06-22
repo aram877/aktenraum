@@ -118,9 +118,9 @@ def _make_deps(*, retrieval_results: dict[str, list[int]]) -> RetrievalDeps:
     `retrieve_chunks_for_question` returning a scripted ranked doc-id
     list per question."""
     embedder = MagicMock()
-    embedder.embed_dense = AsyncMock(return_value=[[0.1] * 1024])
-    embedder.dense_dim = 1024
-    embedder.model = "bge-m3"
+    embedder.embed_dense = AsyncMock(return_value=[[0.1] * 2560])
+    embedder.dense_dim = 2560
+    embedder.model = "qwen3-embedding:4b"
 
     vector_store = MagicMock()
 

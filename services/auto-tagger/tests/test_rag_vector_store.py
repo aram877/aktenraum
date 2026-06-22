@@ -116,7 +116,7 @@ async def test_ensure_collection_creates_when_missing():
     create_kwargs = next(c[1] for c in fake.calls if c[0] == "create_collection")
     assert create_kwargs["collection_name"] == "aktenraum_chunks"
     vectors_config = create_kwargs["vectors_config"]
-    assert vectors_config.size == 1024
+    assert vectors_config.size == 2560
     assert vectors_config.distance == models.Distance.COSINE
 
 
@@ -182,7 +182,7 @@ async def test_upsert_chunks_writes_one_point_per_chunk():
 
     written = await store.upsert_chunks(
         chunks=[_chunk(0), _chunk(1), _chunk(2)],
-        embeddings=[[0.0] * 1024, [1.0] * 1024, [2.0] * 1024],
+        embeddings=[[0.0] * 2560, [1.0] * 2560, [2.0] * 2560],
         doc_id=42,
         doc_type="Lebenslauf",
         correspondent="Selbst",
@@ -215,7 +215,7 @@ async def test_upsert_chunks_uses_deterministic_point_ids():
 
     await store.upsert_chunks(
         chunks=[_chunk(7)],
-        embeddings=[[0.0] * 1024],
+        embeddings=[[0.0] * 2560],
         doc_id=99,
     )
     first_id = fake.calls[-1][1]["points"][0].id
@@ -223,7 +223,7 @@ async def test_upsert_chunks_uses_deterministic_point_ids():
     fake.calls.clear()
     await store.upsert_chunks(
         chunks=[_chunk(7)],
-        embeddings=[[0.0] * 1024],
+        embeddings=[[0.0] * 2560],
         doc_id=99,
     )
     second_id = fake.calls[-1][1]["points"][0].id
@@ -249,7 +249,7 @@ async def test_upsert_chunks_mismatched_lengths_raises():
     store = _make_store()
     with pytest.raises(ValueError, match="must be the same length"):
         await store.upsert_chunks(
-            chunks=[_chunk(0)], embeddings=[[0.0] * 1024, [1.0] * 1024], doc_id=1
+            chunks=[_chunk(0)], embeddings=[[0.0] * 2560, [1.0] * 2560], doc_id=1
         )
 
 
@@ -308,7 +308,7 @@ async def test_search_passes_through_filter_and_top_k():
     store = _make_store(fake)
 
     hits = await store.search(
-        query_vector=[0.5] * 1024,
+        query_vector=[0.5] * 2560,
         top_k=10,
         filter=SearchFilter(tags=["Lebenslauf"], doc_types=["Lebenslauf"]),
     )
@@ -331,7 +331,7 @@ async def test_search_without_filter_omits_query_filter():
     fake = _FakeQdrantClient(search_points=[])
     store = _make_store(fake)
 
-    await store.search(query_vector=[0.0] * 1024, top_k=5)
+    await store.search(query_vector=[0.0] * 2560, top_k=5)
 
     query_kwargs = next(c[1] for c in fake.calls if c[0] == "query_points")
     assert query_kwargs["query_filter"] is None

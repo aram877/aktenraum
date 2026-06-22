@@ -8,7 +8,7 @@ stays I/O-light so individual pieces stay independently testable.
 """
 
 from .chunker import Chunk, chunk_text
-from .embedder import Embedder, OllamaEmbedder
+from .embedder import DENSE_DIM, Embedder, OllamaEmbedder
 from .reranker import (
     DEFAULT_RERANKER_MODEL,
     LocalReranker,
@@ -25,6 +25,7 @@ from .vector_store import (
 
 __all__ = [
     "DEFAULT_RERANKER_MODEL",
+    "DENSE_DIM",
     "Chunk",
     "ChunkPayload",
     "Embedder",

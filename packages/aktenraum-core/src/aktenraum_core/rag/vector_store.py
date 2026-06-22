@@ -44,6 +44,7 @@ import structlog
 from qdrant_client import AsyncQdrantClient, models
 
 from .chunker import Chunk
+from .embedder import DENSE_DIM
 
 log = structlog.get_logger()
 
@@ -136,7 +137,7 @@ class QdrantVectorStore:
         url: str,
         *,
         collection: str = DEFAULT_COLLECTION,
-        dense_dim: int = 1024,
+        dense_dim: int = DENSE_DIM,
         client: AsyncQdrantClient | None = None,
     ) -> None:
         self._client = client or AsyncQdrantClient(url=url, prefer_grpc=False)

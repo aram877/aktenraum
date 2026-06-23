@@ -350,6 +350,33 @@ tasks:
     cmds:
       - bash scripts/run-rag-eval.sh
 
+  rag:reembed:
+    desc: "Re-embed the whole corpus after an embedding-model/dimension change (drops the Qdrant collection, then backfills)"
+    prompt: "This deletes the Qdrant vector index and re-embeds every document from scratch. Your documents in Paperless are untouched — only the search index is rebuilt. RAG/Ask is degraded until the backfill finishes. Continue?"
+    cmds:
+      # Drop the collection inside the auto-tagger container (uses the live
+      # QDRANT_URL + the canonical collection name; no host curl/port needed).
+      # Idempotent: a missing collection is a no-op. The backfill recreates it
+      # at the model's current DENSE_DIM before indexing.
+      - |
+        MSYS_NO_PATHCONV=1 {{.COMPOSE}} exec -T auto-tagger //app/.venv/bin/python -c "
+        import os
+        from qdrant_client import QdrantClient
+        from aktenraum_core.rag.vector_store import DEFAULT_COLLECTION
+        url = os.environ.get('QDRANT_URL')
+        if not url:
+            raise SystemExit('QDRANT_URL is not set in the container — RAG is disabled; nothing to re-embed.')
+        c = QdrantClient(url=url)
+        if c.collection_exists(DEFAULT_COLLECTION):
+            c.delete_collection(DEFAULT_COLLECTION)
+            print(f'Dropped Qdrant collection {DEFAULT_COLLECTION!r}.')
+        else:
+            print(f'Collection {DEFAULT_COLLECTION!r} did not exist — nothing to drop.')
+        "
+      - echo "Re-embedding every document (this can take a while on a large corpus)..."
+      - bash scripts/backfill-rag-index.sh --force
+      - echo "Done. Verify with — task rag:eval — or check the dim — curl -s http://localhost:6333/collections/aktenraum_chunks"
+
   backup:run:
     desc: "Trigger a manual backup snapshot"
     cmds:

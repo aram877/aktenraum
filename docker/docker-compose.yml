@@ -138,13 +138,8 @@ services:
       aktenraum-api:
         condition: service_started
     env_file:
-      - path: auto-tagger.env
+      - path: .env
         required: false
-    environment:
-      # Default the Qdrant URL to the in-network address so a fresh install
-      # works without env editing (per ADR-002). Override in auto-tagger.env
-      # for development against a local qdrant on the host.
-      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
     expose:
       # HTTP listener for paperless's post_consume hook. Internal-network only;
       # never published to the host.
@@ -181,14 +176,11 @@ services:
     env_file:
       - path: .env
         required: false
-      - path: aktenraum-api.env
-        required: false
     environment:
-      # Built from PAPERLESS_DB* in .env so DB credentials live in one place.
+      # Built from PAPERLESS_DB* above so the DSN is always consistent.
       DATABASE_URL: postgresql+asyncpg://${PAPERLESS_DBUSER:-paperless}:${PAPERLESS_DBPASS}@postgres:5432/aktenraum
-      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
-      # Pin sentence-transformers / huggingface_hub cache into the volume
-      # above so reranker downloads survive image rebuilds.
+      # Pin HuggingFace cache into the named volume so reranker downloads
+      # survive image rebuilds.
       HF_HOME: /home/appuser/.cache/huggingface
       HUGGINGFACE_HUB_CACHE: /home/appuser/.cache/huggingface/hub
     expose:
@@ -219,7 +211,7 @@ services:
       postgres:
         condition: service_healthy
     env_file:
-      - path: backup.env
+      - path: .env
         required: false
     volumes:
       - ${AKTENRAUM_DATA_DIR:?must be set to an absolute path in docker/.env (see .env.example) - unset/empty risks silent data loss}/data:/backup/data:ro

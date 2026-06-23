@@ -31,7 +31,7 @@ const OPTIONS: Option[] = [
   {
     value: "high",
     label: "High",
-    model: "gemma4:26b",
+    model: "qwen2.5:14b-instruct-q8_0",
     hint:
       "Größeres lokales Modell — bessere Klassifikation und konsistentere Felder. " +
       "Braucht mehr RAM/VRAM, ein Dokument dauert spürbar länger.",
@@ -39,7 +39,7 @@ const OPTIONS: Option[] = [
   {
     value: "medium",
     label: "Medium",
-    model: "qwen2.5vl:7b",
+    model: "qwen2.5:14b-instruct-q8_0",
     hint:
       "Kleines, schnelles Modell. Schnellere Extraktion; einige Felder werden " +
       "öfter unvollständig oder weniger präzise.",

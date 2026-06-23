@@ -21,20 +21,19 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-if ! docker compose -f docker/docker-compose.yml ps auto-tagger --format json 2>/dev/null | python3 -c "
-import json, sys
-try:
-    state = json.load(sys.stdin)
-    sys.exit(0 if state.get('State') == 'running' else 1)
-except Exception:
-    sys.exit(1)
-" 2>/dev/null; then
+COMPOSE="docker compose --project-directory docker"
+
+# Probe liveness by attempting a no-op exec. This avoids python3/python
+# portability differences and project-name mismatches from -f vs --project-directory.
+if ! $COMPOSE exec -T auto-tagger true 2>/dev/null; then
     echo "auto-tagger container is not running — start the stack first:" >&2
-    echo "  cd docker && docker compose -f docker/docker-compose.yml up -d" >&2
+    echo "  task start   (or: cd docker && docker compose up -d)" >&2
     exit 2
 fi
 
 # Run the Python entrypoint inside the auto-tagger container so it
 # picks up the live env (PAPERLESS_*, OLLAMA_*, QDRANT_URL). `-T`
 # disables TTY so the JSON-line output stays clean for parsing.
-docker compose -f docker/docker-compose.yml exec -T auto-tagger /app/.venv/bin/python -m auto_tagger.backfill "$@"
+# MSYS_NO_PATHCONV=1 + double-slash prefix prevents Git Bash from
+# converting the container path to a Windows path.
+MSYS_NO_PATHCONV=1 $COMPOSE exec -T auto-tagger //app/.venv/bin/python -m auto_tagger.backfill "$@"

@@ -715,15 +715,16 @@ async def _execute_filter(
             update={"text": (f.text + " " if f.text else "") + f.correspondent}
         )
 
-    # Resolve tag names → ids. Unknown tag names short-circuit to zero results
-    # (AND semantics: if the doc must carry a non-existent tag, nothing matches).
+    # Resolve tag names → ids. Skip tags that don't exist in Paperless — the
+    # LLM invents plausible tag names that may never have been assigned to any
+    # document. Short-circuiting to [] (the old behaviour) guaranteed zero
+    # results whenever the LLM guessed wrong, which was almost always.
     tag_ids: list[int] = []
     if f.tags:
         for name in f.tags:
             tid = tags.get(name)
-            if tid is None:
-                return [], 0
-            tag_ids.append(tid)
+            if tid is not None:
+                tag_ids.append(tid)
 
     params = filter_to_paperless_params(
         f,

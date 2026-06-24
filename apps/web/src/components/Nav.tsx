@@ -11,6 +11,7 @@ import {
   CameraIcon,
   HomeIcon,
   LibraryIcon,
+  MagnifyingGlassIcon,
   MenuIcon,
   SettingsIcon,
   SparklesIcon,
@@ -22,6 +23,7 @@ import {
 type NavKey =
   | "home"
   | "ask"
+  | "find"
   | "library"
   | "upload"
   | "scan"
@@ -132,6 +134,9 @@ export function Nav({ active }: { active: NavKey }) {
             </Link>
             <Link to="/ask" className={iconCls("ask")} title="Ask AI" aria-label="Ask AI">
               <SparklesIcon className="h-[18px] w-[18px]" />
+            </Link>
+            <Link to="/find" className={iconCls("find")} title="Dokumente finden" aria-label="Dokumente finden">
+              <MagnifyingGlassIcon className="h-[18px] w-[18px]" />
             </Link>
             <Link
               to="/library"
@@ -263,6 +268,12 @@ export function Nav({ active }: { active: NavKey }) {
               <span className="flex items-center gap-3">
                 <SparklesIcon className="h-[18px] w-[18px]" />
                 <span>Ask AI</span>
+              </span>
+            </Link>
+            <Link to="/find" className={drawerLinkCls("find")} onClick={() => setMenuOpen(false)}>
+              <span className="flex items-center gap-3">
+                <MagnifyingGlassIcon className="h-[18px] w-[18px]" />
+                <span>Dokumente finden</span>
               </span>
             </Link>
             <Link

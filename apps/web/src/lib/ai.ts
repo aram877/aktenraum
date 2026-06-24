@@ -63,6 +63,32 @@ export type AnswerResponse = {
   total: number;
 };
 
+export type FindResponse = {
+  filter: SearchFilter;
+  results: DocumentSummary[];
+  explanation: string;
+  total: number;
+};
+
+export type FindInput = { query: string } | { filter: SearchFilter };
+
+export async function findByQuery(query: string): Promise<FindResponse> {
+  const { data } = await api.post<FindResponse>("/ai/find", { query });
+  return data;
+}
+
+export async function findByFilter(filter: SearchFilter): Promise<FindResponse> {
+  const { data } = await api.post<FindResponse>("/ai/find", { filter });
+  return data;
+}
+
+export function useFind() {
+  return useMutation<FindResponse, AxiosError<{ detail?: string }>, FindInput>({
+    mutationFn: async (input) =>
+      "query" in input ? findByQuery(input.query) : findByFilter(input.filter),
+  });
+}
+
 // ---- Ask (conversational answer) ----
 
 export async function ask(question: string): Promise<AnswerResponse> {

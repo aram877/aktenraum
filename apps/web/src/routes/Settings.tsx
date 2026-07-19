@@ -6,115 +6,105 @@ import { Nav } from "../components/Nav";
 import type { DocumentType } from "../lib/ai";
 import { useChangePassword } from "../lib/auth";
 import { DOC_TYPES } from "../lib/library";
-import type {
-  AutoApproveRule,
-  AutoApproveRuleUpdate,
-  LLMQuality,
-} from "../lib/settings";
+import type { AutoApproveRule, AutoApproveRuleUpdate } from "../lib/settings";
 import {
   useAnswerLLMSettings,
   useAutoApproveRules,
+  useAvailableModels,
   useLLMSettings,
   useUpdateAnswerLLMSettings,
   useUpdateAutoApproveRules,
   useUpdateLLMSettings,
 } from "../lib/settings";
 
-type Option = {
-  value: LLMQuality;
-  label: string;
-  model: string;
-  hint: string;
-};
-
-const OPTIONS: Option[] = [
-  {
-    value: "high",
-    label: "High",
-    model: "qwen2.5:14b-instruct-q8_0",
-    hint:
-      "Größeres lokales Modell — bessere Klassifikation und konsistentere Felder. " +
-      "Braucht mehr RAM/VRAM, ein Dokument dauert spürbar länger.",
-  },
-  {
-    value: "medium",
-    label: "Medium",
-    model: "qwen2.5:14b-instruct-q8_0",
-    hint:
-      "Kleines, schnelles Modell. Schnellere Extraktion; einige Felder werden " +
-      "öfter unvollständig oder weniger präzise.",
-  },
-];
-
 function ModelPicker({
   title,
   description,
-  radioName,
-  activeQuality,
+  fieldName,
+  activeModel,
+  availableModels,
+  isModelsLoading,
   isPending: isUpdatePending,
   onPick,
   pending,
 }: {
   title: string;
   description: string;
-  radioName: string;
-  activeQuality: LLMQuality | null;
+  fieldName: string;
+  activeModel: string | null;
+  availableModels: string[];
+  isModelsLoading: boolean;
   isPending: boolean;
-  onPick: (v: LLMQuality) => void;
-  pending: LLMQuality | null;
+  onPick: (v: string) => void;
+  pending: string | null;
 }) {
+  const [manualValue, setManualValue] = useState(activeModel ?? "");
+
+  useEffect(() => {
+    setManualValue(activeModel ?? "");
+  }, [activeModel]);
+
+  const hasLiveList = availableModels.length > 0;
+  const options =
+    hasLiveList && activeModel && !availableModels.includes(activeModel)
+      ? [activeModel, ...availableModels]
+      : availableModels;
+
   return (
     <div>
       <h2 className="text-sm font-semibold text-ink">{title}</h2>
       <p className="mt-0.5 text-xs text-ink-muted">{description}</p>
-      <div className="mt-3 space-y-3">
-        {OPTIONS.map((opt) => {
-          const checked = activeQuality === opt.value;
-          const isPending = pending === opt.value;
-          return (
-            <label
-              key={opt.value}
-              className={`block cursor-pointer rounded-lg border px-5 py-4 transition-colors ${
-                checked
-                  ? "border-ink bg-surface"
-                  : "border-hairline bg-surface hover:border-hairline-soft hover:bg-canvas"
-              }`}
+      <div className="mt-3">
+        {hasLiveList ? (
+          <select
+            name={fieldName}
+            value={activeModel ?? ""}
+            disabled={isUpdatePending}
+            onChange={(e) => onPick(e.target.value)}
+            className="w-full rounded-lg border border-hairline bg-surface px-3 py-2 text-sm text-ink"
+          >
+            {options.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const trimmed = manualValue.trim();
+              if (trimmed) onPick(trimmed);
+            }}
+            className="flex gap-2"
+          >
+            <input
+              type="text"
+              name={fieldName}
+              value={manualValue}
+              disabled={isUpdatePending}
+              onChange={(e) => setManualValue(e.target.value)}
+              placeholder="z.B. qwen2.5:14b-instruct-q8_0"
+              className="flex-1 rounded-lg border border-hairline bg-surface px-3 py-2 text-sm text-ink"
+            />
+            <button
+              type="submit"
+              disabled={isUpdatePending || !manualValue.trim()}
+              className="rounded-lg border border-hairline px-3 py-1.5 text-xs font-medium text-ink hover:bg-canvas disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <div className="flex items-start gap-3">
-                <input
-                  type="radio"
-                  name={radioName}
-                  value={opt.value}
-                  checked={checked}
-                  onChange={() => onPick(opt.value)}
-                  disabled={isUpdatePending}
-                  className="mt-1 h-4 w-4 accent-ink"
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-sm font-semibold text-ink">
-                      {opt.label}
-                    </span>
-                    <code className="text-[11px] text-ink-subtle">
-                      {opt.model}
-                    </code>
-                    {isPending && (
-                      <span className="text-[11px] text-ink-subtle">
-                        speichere…
-                      </span>
-                    )}
-                    {checked && !isPending && (
-                      <span className="text-[11px] font-medium text-emerald-700">
-                        aktiv
-                      </span>
-                    )}
-                  </div>
-                  <p className="mt-1 text-xs text-ink-muted">{opt.hint}</p>
-                </div>
-              </div>
-            </label>
-          );
-        })}
+              Speichern
+            </button>
+          </form>
+        )}
+        <p className="mt-1.5 text-[11px] text-ink-subtle">
+          {pending
+            ? "speichere…"
+            : isModelsLoading
+              ? "Lade verfügbare Modelle…"
+              : !hasLiveList
+                ? "Kein Ollama erreichbar (oder Backend ist Anthropic) — Modell manuell eingeben."
+                : `aktiv: ${activeModel}`}
+        </p>
       </div>
     </div>
   );
@@ -509,14 +499,16 @@ function AutoApproveSection() {
 export function SettingsPage() {
   const tagger = useLLMSettings();
   const updateTagger = useUpdateLLMSettings();
-  const [taggerPending, setTaggerPending] = useState<LLMQuality | null>(null);
+  const [taggerPending, setTaggerPending] = useState<string | null>(null);
 
   const answer = useAnswerLLMSettings();
   const updateAnswer = useUpdateAnswerLLMSettings();
-  const [answerPending, setAnswerPending] = useState<LLMQuality | null>(null);
+  const [answerPending, setAnswerPending] = useState<string | null>(null);
 
-  const onPickTagger = async (value: LLMQuality) => {
-    if (value === tagger.data?.quality) return;
+  const availableModels = useAvailableModels();
+
+  const onPickTagger = async (value: string) => {
+    if (value === tagger.data?.model) return;
     setTaggerPending(value);
     try {
       await updateTagger.mutateAsync(value);
@@ -525,8 +517,8 @@ export function SettingsPage() {
     }
   };
 
-  const onPickAnswer = async (value: LLMQuality) => {
-    if (value === answer.data?.quality) return;
+  const onPickAnswer = async (value: string) => {
+    if (value === answer.data?.model) return;
     setAnswerPending(value);
     try {
       await updateAnswer.mutateAsync(value);
@@ -570,8 +562,10 @@ export function SettingsPage() {
           <ModelPicker
             title="Klassifikations-Modell"
             description="Wird für die automatische Dokumentenextraktion verwendet (Typ, Felder, Datum)."
-            radioName="llm-quality"
-            activeQuality={tagger.data?.quality ?? null}
+            fieldName="llm-model"
+            activeModel={tagger.data?.model ?? null}
+            availableModels={availableModels.data ?? []}
+            isModelsLoading={availableModels.isPending}
             isPending={updateTagger.isPending}
             onPick={onPickTagger}
             pending={taggerPending}
@@ -582,8 +576,10 @@ export function SettingsPage() {
           <ModelPicker
             title="Antwort-Modell (KI-Fragen)"
             description="Wird für Fragen auf der /Fragen-Seite verwendet. Ein größeres Modell liefert zuverlässigere Antworten und Summen."
-            radioName="answer-llm-quality"
-            activeQuality={answer.data?.quality ?? null}
+            fieldName="answer-llm-model"
+            activeModel={answer.data?.model ?? null}
+            availableModels={availableModels.data ?? []}
+            isModelsLoading={availableModels.isPending}
             isPending={updateAnswer.isPending}
             onPick={onPickAnswer}
             pending={answerPending}

@@ -71,6 +71,9 @@ class _FakeQdrantClient:
     async def delete(self, **kwargs: Any) -> None:
         self.calls.append(("delete", kwargs))
 
+    async def set_payload(self, **kwargs: Any) -> None:
+        self.calls.append(("set_payload", kwargs))
+
     async def count(self, **kwargs: Any) -> Any:
         self.calls.append(("count", kwargs))
 
@@ -269,6 +272,64 @@ async def test_delete_by_doc_id_filters_on_doc_id():
     assert len(must) == 1
     assert must[0].key == "doc_id"
     assert must[0].match.value == 42
+
+
+# ---- update_metadata_by_doc_id ---------------------------------------------
+
+
+async def test_update_metadata_by_doc_id_filters_on_doc_id_and_sets_only_metadata():
+    fake = _FakeQdrantClient()
+    store = _make_store(fake)
+
+    await store.update_metadata_by_doc_id(
+        42,
+        doc_type="Rechnung",
+        correspondent="Telekom",
+        tags=["wichtig"],
+        created_date=date(2024, 6, 15),
+    )
+
+    set_kwargs = next(c[1] for c in fake.calls if c[0] == "set_payload")
+    assert set_kwargs["collection_name"] == "aktenraum_chunks"
+    payload = set_kwargs["payload"]
+    assert payload == {
+        "doc_type": "Rechnung",
+        "correspondent": "Telekom",
+        "tags": ["wichtig"],
+        "created_date": "2024-06-15",
+    }
+    # Only the four metadata keys are touched — text/chunk position/vector
+    # are never part of this payload, unlike a full upsert.
+    assert "text" not in payload
+    assert "chunk_index" not in payload
+    selector = set_kwargs["points"]
+    assert selector.must[0].key == "doc_id"
+    assert selector.must[0].match.value == 42
+
+
+async def test_update_metadata_by_doc_id_no_points_indexed_is_a_noop():
+    """No existing chunks for this doc_id — must not raise. Real Qdrant
+    treats a `set_payload` filter match over zero points as a harmless
+    no-op, so the fake simply records the call without erroring."""
+    fake = _FakeQdrantClient()
+    store = _make_store(fake)
+
+    await store.update_metadata_by_doc_id(999, tags=["x"])
+
+    assert any(c[0] == "set_payload" for c in fake.calls)
+
+
+async def test_update_metadata_by_doc_id_serializes_missing_fields_as_none():
+    fake = _FakeQdrantClient()
+    store = _make_store(fake)
+
+    await store.update_metadata_by_doc_id(7)
+
+    payload = next(c[1] for c in fake.calls if c[0] == "set_payload")["payload"]
+    assert payload["doc_type"] is None
+    assert payload["correspondent"] is None
+    assert payload["tags"] == []
+    assert payload["created_date"] is None
 
 
 # ---- search ---------------------------------------------------------------

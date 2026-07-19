@@ -282,6 +282,50 @@ class QdrantVectorStore:
             wait=True,
         )
 
+    async def update_metadata_by_doc_id(
+        self,
+        doc_id: int,
+        *,
+        doc_type: str | None = None,
+        correspondent: str | None = None,
+        tags: Sequence[str] = (),
+        created_date: date | None = None,
+    ) -> None:
+        """Refresh only the metadata fields of every point belonging to
+        `doc_id` — `text`, `chunk_index`, `char_start`, `char_end`,
+        `token_count`, and the vector itself are left untouched.
+
+        Uses Qdrant's `set_payload` (merges keys into the existing
+        payload) rather than `upsert_chunks` (which replaces the whole
+        point, vector included). This is the cheap path for a
+        metadata-only change — e.g. a native tag edit on a document
+        that's already indexed — where the underlying chunk text
+        hasn't changed and re-embedding would be wasted work.
+
+        No-op, not an error, when `doc_id` has no points indexed yet:
+        `set_payload` over a filter that matches nothing simply
+        touches nothing.
+        """
+        payload = {
+            "doc_type": doc_type,
+            "correspondent": correspondent,
+            "tags": list(tags),
+            "created_date": created_date.isoformat() if created_date else None,
+        }
+        await self._client.set_payload(
+            collection_name=self._collection,
+            payload=payload,
+            points=models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="doc_id",
+                        match=models.MatchValue(value=doc_id),
+                    )
+                ]
+            ),
+            wait=True,
+        )
+
     async def search(
         self,
         query_vector: Sequence[float],

@@ -4,27 +4,27 @@
   --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
 
   /* ── Canvas & surfaces ─────────────────────────────────── */
-  --color-canvas: #f0ece6;
+  --color-canvas: #f1f4fb;        /* Ghost White */
   --color-surface: #ffffff;
-  --color-surface-raised: #ebe7e0;
+  --color-surface-raised: #e3ecf3; /* Alice Blue */
 
   /* ── Borders ───────────────────────────────────────────── */
-  --color-hairline: #cec8be;
-  --color-hairline-soft: #dcd7ce;
+  --color-hairline: #c1d5e8;
+  --color-hairline-soft: #d5e4f1;
 
   /* ── Ink (text) ────────────────────────────────────────── */
-  --color-ink: #161616;
-  --color-ink-muted: #595856;
-  --color-ink-subtle: #797976;
-  --color-ink-faint: #9b9895;
+  --color-ink: #1b2d42;
+  --color-ink-muted: #3d5570;
+  --color-ink-subtle: #5e7a96;
+  --color-ink-faint: #8aafc8;
 
-  /* ── Accent — cobalt blue (AI/action colour) ───────────── */
-  --color-accent: #3b5bdb;
-  --color-accent-dark: #3451c7;
+  /* ── Accent — Wisteria Blue (AI/action colour) ─────────── */
+  --color-accent: #769edb;         /* Wisteria Blue */
+  --color-accent-dark: #5b87d0;
   --color-on-accent: #ffffff;
 
   /* ── Inverse surface ───────────────────────────────────── */
-  --color-inverse: #161616;
+  --color-inverse: #1b2d42;
   --color-on-inverse: #ffffff;
 }
 

@@ -346,6 +346,7 @@ async def star_document(
     doc_id: int,
     _user: User = Depends(get_current_user),
     gateway: PaperlessGateway = Depends(get_paperless_gateway),
+    settings: Settings = Depends(get_settings),
 ) -> DismissDuplicateResponse:
     """Add the `wichtig` tag so the doc shows up in /library?tags=wichtig.
 
@@ -374,6 +375,11 @@ async def star_document(
                 "Refresh and try again."
             ),
         ) from e
+    # Best-effort: if this doc is already indexed, keep its Qdrant tag
+    # payload from going stale until the next full re-index. Failure
+    # (auto-tagger unreachable, RAG disabled) never fails the request —
+    # the star itself already succeeded in Paperless.
+    await ping_auto_tagger(settings, doc_id, trigger="reindex-metadata")
     return DismissDuplicateResponse(doc_id=doc_id)
 
 
@@ -382,6 +388,7 @@ async def unstar_document(
     doc_id: int,
     _user: User = Depends(get_current_user),
     gateway: PaperlessGateway = Depends(get_paperless_gateway),
+    settings: Settings = Depends(get_settings),
 ) -> DismissDuplicateResponse:
     """Remove the `wichtig` tag."""
     try:
@@ -404,6 +411,8 @@ async def unstar_document(
                 "Refresh and try again."
             ),
         ) from e
+    # See star_document — same best-effort Qdrant metadata refresh.
+    await ping_auto_tagger(settings, doc_id, trigger="reindex-metadata")
     return DismissDuplicateResponse(doc_id=doc_id)
 
 

@@ -1,8 +1,10 @@
 import asyncio
+from unittest.mock import AsyncMock
 
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
+from auto_tagger.indexer import IndexingDeps
 from auto_tagger.processing_state import ProcessingState
 from auto_tagger.webhook import make_app
 
@@ -30,6 +32,56 @@ async def authed_client_and_queues(make_settings):
     app = make_app(extraction_queue, propagation_queue, settings, state)
     async with TestClient(TestServer(app)) as client:
         yield client, extraction_queue, propagation_queue, state
+
+
+def _make_indexer_deps() -> IndexingDeps:
+    """Fake IndexingDeps for the /trigger/reindex-metadata endpoint —
+    a real doc dict so `_resolve_payload_metadata` doesn't blow up,
+    and a mocked vector store to assert against."""
+    paperless = AsyncMock()
+    paperless.get_document = AsyncMock(
+        return_value={
+            "id": 42,
+            "tags": [],
+            "correspondent": None,
+            "document_type": None,
+            "created_date": None,
+            "custom_fields": [],
+        }
+    )
+    paperless.get_entity_name_map = AsyncMock(return_value={})
+    paperless.get_ai_custom_field_values = AsyncMock(return_value={})
+    return IndexingDeps(
+        paperless=paperless, embedder=AsyncMock(), vector_store=AsyncMock()
+    )
+
+
+@pytest.fixture
+async def client_with_indexer_deps(make_settings):
+    """App wired with fake `IndexingDeps` so /trigger/reindex-metadata
+    has something to call through to (mirrors RAG being enabled via
+    QDRANT_URL at startup). Returns (TestClient, deps)."""
+    extraction_queue: asyncio.Queue[int] = asyncio.Queue()
+    propagation_queue: asyncio.Queue[int] = asyncio.Queue()
+    settings = make_settings()
+    state = ProcessingState()
+    deps = _make_indexer_deps()
+    app = make_app(extraction_queue, propagation_queue, settings, state, deps)
+    async with TestClient(TestServer(app)) as client:
+        yield client, deps
+
+
+@pytest.fixture
+async def authed_client_with_indexer_deps(make_settings):
+    """Same, but with WEBHOOK_SECRET=topsecret configured."""
+    extraction_queue: asyncio.Queue[int] = asyncio.Queue()
+    propagation_queue: asyncio.Queue[int] = asyncio.Queue()
+    settings = make_settings(WEBHOOK_SECRET="topsecret")
+    state = ProcessingState()
+    deps = _make_indexer_deps()
+    app = make_app(extraction_queue, propagation_queue, settings, state, deps)
+    async with TestClient(TestServer(app)) as client:
+        yield client, deps
 
 
 @pytest.fixture
@@ -204,6 +256,86 @@ class TestTriggerPropagationAuthed:
         )
         assert resp.status == 401
         assert propq.empty()
+
+
+class TestTriggerReindexMetadataUnauthed:
+    """/trigger/reindex-metadata refreshes only the Qdrant payload
+    metadata for an already-indexed doc — aktenraum-api's star/unstar
+    endpoints call this after PATCHing native tags."""
+
+    async def test_valid_post_refreshes_metadata(self, client_with_indexer_deps):
+        client, deps = client_with_indexer_deps
+        resp = await client.post(
+            "/trigger/reindex-metadata", json={"document_id": 42}
+        )
+        assert resp.status == 200
+        body = await resp.json()
+        assert body == {"refreshed": 42}
+        deps.vector_store.update_metadata_by_doc_id.assert_awaited_once()
+        assert deps.vector_store.update_metadata_by_doc_id.await_args.args == (42,)
+
+    async def test_invalid_json_body_returns_400(self, client_with_indexer_deps):
+        client, deps = client_with_indexer_deps
+        resp = await client.post(
+            "/trigger/reindex-metadata",
+            data="not json",
+            headers={"Content-Type": "application/json"},
+        )
+        assert resp.status == 400
+        deps.vector_store.update_metadata_by_doc_id.assert_not_awaited()
+
+    async def test_missing_document_id_returns_400(self, client_with_indexer_deps):
+        client, deps = client_with_indexer_deps
+        resp = await client.post("/trigger/reindex-metadata", json={"foo": "bar"})
+        assert resp.status == 400
+        deps.vector_store.update_metadata_by_doc_id.assert_not_awaited()
+
+    async def test_rag_disabled_is_a_noop_not_an_error(self, client_and_queues):
+        """When the app was built without `indexer_deps` (QDRANT_URL
+        unset at auto-tagger startup, mirroring RAG being intentionally
+        disabled), the endpoint must respond 200 and skip — never
+        error, since callers treat this as best-effort."""
+        client, _extq, _propq, _state = client_and_queues
+        resp = await client.post(
+            "/trigger/reindex-metadata", json={"document_id": 42}
+        )
+        assert resp.status == 200
+        body = await resp.json()
+        assert body == {"skipped": "rag_disabled"}
+
+
+class TestTriggerReindexMetadataAuthed:
+    """The secret check is shared via _check_secret — assert
+    /trigger/reindex-metadata honours WEBHOOK_SECRET identically to
+    the other trigger endpoints."""
+
+    async def test_correct_secret_accepted(self, authed_client_with_indexer_deps):
+        client, deps = authed_client_with_indexer_deps
+        resp = await client.post(
+            "/trigger/reindex-metadata",
+            json={"document_id": 1},
+            headers={"X-Aktenraum-Secret": "topsecret"},
+        )
+        assert resp.status == 200
+        deps.vector_store.update_metadata_by_doc_id.assert_awaited_once()
+
+    async def test_missing_secret_rejected(self, authed_client_with_indexer_deps):
+        client, deps = authed_client_with_indexer_deps
+        resp = await client.post(
+            "/trigger/reindex-metadata", json={"document_id": 1}
+        )
+        assert resp.status == 401
+        deps.vector_store.update_metadata_by_doc_id.assert_not_awaited()
+
+    async def test_wrong_secret_rejected(self, authed_client_with_indexer_deps):
+        client, deps = authed_client_with_indexer_deps
+        resp = await client.post(
+            "/trigger/reindex-metadata",
+            json={"document_id": 1},
+            headers={"X-Aktenraum-Secret": "wrong"},
+        )
+        assert resp.status == 401
+        deps.vector_store.update_metadata_by_doc_id.assert_not_awaited()
 
 
 class TestHealth:

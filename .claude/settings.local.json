@@ -43,7 +43,9 @@
       "Bash(mv /tmp/inbox_tmp.tsx /d/Development/document-organizer/apps/web/src/routes/InboxReview.tsx)",
       "Bash(mv /tmp/lib_tmp.tsx /d/Development/document-organizer/apps/web/src/routes/LibraryReview.tsx)",
       "Read(//c/Users/Admin/aktenraum/**)",
-      "Bash(python3.exe -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'{d[\\\\\"count\\\\\"]} documents in Paperless'\\)\")"
+      "Bash(python3.exe -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'{d[\\\\\"count\\\\\"]} documents in Paperless'\\)\")",
+      "Bash(Get-Content docker/aktenraum-api.env)",
+      "Bash(Select-Object -Skip 64 -First 10)"
     ]
   },
   "hooks": {

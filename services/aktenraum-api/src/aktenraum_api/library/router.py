@@ -19,6 +19,8 @@ router = APIRouter(prefix="/library", tags=["library"])
 _ALLOWED_ORDERING = {
     "-created",
     "created",
+    "-added",
+    "added",
     "-modified",
     "modified",
     "title",

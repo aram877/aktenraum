@@ -34,14 +34,18 @@ from .auto_approve_schemas import (
     AutoApproveRulesResponse,
     AutoApproveRulesUpdateRequest,
 )
-from .quality import QUALITY_TO_MODEL
-from .schemas import LLMSettings, LLMSettingsUpdate
+from ollama import AsyncClient as OllamaAsyncClient
+
+from .schemas import (
+    ActiveModelResponse,
+    AvailableModelsResponse,
+    LLMSettings,
+    LLMSettingsUpdate,
+)
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
-
-def _to_response(quality: str) -> LLMSettings:
-    return LLMSettings(quality=quality, ollama_model=QUALITY_TO_MODEL[quality])
+_OLLAMA_LIST_TIMEOUT_SECONDS = 3.0
 
 
 @router.get("/llm", response_model=LLMSettings)
@@ -49,8 +53,8 @@ async def get_llm_settings(
     _user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> LLMSettings:
-    quality = await service.get_active_quality(session)
-    return _to_response(quality)
+    model = await service.get_active_model(session)
+    return LLMSettings(model=model)
 
 
 @router.patch("/llm", response_model=LLMSettings)
@@ -59,8 +63,8 @@ async def update_llm_settings(
     _user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> LLMSettings:
-    row = await service.set_active_quality(session, body.quality)
-    return _to_response(row.llm_quality)
+    row = await service.set_active_model(session, body.model)
+    return LLMSettings(model=row.llm_model)
 
 
 @router.get("/answer-llm", response_model=LLMSettings)
@@ -68,8 +72,8 @@ async def get_answer_llm_settings(
     _user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> LLMSettings:
-    quality = await service.get_active_answer_quality(session)
-    return _to_response(quality)
+    model = await service.get_active_answer_model(session)
+    return LLMSettings(model=model)
 
 
 @router.patch("/answer-llm", response_model=LLMSettings)
@@ -78,16 +82,41 @@ async def update_answer_llm_settings(
     _user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> LLMSettings:
-    row = await service.set_active_answer_quality(session, body.quality)
-    return _to_response(row.answer_llm_quality)
+    row = await service.set_active_answer_model(session, body.model)
+    return LLMSettings(model=row.answer_llm_model)
 
 
-@router.get("/active-llm-model", response_model=LLMSettings)
+@router.get("/available-models", response_model=AvailableModelsResponse)
+async def get_available_models(
+    _user: User = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
+) -> AvailableModelsResponse:
+    """Locally-pulled Ollama model tags, for the Settings page picker.
+
+    Always returns 200. An empty list means either the backend isn't
+    Ollama or Ollama didn't respond in time — the SPA falls back to
+    manual model-tag entry in both cases rather than surfacing an
+    error for what's often a transient condition.
+    """
+    if settings.llm_backend.lower() != "ollama":
+        return AvailableModelsResponse(models=[])
+    try:
+        client = OllamaAsyncClient(
+            host=settings.ollama_base_url, timeout=_OLLAMA_LIST_TIMEOUT_SECONDS
+        )
+        response = await client.list()
+    except Exception:
+        return AvailableModelsResponse(models=[])
+    tags = [m.model for m in response.models if m.model]
+    return AvailableModelsResponse(models=tags)
+
+
+@router.get("/active-llm-model", response_model=ActiveModelResponse)
 async def get_active_llm_model_internal(
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
     x_aktenraum_secret: str | None = Header(default=None, alias="X-Aktenraum-Secret"),
-) -> LLMSettings:
+) -> ActiveModelResponse:
     """Auto-tagger reads the active model from here before each
     extraction. Authless by design (in-network only); if
     WEBHOOK_SECRET is configured, the header must match."""
@@ -98,8 +127,8 @@ async def get_active_llm_model_internal(
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="Bad secret"
             )
-    quality = await service.get_active_quality(session)
-    return _to_response(quality)
+    model = await service.get_active_model(session)
+    return ActiveModelResponse(ollama_model=model)
 
 
 @router.get("/auto-approve", response_model=AutoApproveRulesResponse)

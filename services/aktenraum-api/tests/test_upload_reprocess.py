@@ -254,12 +254,17 @@ async def test_dismiss_duplicate_removes_tag(client_factory):
     assert kwargs["add"] == ["ai-duplicate-dismissed"]
 
 
-async def test_star_document_adds_wichtig_tag(client_factory):
+@respx.mock
+async def test_star_document_adds_wichtig_tag_and_refreshes_rag_metadata(client_factory):
     app, _settings, transport = await _logged_in(client_factory)
     gateway = AsyncMock()
     gateway.ensure_tag = AsyncMock(return_value=99)
     gateway.swap_lifecycle_tag = AsyncMock(return_value=[])
     app.dependency_overrides[get_paperless_gateway] = lambda: gateway
+
+    ping = respx.post(
+        "http://auto-tagger.test:8001/trigger/reindex-metadata"
+    ).mock(return_value=Response(200, json={"refreshed": 12}))
 
     async with app.router.lifespan_context(app):
         async with AsyncClient(transport=transport, base_url="http://test") as c:
@@ -272,13 +277,48 @@ async def test_star_document_adds_wichtig_tag(client_factory):
     kwargs = gateway.swap_lifecycle_tag.await_args.kwargs
     assert kwargs["remove"] == []
     assert kwargs["add"] == ["wichtig"]
+    # Starring an already-indexed doc must not leave its Qdrant tag
+    # payload stale — best-effort ping to the metadata-refresh trigger.
+    assert ping.called
+    body_sent = ping.calls.last.request.read()
+    assert b'"document_id": 12' in body_sent or b'"document_id":12' in body_sent
 
 
-async def test_unstar_document_removes_wichtig_tag(client_factory):
+@respx.mock
+async def test_star_document_succeeds_even_if_rag_refresh_unreachable(client_factory):
+    """The star itself is the source-of-truth write; a failed/unreachable
+    metadata-refresh ping must never fail the star request."""
+    app, _settings, transport = await _logged_in(client_factory)
+    gateway = AsyncMock()
+    gateway.ensure_tag = AsyncMock(return_value=99)
+    gateway.swap_lifecycle_tag = AsyncMock(return_value=[])
+    app.dependency_overrides[get_paperless_gateway] = lambda: gateway
+
+    respx.post("http://auto-tagger.test:8001/trigger/reindex-metadata").mock(
+        return_value=Response(503)
+    )
+
+    async with app.router.lifespan_context(app):
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            await _login(c)
+            resp = await c.post("/api/documents/12/star")
+
+    assert resp.status_code == 200
+    assert resp.json()["doc_id"] == 12
+
+
+@respx.mock
+async def test_unstar_document_removes_wichtig_tag_and_refreshes_rag_metadata(
+    client_factory,
+):
     app, _settings, transport = await _logged_in(client_factory)
     gateway = AsyncMock()
     gateway.swap_lifecycle_tag = AsyncMock(return_value=[])
     app.dependency_overrides[get_paperless_gateway] = lambda: gateway
+
+    ping = respx.post(
+        "http://auto-tagger.test:8001/trigger/reindex-metadata"
+    ).mock(return_value=Response(200, json={"refreshed": 12}))
 
     async with app.router.lifespan_context(app):
         async with AsyncClient(transport=transport, base_url="http://test") as c:
@@ -290,6 +330,7 @@ async def test_unstar_document_removes_wichtig_tag(client_factory):
     kwargs = gateway.swap_lifecycle_tag.await_args.kwargs
     assert kwargs["remove"] == ["wichtig"]
     assert kwargs["add"] == []
+    assert ping.called
 
 
 async def test_star_document_requires_auth(client_factory):

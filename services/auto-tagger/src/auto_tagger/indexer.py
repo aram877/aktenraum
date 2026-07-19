@@ -149,6 +149,40 @@ async def index_document(doc_id: int, deps: IndexingDeps) -> None:
             logger.error("indexer_tag_failed", error=str(inner))
 
 
+async def refresh_index_metadata(doc_id: int, deps: IndexingDeps) -> None:
+    """Refresh only the Qdrant payload metadata for an already-indexed
+    document — no re-chunking, no re-embedding, since the underlying
+    chunk text hasn't changed. Used when a document's native tags
+    change after it has already been through a full `index_document`
+    pass (today: the star/unstar toggle), so tag-based retrieval
+    filtering doesn't quietly go stale between full re-indexes.
+
+    Tolerates every failure the same way `index_document` does: caught,
+    logged, and returned rather than raised, so a caller triggering this
+    over HTTP can treat it as fire-and-forget. A doc_id with zero
+    existing Qdrant points is a harmless no-op, not an error.
+    """
+    logger = log.bind(doc_id=doc_id, loop="indexer_metadata_refresh")
+    try:
+        doc = await deps.paperless.get_document(doc_id)
+    except Exception as exc:
+        logger.warning("reindex_metadata_fetch_failed", error=str(exc))
+        return
+
+    payload_meta = await _resolve_payload_metadata(deps.paperless, doc)
+    try:
+        await deps.vector_store.update_metadata_by_doc_id(
+            doc_id,
+            doc_type=payload_meta.doc_type,
+            correspondent=payload_meta.correspondent,
+            tags=payload_meta.tags,
+            created_date=payload_meta.created_date,
+        )
+        logger.info("reindex_metadata_refreshed", tags=payload_meta.tags)
+    except Exception as exc:
+        logger.warning("reindex_metadata_write_failed", error=str(exc))
+
+
 def _format_indexer_error(exc: BaseException) -> str:
     """Compact, user-facing error string for the ai_error_message field.
 
@@ -314,4 +348,10 @@ async def _clear_index_error_tag_if_present(
 
 
 # Re-export for callers that need the shape — keeps indexer imports tidy.
-__all__ = ["INDEX_ERROR_TAG", "Chunk", "IndexingDeps", "index_document"]
+__all__ = [
+    "INDEX_ERROR_TAG",
+    "Chunk",
+    "IndexingDeps",
+    "index_document",
+    "refresh_index_metadata",
+]

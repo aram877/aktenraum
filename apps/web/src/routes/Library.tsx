@@ -81,6 +81,7 @@ export function Library({ search }: { search: Search }) {
     const timer = setTimeout(() => {
       const next = formToSearch(form, 1, search.tags);
       if (search.tab) next.tab = search.tab;
+      if (search.ordering) next.ordering = search.ordering;
       const current = { ...search };
       delete current.page;
       if (JSON.stringify(next) !== JSON.stringify(current)) {
@@ -331,8 +332,10 @@ export function Library({ search }: { search: Search }) {
                     }}
                     className={inputCls}
                   >
-                    <option value="-created">Erstellt (neueste zuerst)</option>
-                    <option value="created">Erstellt (älteste zuerst)</option>
+                    <option value="-created">Dokumentdatum (neueste zuerst)</option>
+                    <option value="created">Dokumentdatum (älteste zuerst)</option>
+                    <option value="-added">Hinzugefügt (neueste zuerst)</option>
+                    <option value="added">Hinzugefügt (älteste zuerst)</option>
                     <option value="-modified">Geändert (neueste zuerst)</option>
                     <option value="modified">Geändert (älteste zuerst)</option>
                     <option value="title">Titel (A → Z)</option>
@@ -527,31 +530,83 @@ export function Library({ search }: { search: Search }) {
             )}
 
             {lastPage > 1 && (
-              <div className="mt-4 flex items-center justify-end gap-2 text-sm">
-                <button
-                  type="button"
-                  onClick={() => goToPage(currentPage - 1)}
-                  disabled={currentPage <= 1}
-                  className="rounded-md border border-hairline bg-surface px-3 py-1.5 text-xs text-ink-muted hover:bg-canvas disabled:opacity-50"
-                >
-                  ← Zurück
-                </button>
-                <span className="text-xs text-ink-subtle">
-                  Seite {currentPage} / {lastPage}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => goToPage(currentPage + 1)}
-                  disabled={currentPage >= lastPage}
-                  className="rounded-md border border-hairline bg-surface px-3 py-1.5 text-xs text-ink-muted hover:bg-canvas disabled:opacity-50"
-                >
-                  Weiter →
-                </button>
-              </div>
+              <Pagination
+                currentPage={currentPage}
+                lastPage={lastPage}
+                onGoToPage={goToPage}
+              />
             )}
           </section>
         </main>
       )}
+    </div>
+  );
+}
+
+function Pagination({
+  currentPage,
+  lastPage,
+  onGoToPage,
+}: {
+  currentPage: number;
+  lastPage: number;
+  onGoToPage: (page: number) => void;
+}) {
+  const btnCls =
+    "min-w-[2rem] rounded-md border border-hairline bg-surface px-2 py-1 text-xs text-ink-muted hover:bg-canvas disabled:opacity-40";
+  const activeCls =
+    "min-w-[2rem] rounded-md border border-accent bg-accent/10 px-2 py-1 text-xs font-semibold text-accent";
+
+  // Build the list of page tokens to render: numbers and "…" ellipsis markers.
+  function pages(): (number | "…")[] {
+    if (lastPage <= 7) {
+      return Array.from({ length: lastPage }, (_, i) => i + 1);
+    }
+    const result: (number | "…")[] = [1];
+    const lo = Math.max(2, currentPage - 2);
+    const hi = Math.min(lastPage - 1, currentPage + 2);
+    if (lo > 2) result.push("…");
+    for (let p = lo; p <= hi; p++) result.push(p);
+    if (hi < lastPage - 1) result.push("…");
+    result.push(lastPage);
+    return result;
+  }
+
+  return (
+    <div className="mt-4 flex items-center justify-center gap-1">
+      <button
+        type="button"
+        onClick={() => onGoToPage(currentPage - 1)}
+        disabled={currentPage <= 1}
+        className={btnCls}
+      >
+        ←
+      </button>
+      {pages().map((p, i) =>
+        p === "…" ? (
+          <span key={`ellipsis-${i}`} className="px-1 text-xs text-ink-faint">
+            …
+          </span>
+        ) : (
+          <button
+            key={p}
+            type="button"
+            onClick={() => onGoToPage(p)}
+            disabled={p === currentPage}
+            className={p === currentPage ? activeCls : btnCls}
+          >
+            {p}
+          </button>
+        ),
+      )}
+      <button
+        type="button"
+        onClick={() => onGoToPage(currentPage + 1)}
+        disabled={currentPage >= lastPage}
+        className={btnCls}
+      >
+        →
+      </button>
     </div>
   );
 }

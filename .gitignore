@@ -30,6 +30,7 @@ pgdata/
 Thumbs.db
 
 # Editor
+.pi/
 .vscode/
 .idea/
 *.swp

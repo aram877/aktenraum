@@ -20,6 +20,7 @@ from auto_tagger.indexer import (
     IndexingDeps,
     _filter_user_tags,
     index_document,
+    refresh_index_metadata,
 )
 
 
@@ -104,6 +105,7 @@ def _make_vector_store() -> MagicMock:
     store.delete_by_doc_id = AsyncMock()
     store.upsert_chunks = AsyncMock(return_value=0)
     store.ensure_collection = AsyncMock()
+    store.update_metadata_by_doc_id = AsyncMock()
     return store
 
 
@@ -348,6 +350,100 @@ async def test_index_document_does_not_patch_when_no_index_error_tag_present():
     await index_document(17, deps)
 
     paperless.patch_document_native_fields.assert_not_awaited()
+
+
+# ---- refresh_index_metadata -------------------------------------------------
+
+
+async def test_refresh_index_metadata_updates_payload_without_chunking_or_embedding():
+    """Metadata-only refresh must resolve the same payload fields
+    `index_document` would, but never touch the chunker/embedder or
+    delete/upsert — this is the cheap path, not a re-index."""
+    doc = _doc(
+        doc_id=42,
+        tags=[1, 2],
+        correspondent=10,
+        document_type=20,
+    )
+    paperless = _make_paperless(
+        doc=doc,
+        correspondents={10: "Telekom"},
+        document_types={20: "Rechnung"},
+        tags_map={1: "Mobilfunk", 2: "wichtig"},
+    )
+    embedder = _make_embedder()
+    vector_store = _make_vector_store()
+    deps = IndexingDeps(
+        paperless=paperless, embedder=embedder, vector_store=vector_store
+    )
+
+    await refresh_index_metadata(42, deps)
+
+    vector_store.update_metadata_by_doc_id.assert_awaited_once()
+    kwargs = vector_store.update_metadata_by_doc_id.await_args.kwargs
+    assert kwargs["doc_type"] == "Rechnung"
+    assert kwargs["correspondent"] == "Telekom"
+    assert tuple(kwargs["tags"]) == ("Mobilfunk", "wichtig")
+    assert kwargs["created_date"] == date(2024, 2, 15)
+    assert vector_store.update_metadata_by_doc_id.await_args.args == (42,)
+
+    # No chunking/embedding/full-reindex work — this is metadata-only.
+    embedder.embed_dense.assert_not_awaited()
+    vector_store.delete_by_doc_id.assert_not_awaited()
+    vector_store.upsert_chunks.assert_not_awaited()
+
+
+async def test_refresh_index_metadata_swallows_fetch_error():
+    """A get_document failure (Paperless restart, network blip) must
+    not raise — the caller (the internal HTTP endpoint) treats this
+    as fire-and-forget."""
+    paperless = AsyncMock()
+    paperless.get_document = AsyncMock(side_effect=RuntimeError("paperless down"))
+    deps = IndexingDeps(
+        paperless=paperless,
+        embedder=_make_embedder(),
+        vector_store=_make_vector_store(),
+    )
+
+    await refresh_index_metadata(17, deps)  # must not raise
+
+    deps.vector_store.update_metadata_by_doc_id.assert_not_awaited()
+
+
+async def test_refresh_index_metadata_swallows_qdrant_write_error():
+    """A Qdrant failure (unreachable, schema mismatch) must not raise —
+    unlike `index_document`, there's no lifecycle tag to flip on
+    failure here; the next successful refresh (or a full reprocess)
+    self-heals."""
+    doc = _doc(doc_id=17)
+    paperless = _make_paperless(doc=doc)
+    vector_store = _make_vector_store()
+    vector_store.update_metadata_by_doc_id = AsyncMock(
+        side_effect=RuntimeError("qdrant unreachable")
+    )
+    deps = IndexingDeps(
+        paperless=paperless, embedder=_make_embedder(), vector_store=vector_store
+    )
+
+    await refresh_index_metadata(17, deps)  # must not raise
+
+
+async def test_refresh_index_metadata_no_indexed_points_is_a_noop():
+    """A doc_id with zero existing Qdrant points still resolves and
+    calls `update_metadata_by_doc_id` — that method itself is defined
+    to no-op in this case (see vector_store tests), so the indexer
+    layer doesn't need to check first."""
+    doc = _doc(doc_id=17)
+    paperless = _make_paperless(doc=doc)
+    deps = IndexingDeps(
+        paperless=paperless,
+        embedder=_make_embedder(),
+        vector_store=_make_vector_store(),
+    )
+
+    await refresh_index_metadata(17, deps)
+
+    deps.vector_store.update_metadata_by_doc_id.assert_awaited_once()
 
 
 # ---- _filter_user_tags ----------------------------------------------------

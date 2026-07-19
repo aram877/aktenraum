@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 import structlog
 from aiohttp import web
 
+from .indexer import IndexingDeps, refresh_index_metadata
 from .processing_state import ProcessingState
 
 if TYPE_CHECKING:
@@ -33,6 +34,7 @@ _EXTRACTION_QUEUE_KEY = web.AppKey("extraction_queue", asyncio.Queue)
 _PROPAGATION_QUEUE_KEY = web.AppKey("propagation_queue", asyncio.Queue)
 _SECRET_KEY = web.AppKey("secret", str)
 _STATE_KEY = web.AppKey("state", ProcessingState)
+_INDEXER_DEPS_KEY = web.AppKey("indexer_deps", IndexingDeps)
 
 
 def _check_secret(request: web.Request) -> web.Response | None:
@@ -119,6 +121,37 @@ async def trigger_propagation(request: web.Request) -> web.Response:
     return _enqueue_or_503(queue, doc_id, event="propagation_webhook_enqueued")
 
 
+async def trigger_reindex_metadata(request: web.Request) -> web.Response:
+    """POST /trigger/reindex-metadata — body: {"document_id": <int>}.
+
+    Refreshes only the Qdrant payload metadata (tags, correspondent,
+    document_type, created_date) for an already-indexed document — no
+    re-chunking, no re-embedding. aktenraum-api's star/unstar endpoints
+    call this after PATCHing a document's native tags so tag-based
+    retrieval filtering doesn't quietly go stale between full
+    re-indexes (which only happen once, at first propagation, or on a
+    full reprocess).
+
+    Always responds 200 (not an error) when RAG indexing is disabled
+    (`QDRANT_URL` unset, so no `IndexingDeps` was constructed at
+    startup) or when the document has no existing Qdrant points —
+    both are no-ops, not failures. Callers treat this endpoint as
+    best-effort regardless, mirroring `/trigger/propagate`.
+    """
+    unauthorized = _check_secret(request)
+    if unauthorized is not None:
+        return unauthorized
+    doc_id, error = await _parse_doc_id(request)
+    if error is not None:
+        return error
+    assert doc_id is not None
+    deps = request.app.get(_INDEXER_DEPS_KEY)
+    if deps is None:
+        return web.json_response({"skipped": "rag_disabled"}, status=200)
+    await refresh_index_metadata(doc_id, deps)
+    return web.json_response({"refreshed": doc_id}, status=200)
+
+
 async def health(_: web.Request) -> web.Response:
     return web.json_response({"status": "ok"})
 
@@ -146,14 +179,18 @@ def make_app(
     propagation_queue: asyncio.Queue[int],
     settings: Settings,
     state: ProcessingState,
+    indexer_deps: IndexingDeps | None = None,
 ) -> web.Application:
     app = web.Application()
     app[_EXTRACTION_QUEUE_KEY] = extraction_queue
     app[_PROPAGATION_QUEUE_KEY] = propagation_queue
     app[_SECRET_KEY] = settings.webhook_secret
     app[_STATE_KEY] = state
+    if indexer_deps is not None:
+        app[_INDEXER_DEPS_KEY] = indexer_deps
     app.router.add_post("/trigger/extract", trigger_extraction)
     app.router.add_post("/trigger/propagate", trigger_propagation)
+    app.router.add_post("/trigger/reindex-metadata", trigger_reindex_metadata)
     app.router.add_get("/health", health)
     app.router.add_get("/processing", processing)
     return app
@@ -164,10 +201,11 @@ async def run_http_server(
     propagation_queue: asyncio.Queue[int],
     settings: Settings,
     state: ProcessingState,
+    indexer_deps: IndexingDeps | None = None,
 ) -> None:
     """Long-running task: bind the listener on settings.http_port and serve
     until cancelled."""
-    app = make_app(extraction_queue, propagation_queue, settings, state)
+    app = make_app(extraction_queue, propagation_queue, settings, state, indexer_deps)
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", settings.http_port)

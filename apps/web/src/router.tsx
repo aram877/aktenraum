@@ -140,6 +140,8 @@ type LibrarySearch = {
 export type LibraryOrdering =
   | "-created"
   | "created"
+  | "-added"
+  | "added"
   | "-modified"
   | "modified"
   | "title"
@@ -148,6 +150,8 @@ export type LibraryOrdering =
 const LIBRARY_ORDERINGS: readonly LibraryOrdering[] = [
   "-created",
   "created",
+  "-added",
+  "added",
   "-modified",
   "modified",
   "title",

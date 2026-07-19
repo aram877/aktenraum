@@ -8,8 +8,6 @@ import type { AxiosError } from "axios";
 import { api } from "./api";
 import type { DocumentType } from "./ai";
 
-export type LLMQuality = "high" | "medium";
-
 export type AutoApproveRule = {
   document_type: DocumentType;
   enabled: boolean;
@@ -29,8 +27,11 @@ export type AutoApproveRuleUpdate = {
 };
 
 export type LLMSettings = {
-  quality: LLMQuality;
-  ollama_model: string;
+  model: string;
+};
+
+export type AvailableModelsResponse = {
+  models: string[];
 };
 
 const SETTINGS_KEY = ["settings", "llm"] as const;
@@ -40,8 +41,8 @@ async function fetchLLMSettings(): Promise<LLMSettings> {
   return data;
 }
 
-async function patchLLMSettings(quality: LLMQuality): Promise<LLMSettings> {
-  const { data } = await api.patch<LLMSettings>("/settings/llm", { quality });
+async function patchLLMSettings(model: string): Promise<LLMSettings> {
+  const { data } = await api.patch<LLMSettings>("/settings/llm", { model });
   return data;
 }
 
@@ -55,7 +56,7 @@ export function useLLMSettings() {
 
 export function useUpdateLLMSettings() {
   const qc = useQueryClient();
-  return useMutation<LLMSettings, AxiosError, LLMQuality>({
+  return useMutation<LLMSettings, AxiosError, string>({
     mutationFn: patchLLMSettings,
     onSuccess: (data) => {
       qc.setQueryData(SETTINGS_KEY, data);
@@ -70,8 +71,8 @@ async function fetchAnswerLLMSettings(): Promise<LLMSettings> {
   return data;
 }
 
-async function patchAnswerLLMSettings(quality: LLMQuality): Promise<LLMSettings> {
-  const { data } = await api.patch<LLMSettings>("/settings/answer-llm", { quality });
+async function patchAnswerLLMSettings(model: string): Promise<LLMSettings> {
+  const { data } = await api.patch<LLMSettings>("/settings/answer-llm", { model });
   return data;
 }
 
@@ -85,11 +86,28 @@ export function useAnswerLLMSettings() {
 
 export function useUpdateAnswerLLMSettings() {
   const qc = useQueryClient();
-  return useMutation<LLMSettings, AxiosError, LLMQuality>({
+  return useMutation<LLMSettings, AxiosError, string>({
     mutationFn: patchAnswerLLMSettings,
     onSuccess: (data) => {
       qc.setQueryData(ANSWER_SETTINGS_KEY, data);
     },
+  });
+}
+
+const AVAILABLE_MODELS_KEY = ["settings", "available-models"] as const;
+
+async function fetchAvailableModels(): Promise<string[]> {
+  const { data } = await api.get<AvailableModelsResponse>(
+    "/settings/available-models",
+  );
+  return data.models;
+}
+
+export function useAvailableModels() {
+  return useQuery<string[], AxiosError>({
+    queryKey: AVAILABLE_MODELS_KEY,
+    queryFn: fetchAvailableModels,
+    staleTime: 10_000,
   });
 }
 

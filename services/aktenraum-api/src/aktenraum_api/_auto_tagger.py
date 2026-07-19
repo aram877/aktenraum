@@ -1,18 +1,26 @@
 """Thin best-effort HTTP client for the auto-tagger's internal endpoints.
 
-Three callers today:
+Four callers today:
   - `documents/router.py::reprocess` fires /trigger/extract after clearing
     lifecycle tags so re-extraction starts immediately instead of waiting
     on the 30s poll.
   - `inbox/service.py::approve` fires /trigger/propagate after the
     lifecycle-tag swap so propagation runs in <1s rather than up to 30s.
+  - `documents/router.py::star_document` / `unstar_document` fire
+    /trigger/reindex-metadata after PATCHing the `wichtig` tag so an
+    already-indexed doc's Qdrant payload doesn't go stale between full
+    re-indexes (there is no lifecycle-tag transition to key off here,
+    unlike propagate/extract, since starring doesn't move the doc
+    through the AI pipeline).
   - `library/service.py::list_library` reads /processing on page=1 to pin
     actively-processed docs to the top of the library archive.
 
-All three are non-critical: the auto-tagger's safety-net poller still
-picks up the work if the trigger ping fails, and the library falls back
-to plain natural-sort if /processing is unreachable. We log warnings on
-failure and never raise — the calling request must succeed regardless.
+All four triggers are non-critical: the auto-tagger's safety-net poller
+still picks up extraction/propagation if a ping fails, a metadata refresh
+that fails just leaves the payload stale until the next full re-index,
+and the library falls back to plain natural-sort if /processing is
+unreachable. We log warnings on failure and never raise — the calling
+request must succeed regardless.
 """
 
 from __future__ import annotations
@@ -26,7 +34,7 @@ from .config import Settings
 
 log = structlog.get_logger()
 
-Trigger = Literal["extract", "propagate"]
+Trigger = Literal["extract", "propagate", "reindex-metadata"]
 
 
 async def ping_auto_tagger(

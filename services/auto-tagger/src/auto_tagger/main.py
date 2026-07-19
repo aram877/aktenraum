@@ -298,7 +298,9 @@ async def run() -> None:
             )
         if settings.enable_http_server:
             loops.append(
-                run_http_server(queue, propagation_queue, settings, state)
+                run_http_server(
+                    queue, propagation_queue, settings, state, indexer_deps
+                )
             )
         if indexing_queue is not None and indexer_deps is not None:
             loops.append(_indexer_worker(indexing_queue, indexer_deps, state))

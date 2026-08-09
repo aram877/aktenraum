@@ -16,6 +16,7 @@ dist/
 # Node
 node_modules/
 .pnpm-store/
+*.tsbuildinfo
 
 # Restic
 backup/restic-repo/

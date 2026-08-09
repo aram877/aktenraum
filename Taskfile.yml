@@ -252,6 +252,85 @@ tasks:
     cmds:
       - "{{.COMPOSE}} up -d --build nginx"
 
+  # ----- Node.js/Angular rewrite (openspec/changes/rewrite-stack-nodejs-angular) -----
+  # No Docker service wiring yet — these run the packages directly via pnpm.
+  # Compose integration lands alongside the NestJS/worker app implementations
+  # (tasks.md 4.x / 6.x), same pattern as `web:dev` vs `web:deploy`.
+
+  node:core:build:
+    desc: "Build packages/core-ts (the TS shared library replacing aktenraum-core)"
+    deps: [web:install]
+    cmds:
+      - pnpm --filter @aktenraum/core-ts build
+
+  node:core:test:
+    desc: "Test packages/core-ts"
+    deps: [web:install]
+    cmds:
+      - pnpm --filter @aktenraum/core-ts test
+
+  node:core:lint:
+    desc: "Lint packages/core-ts"
+    deps: [web:install]
+    cmds:
+      - pnpm --filter @aktenraum/core-ts lint
+
+  node:api:dev:
+    desc: "Dev server for services/api-node (the NestJS replacement for aktenraum-api), hot reload via tsx"
+    deps: [web:install]
+    cmds:
+      - pnpm --filter @aktenraum/api-node dev
+
+  node:api:build:
+    desc: "Build services/api-node"
+    deps: [web:install]
+    cmds:
+      - pnpm --filter @aktenraum/api-node build
+
+  node:api:test:
+    desc: "Test services/api-node"
+    deps: [web:install]
+    cmds:
+      - pnpm --filter @aktenraum/api-node test
+
+  node:api:lint:
+    desc: "Lint services/api-node"
+    deps: [web:install]
+    cmds:
+      - pnpm --filter @aktenraum/api-node lint
+
+  node:worker:dev:
+    desc: "Dev server for services/worker-node (the Node replacement for auto-tagger), hot reload via tsx"
+    deps: [web:install]
+    cmds:
+      - pnpm --filter @aktenraum/worker-node dev
+
+  node:worker:build:
+    desc: "Build services/worker-node"
+    deps: [web:install]
+    cmds:
+      - pnpm --filter @aktenraum/worker-node build
+
+  node:worker:test:
+    desc: "Test services/worker-node"
+    deps: [web:install]
+    cmds:
+      - pnpm --filter @aktenraum/worker-node test
+
+  node:worker:lint:
+    desc: "Lint services/worker-node"
+    deps: [web:install]
+    cmds:
+      - pnpm --filter @aktenraum/worker-node lint
+
+  node:test:
+    desc: "Test all Node/TypeScript rewrite packages (core-ts + api-node + worker-node)"
+    deps: [node:core:test, node:api:test, node:worker:test]
+
+  node:lint:
+    desc: "Lint all Node/TypeScript rewrite packages (core-ts + api-node + worker-node)"
+    deps: [node:core:lint, node:api:lint, node:worker:lint]
+
   # ----- Backend services -----
 
   api:rebuild:
@@ -287,8 +366,8 @@ tasks:
   # ----- Tests + lint -----
 
   test:
-    desc: "Run the full test suite (pytest + SPA typecheck/build)"
-    deps: [test:py, test:web]
+    desc: "Run the full test suite (pytest + SPA typecheck/build + Node rewrite packages)"
+    deps: [test:py, test:web, node:test]
 
   test:py:
     desc: "Python tests (pytest at the workspace root)"
@@ -302,8 +381,8 @@ tasks:
       - pnpm --filter @aktenraum/web build
 
   lint:
-    desc: "Lint both Python and SPA"
-    deps: [lint:py, lint:web]
+    desc: "Lint Python, SPA, and Node rewrite packages"
+    deps: [lint:py, lint:web, node:lint]
 
   lint:py:
     desc: "ruff check"

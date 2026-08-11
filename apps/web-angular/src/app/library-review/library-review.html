@@ -1,0 +1,207 @@
+<div class="flex min-h-full flex-col">
+  <div class="border-b border-hairline bg-surface px-4 py-2 sm:px-6">
+    <div class="mx-auto flex max-w-7xl items-center gap-3">
+      <button
+        type="button"
+        (click)="back()"
+        class="rounded-lg border border-hairline px-3 py-1.5 text-xs font-medium text-ink hover:bg-canvas"
+      >
+        ← Bibliothek
+      </button>
+      <span class="truncate text-sm font-medium text-ink">{{ detail.data()?.title ?? "…" }}</span>
+      <a
+        [href]="downloadUrl()"
+        class="ml-auto rounded-lg border border-hairline px-3 py-1.5 text-xs font-medium text-ink hover:bg-canvas"
+      >
+        Herunterladen
+      </a>
+    </div>
+  </div>
+
+  <div class="border-b border-hairline bg-surface px-4 py-2 lg:hidden">
+    <div class="flex gap-2">
+      <button
+        type="button"
+        (click)="mobilePane.set('pdf')"
+        class="flex-1 rounded-lg border px-3 py-1.5 text-xs font-medium"
+        [class.border-ink]="mobilePane() === 'pdf'"
+        [class.border-hairline]="mobilePane() !== 'pdf'"
+      >
+        PDF
+      </button>
+      <button
+        type="button"
+        (click)="mobilePane.set('form')"
+        class="flex-1 rounded-lg border px-3 py-1.5 text-xs font-medium"
+        [class.border-ink]="mobilePane() === 'form'"
+        [class.border-hairline]="mobilePane() !== 'form'"
+      >
+        Bearbeiten
+      </button>
+    </div>
+  </div>
+
+  @if (errorText()) {
+    <p class="mx-4 mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+      {{ errorText() }}
+    </p>
+  }
+  @if (savedAt()) {
+    <p
+      data-testid="saved"
+      class="mx-4 mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800"
+    >
+      Gespeichert.
+    </p>
+  }
+
+  @if (detail.isPending()) {
+    <p class="px-6 py-8 text-sm text-ink-subtle">Lade Dokument…</p>
+  } @else if (detail.isError()) {
+    <p class="px-6 py-8 text-sm text-red-700">Dokument konnte nicht geladen werden.</p>
+  } @else if (detail.data(); as doc) {
+    <div class="mx-auto grid w-full max-w-7xl flex-1 gap-4 p-4 lg:grid-cols-2 lg:p-6">
+      <section
+        class="min-h-[60vh] rounded-lg border border-hairline bg-surface lg:block"
+        [class.hidden]="mobilePane() !== 'pdf'"
+      >
+        @if (previewUrl(); as url) {
+          <iframe [src]="url" class="h-full min-h-[60vh] w-full rounded-lg" title="PDF-Vorschau"></iframe>
+        }
+      </section>
+
+      <section
+        class="flex flex-col gap-3 lg:block"
+        [class.hidden]="mobilePane() !== 'form'"
+      >
+        <label class="block text-xs font-medium text-ink-muted">
+          Dokumenttyp
+          <select
+            name="ai_document_type"
+            [ngModel]="form().ai_document_type"
+            (ngModelChange)="setField('ai_document_type', $event)"
+            class="mt-1 w-full rounded-lg border border-hairline bg-surface px-3 py-2 text-sm text-ink"
+          >
+            <option value="">—</option>
+            @for (dt of docTypes; track dt) {
+              <option [value]="dt">{{ dt }}</option>
+            }
+          </select>
+        </label>
+
+        <label class="block text-xs font-medium text-ink-muted">
+          Korrespondent
+          <input
+            type="text"
+            name="ai_correspondent"
+            [ngModel]="form().ai_correspondent"
+            (ngModelChange)="setField('ai_correspondent', $event)"
+            class="mt-1 w-full rounded-lg border border-hairline bg-surface px-3 py-2 text-sm text-ink"
+          />
+        </label>
+
+        <label class="block text-xs font-medium text-ink-muted">
+          Titel
+          <input
+            type="text"
+            name="ai_title"
+            [ngModel]="form().ai_title"
+            (ngModelChange)="setField('ai_title', $event)"
+            class="mt-1 w-full rounded-lg border border-hairline bg-surface px-3 py-2 text-sm text-ink"
+          />
+        </label>
+
+        <label class="block text-xs font-medium text-ink-muted">
+          Dokumentdatum
+          <input
+            type="text"
+            name="ai_issue_date"
+            placeholder="YYYY-MM-DD"
+            [ngModel]="form().ai_issue_date"
+            (ngModelChange)="setField('ai_issue_date', $event)"
+            class="mt-1 w-full rounded-lg border border-hairline bg-surface px-3 py-2 text-sm text-ink"
+          />
+        </label>
+
+        <label class="block text-xs font-medium text-ink-muted">
+          Referenznummern
+          <input
+            type="text"
+            name="ai_reference_numbers"
+            [ngModel]="form().ai_reference_numbers"
+            (ngModelChange)="setField('ai_reference_numbers', $event)"
+            class="mt-1 w-full rounded-lg border border-hairline bg-surface px-3 py-2 text-sm text-ink"
+          />
+        </label>
+
+        <label class="block text-xs font-medium text-ink-muted">
+          Vorgeschlagene Tags
+          <input
+            type="text"
+            name="ai_suggested_tags"
+            [ngModel]="form().ai_suggested_tags"
+            (ngModelChange)="setField('ai_suggested_tags', $event)"
+            class="mt-1 w-full rounded-lg border border-hairline bg-surface px-3 py-2 text-sm text-ink"
+          />
+        </label>
+
+        <label class="block text-xs font-medium text-ink-muted">
+          Zusammenfassung
+          <textarea
+            name="ai_summary_de"
+            rows="4"
+            [ngModel]="form().ai_summary_de"
+            (ngModelChange)="setField('ai_summary_de', $event)"
+            class="mt-1 w-full rounded-lg border border-hairline bg-surface px-3 py-2 text-sm text-ink"
+          ></textarea>
+        </label>
+
+        <p class="text-[11px] text-ink-subtle">
+          Konfidenz: {{ doc.ai_confidence !== null ? (doc.ai_confidence * 100).toFixed(0) + " %" : "—" }}
+          @if (doc.ai_confidence_reason) {
+            · {{ doc.ai_confidence_reason }}
+          }
+        </p>
+
+        <div class="mt-2 flex flex-wrap gap-2">
+          <button
+            type="button"
+            (click)="onSave()"
+            [disabled]="!dirty() || patch.isPending()"
+            data-testid="save"
+            class="rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-surface disabled:opacity-50"
+          >
+            {{ patch.isPending() ? "speichere…" : "Speichern" }}
+          </button>
+          <button
+            type="button"
+            (click)="reset()"
+            [disabled]="!dirty() || patch.isPending()"
+            class="rounded-lg border border-hairline px-4 py-2 text-sm font-medium text-ink hover:bg-canvas disabled:opacity-50"
+          >
+            Zurücksetzen
+          </button>
+          <button
+            type="button"
+            (click)="onReprocess()"
+            [disabled]="reprocess.isPending()"
+            data-testid="reprocess"
+            class="rounded-lg border px-4 py-2 text-sm font-medium disabled:opacity-50"
+            [class.border-amber-400]="confirmingReprocess()"
+            [class.text-amber-800]="confirmingReprocess()"
+            [class.border-hairline]="!confirmingReprocess()"
+            [class.text-ink]="!confirmingReprocess()"
+          >
+            {{
+              reprocess.isPending()
+                ? "starte…"
+                : confirmingReprocess()
+                  ? "Wirklich? Erneut klicken"
+                  : "Erneut verarbeiten"
+            }}
+          </button>
+        </div>
+      </section>
+    </div>
+  }
+</div>

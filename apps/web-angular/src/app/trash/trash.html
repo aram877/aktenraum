@@ -1,0 +1,80 @@
+<main class="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6">
+  <div class="flex items-baseline justify-between gap-3">
+    <div>
+      <h1 class="text-lg font-semibold tracking-tight text-ink">Papierkorb</h1>
+      <p class="mt-0.5 text-xs text-ink-muted">
+        Gelöschte Dokumente bleiben 30 Tage wiederherstellbar.
+      </p>
+    </div>
+    @if (rows().length > 0) {
+      <button
+        type="button"
+        (click)="onEmpty()"
+        [disabled]="emptyTrash.isPending()"
+        data-testid="empty-trash"
+        class="rounded-lg border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+        [class.border-red-300]="confirmingEmpty()"
+        [class.text-red-700]="confirmingEmpty()"
+        [class.border-hairline]="!confirmingEmpty()"
+        [class.text-ink]="!confirmingEmpty()"
+      >
+        {{
+          emptyTrash.isPending()
+            ? "leere…"
+            : confirmingEmpty()
+              ? "Wirklich? Erneut klicken"
+              : "Papierkorb leeren"
+        }}
+      </button>
+    }
+  </div>
+
+  @if (errorText()) {
+    <p class="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+      {{ errorText() }}
+    </p>
+  }
+
+  @if (list.isPending()) {
+    <p class="mt-6 text-xs text-ink-subtle">Lade Papierkorb…</p>
+  } @else if (rows().length === 0) {
+    <p class="mt-6 rounded-lg border border-dashed border-hairline bg-surface p-8 text-center text-sm text-ink-subtle">
+      Der Papierkorb ist leer.
+    </p>
+  } @else {
+    <p class="mt-4 text-xs text-ink-subtle">{{ total() }} Dokument(e)</p>
+    <ul class="mt-2 flex flex-col gap-2">
+      @for (row of rows(); track row.id) {
+        <li class="flex flex-wrap items-center gap-3 rounded-lg border border-hairline bg-surface p-3">
+          <div class="min-w-0 flex-1">
+            <p class="truncate text-sm font-medium text-ink">{{ row.title }}</p>
+            <p class="mt-0.5 text-xs text-ink-muted">
+              {{ row.document_type ?? row.ai_document_type ?? "—" }} ·
+              {{ row.correspondent ?? row.ai_correspondent ?? "—" }} · {{ remaining(row) }}
+            </p>
+          </div>
+          <button
+            type="button"
+            (click)="onRestore(row.id)"
+            [disabled]="restore.isPending()"
+            class="rounded-lg border border-hairline px-3 py-1.5 text-xs font-medium text-ink hover:bg-canvas disabled:opacity-50"
+          >
+            Wiederherstellen
+          </button>
+          <button
+            type="button"
+            (click)="onDelete(row.id)"
+            [disabled]="deleteForever.isPending()"
+            class="rounded-lg border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+            [class.border-red-300]="confirmingDelete() === row.id"
+            [class.text-red-700]="confirmingDelete() === row.id"
+            [class.border-hairline]="confirmingDelete() !== row.id"
+            [class.text-ink]="confirmingDelete() !== row.id"
+          >
+            {{ confirmingDelete() === row.id ? "Wirklich?" : "Endgültig löschen" }}
+          </button>
+        </li>
+      }
+    </ul>
+  }
+</main>

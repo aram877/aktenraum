@@ -1,0 +1,39 @@
+<div>
+  <h2 class="text-sm font-semibold text-ink">{{ title() }}</h2>
+  <p class="mt-0.5 text-xs text-ink-muted">{{ description() }}</p>
+  <div class="mt-3">
+    @if (hasLiveList()) {
+      <select
+        [name]="fieldName()"
+        [ngModel]="activeModel() ?? ''"
+        (ngModelChange)="onSelect($event)"
+        [disabled]="isPending()"
+        class="w-full rounded-lg border border-hairline bg-surface px-3 py-2 text-sm text-ink"
+      >
+        @for (m of options(); track m) {
+          <option [value]="m">{{ m }}</option>
+        }
+      </select>
+    } @else {
+      <form (ngSubmit)="onManualSubmit()" class="flex gap-2">
+        <input
+          type="text"
+          [name]="fieldName()"
+          [ngModel]="manualValue()"
+          (ngModelChange)="manualValue.set($event)"
+          [disabled]="isPending()"
+          placeholder="z.B. qwen2.5:14b-instruct-q8_0"
+          class="flex-1 rounded-lg border border-hairline bg-surface px-3 py-2 text-sm text-ink"
+        />
+        <button
+          type="submit"
+          [disabled]="isPending() || !manualValue().trim()"
+          class="rounded-lg border border-hairline px-3 py-1.5 text-xs font-medium text-ink hover:bg-canvas disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Speichern
+        </button>
+      </form>
+    }
+    <p class="mt-1.5 text-[11px] text-ink-subtle">{{ hint() }}</p>
+  </div>
+</div>

@@ -1,0 +1,40 @@
+@if (inFlight()) {
+  <span
+    title="Wird gerade vom Auto-Tagger bearbeitet."
+    class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium"
+    [class]="infoStyle"
+  >
+    <svg class="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8v4a4 4 0 0 0-4 4H4z" />
+    </svg>
+    <span>Wird verarbeitet…</span>
+  </span>
+} @else {
+  <span class="inline-flex items-center gap-1">
+    <span
+      [title]="state().title"
+      class="inline-block rounded-full px-2 py-0.5 text-[10px] font-medium"
+      [class]="styleFor()"
+      data-testid="badge-label"
+    >
+      {{ state().label }}
+    </span>
+    @if (hasEmail()) {
+      <span
+        title="Per E-Mail eingegangen."
+        class="inline-block rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-medium text-sky-700"
+      >
+        E-Mail
+      </span>
+    }
+    @if (hasDuplicate()) {
+      <span
+        title="Mögliches Duplikat erkannt — bitte im Vorschau-Fenster prüfen."
+        class="inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800"
+      >
+        Duplikat?
+      </span>
+    }
+  </span>
+}

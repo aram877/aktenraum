@@ -1,0 +1,82 @@
+<div>
+  <h2 class="text-sm font-semibold text-ink">Konto</h2>
+  <p class="mt-0.5 text-xs text-ink-muted">
+    Passwort ändern. Du wirst nach erfolgreicher Änderung neu angemeldet.
+  </p>
+
+  @if (showSuccess()) {
+    <p
+      data-testid="konto-success"
+      class="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800"
+    >
+      Passwort geändert — du wirst zum Login geleitet.
+    </p>
+  }
+  @if (errorBanner() && !showSuccess()) {
+    <p
+      data-testid="konto-error"
+      class="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+    >
+      {{ errorBanner() }}
+    </p>
+  }
+
+  <form (ngSubmit)="onSubmit()" class="mt-4 space-y-3" novalidate>
+    <label class="block">
+      <span class="text-xs font-medium text-ink-muted">Aktuelles Passwort</span>
+      <input
+        type="password"
+        name="current"
+        autocomplete="current-password"
+        [ngModel]="current()"
+        (ngModelChange)="current.set($event)"
+        [disabled]="change.isPending() || showSuccess()"
+        class="mt-1 w-full rounded-lg border border-hairline bg-surface px-3 py-2 text-sm text-ink focus:border-ink focus:outline-none"
+      />
+    </label>
+
+    <label class="block">
+      <span class="text-xs font-medium text-ink-muted">Neues Passwort</span>
+      <input
+        type="password"
+        name="next"
+        autocomplete="new-password"
+        minlength="8"
+        maxlength="128"
+        [ngModel]="next()"
+        (ngModelChange)="next.set($event)"
+        [disabled]="change.isPending() || showSuccess()"
+        class="mt-1 w-full rounded-lg border border-hairline bg-surface px-3 py-2 text-sm text-ink focus:border-ink focus:outline-none"
+      />
+      @if (newTooShort()) {
+        <span class="mt-1 block text-[11px] text-red-700">Mindestens 8 Zeichen.</span>
+      }
+    </label>
+
+    <label class="block">
+      <span class="text-xs font-medium text-ink-muted">Neues Passwort bestätigen</span>
+      <input
+        type="password"
+        name="confirm"
+        autocomplete="new-password"
+        [ngModel]="confirm()"
+        (ngModelChange)="confirm.set($event)"
+        [disabled]="change.isPending() || showSuccess()"
+        class="mt-1 w-full rounded-lg border border-hairline bg-surface px-3 py-2 text-sm text-ink focus:border-ink focus:outline-none"
+      />
+      @if (confirmMismatch()) {
+        <span class="mt-1 block text-[11px] text-red-700">
+          Passwörter stimmen nicht überein.
+        </span>
+      }
+    </label>
+
+    <button
+      type="submit"
+      [disabled]="!canSubmit()"
+      class="rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-surface disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {{ change.isPending() ? "speichere…" : "Passwort ändern" }}
+    </button>
+  </form>
+</div>

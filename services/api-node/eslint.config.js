@@ -12,4 +12,17 @@ export default tseslint.config(
       globals: globals.node,
     },
   },
+  {
+    files: ["src/**/*.ts"],
+    rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
+    },
+  },
+  {
+    files: ["src/db/schema.ts"],
+    rules: { "@typescript-eslint/no-unused-vars": "off" },
+  },
 );

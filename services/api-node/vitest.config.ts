@@ -1,9 +1,19 @@
+import swc from "unplugin-swc";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  plugins: [
+    swc.vite({
+      module: { type: "es6" },
+      jsc: {
+        target: "es2022",
+        parser: { syntax: "typescript", decorators: true },
+        transform: { legacyDecorator: true, decoratorMetadata: true },
+      },
+    }),
+  ],
   test: {
-    // No tests exist yet for this freshly-scaffolded package (tasks.md 4.11
-    // adds the first ones) — don't fail CI on an empty suite in the meantime.
     passWithNoTests: true,
+    include: ["src/**/*.test.ts"],
   },
 });

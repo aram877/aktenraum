@@ -8,7 +8,6 @@ import { useLogout, useMe } from "../lib/auth";
 import { useTrashCount } from "../lib/trash";
 import { isUploadInFlight, useUploads } from "../lib/upload-store";
 import {
-  CameraIcon,
   HomeIcon,
   LibraryIcon,
   MagnifyingGlassIcon,
@@ -26,7 +25,6 @@ type NavKey =
   | "find"
   | "library"
   | "upload"
-  | "scan"
   | "inbox"
   | "trash"
   | "settings";
@@ -157,9 +155,6 @@ export function Nav({ active }: { active: NavKey }) {
 
             <Link to="/upload" className={iconCls("upload")} title="Hochladen" aria-label="Hochladen">
               <UploadIcon className="h-[18px] w-[18px]" />
-            </Link>
-            <Link to="/scan" className={iconCls("scan")} title="Scannen" aria-label="Scannen">
-              <CameraIcon className="h-[18px] w-[18px]" />
             </Link>
 
             {divider}
@@ -294,12 +289,6 @@ export function Nav({ active }: { active: NavKey }) {
               <span className="flex items-center gap-3">
                 <UploadIcon className="h-[18px] w-[18px]" />
                 <span>Hochladen</span>
-              </span>
-            </Link>
-            <Link to="/scan" className={drawerLinkCls("scan")} onClick={() => setMenuOpen(false)}>
-              <span className="flex items-center gap-3">
-                <CameraIcon className="h-[18px] w-[18px]" />
-                <span>Scannen</span>
               </span>
             </Link>
             <Link to="/trash" className={drawerLinkCls("trash")} onClick={() => setMenuOpen(false)}>

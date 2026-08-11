@@ -30,9 +30,6 @@ const LibraryReview = lazy(() =>
 const Login = lazy(() =>
   import("./routes/Login").then((m) => ({ default: m.Login })),
 );
-const Scan = lazy(() =>
-  import("./routes/Scan").then((m) => ({ default: m.Scan })),
-);
 const SettingsPage = lazy(() =>
   import("./routes/Settings").then((m) => ({ default: m.SettingsPage })),
 );
@@ -257,17 +254,6 @@ const uploadRoute = createRoute({
   ),
 });
 
-const scanRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/scan",
-  beforeLoad: ({ context }) => ensureLoggedIn(context),
-  component: () => (
-    <RouteSuspense>
-      <Scan />
-    </RouteSuspense>
-  ),
-});
-
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings",
@@ -316,7 +302,6 @@ const routeTree = rootRoute.addChildren([
   libraryReviewRoute,
   trashRoute,
   uploadRoute,
-  scanRoute,
   settingsRoute,
   inboxRoute,
   inboxReviewRoute,

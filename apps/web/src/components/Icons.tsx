@@ -50,15 +50,6 @@ export function XIcon({ className }: IconProps) {
   );
 }
 
-export function CameraIcon({ className }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M2 5.5A1.5 1.5 0 0 1 3.5 4h1.7l.9-1.5h3.8l.9 1.5h1.7A1.5 1.5 0 0 1 14 5.5v6A1.5 1.5 0 0 1 12.5 13h-9A1.5 1.5 0 0 1 2 11.5v-6Z" />
-      <circle cx="8" cy="8.5" r="2.5" />
-    </svg>
-  );
-}
-
 export function RotateIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>

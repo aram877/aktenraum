@@ -12,7 +12,8 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "@aktenraum/core-ts": "workspace:*"
+    "@aktenraum/core-ts": "workspace:*",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

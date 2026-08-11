@@ -188,6 +188,44 @@ services:
     networks:
       - internal
 
+  # Node/NestJS rewrite of aktenraum-api, running side-by-side with the
+  # Python service during the strangler migration (openspec change
+  # rewrite-stack-nodejs-angular). nginx sends every request to the Python
+  # service unless the caller opts in with `X-Aktenraum-Backend: node` or an
+  # `aktenraum_backend=node` cookie, so starting this container changes
+  # nothing for existing users. Both services share the same `aktenraum`
+  # database and the same Paperless token — safe because the API layer only
+  # reads and writes state the user already drives; unlike the worker, there
+  # is no lifecycle-tag race between two readers.
+  aktenraum-api-node:
+    build:
+      context: ..
+      dockerfile: services/api-node/Dockerfile
+    restart: unless-stopped
+    mem_limit: ${AKTENRAUM_API_NODE_MEM_LIMIT:-4g}
+    volumes:
+      - ../evals:/repo/evals:ro
+      # transformers.js caches the ONNX reranker here (~571 MB for the q8
+      # export). Separate volume from the Python service's HF cache: the two
+      # download different artifacts for the same model.
+      - aktenraum-node-hf-cache:/home/appuser/.cache/huggingface
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${PAPERLESS_DBUSER:-paperless}:${PAPERLESS_DBPASS}@postgres:5432/aktenraum
+      HF_HOME: /home/appuser/.cache/huggingface
+      HUGGINGFACE_HUB_CACHE: /home/appuser/.cache/huggingface/hub
+    expose:
+      - "8002"
+    networks:
+      - internal
+
   nginx:
     build:
       context: ..
@@ -231,3 +269,7 @@ volumes:
   # rebuild. Lifespan warm-up in aktenraum_api.main pre-loads the
   # model into RAM at startup; this volume keeps the bytes on disk.
   aktenraum-hf-cache:
+  # Same purpose for the Node service, kept separate: transformers.js pulls
+  # the `onnx-community/bge-reranker-v2-m3-ONNX` q8 export, not the
+  # sentence-transformers weights the Python service downloads.
+  aktenraum-node-hf-cache:

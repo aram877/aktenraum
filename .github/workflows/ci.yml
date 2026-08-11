@@ -83,15 +83,21 @@ jobs:
           pnpm --filter @aktenraum/core-ts lint
           pnpm --filter @aktenraum/api-node lint
           pnpm --filter @aktenraum/worker-node lint
+          pnpm --filter @aktenraum/web-angular lint
 
       - name: Build
         run: |
           pnpm --filter @aktenraum/core-ts build
           pnpm --filter @aktenraum/api-node build
           pnpm --filter @aktenraum/worker-node build
+          pnpm --filter @aktenraum/web-angular build
+
+      - name: Typecheck tests
+        run: pnpm --filter @aktenraum/api-node typecheck
 
       - name: Test
         run: |
           pnpm --filter @aktenraum/core-ts test
           pnpm --filter @aktenraum/api-node test
+          pnpm --filter @aktenraum/web-angular test
           pnpm --filter @aktenraum/worker-node test

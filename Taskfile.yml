@@ -291,6 +291,7 @@ tasks:
     desc: "Test services/api-node"
     deps: [web:install]
     cmds:
+      - pnpm --filter @aktenraum/api-node typecheck
       - pnpm --filter @aktenraum/api-node test
 
   node:api:lint:
@@ -298,6 +299,30 @@ tasks:
     deps: [web:install]
     cmds:
       - pnpm --filter @aktenraum/api-node lint
+
+  node:web:dev:
+    desc: "Angular dev server on :4200 (proxies /api to the nginx edge on :8080)"
+    deps: [web:install]
+    cmds:
+      - pnpm --filter @aktenraum/web-angular dev
+
+  node:web:build:
+    desc: "Build apps/web-angular"
+    deps: [web:install]
+    cmds:
+      - pnpm --filter @aktenraum/web-angular build
+
+  node:web:lint:
+    desc: "Lint apps/web-angular"
+    deps: [web:install]
+    cmds:
+      - pnpm --filter @aktenraum/web-angular lint
+
+  node:web:test:
+    desc: "Test apps/web-angular (Angular's first-party vitest runner)"
+    deps: [web:install]
+    cmds:
+      - pnpm --filter @aktenraum/web-angular test
 
   node:worker:dev:
     desc: "Dev server for services/worker-node (the Node replacement for auto-tagger), hot reload via tsx"
@@ -325,11 +350,11 @@ tasks:
 
   node:test:
     desc: "Test all Node/TypeScript rewrite packages (core-ts + api-node + worker-node)"
-    deps: [node:core:test, node:api:test, node:worker:test]
+    deps: [node:core:test, node:api:test, node:worker:test, node:web:test]
 
   node:lint:
     desc: "Lint all Node/TypeScript rewrite packages (core-ts + api-node + worker-node)"
-    deps: [node:core:lint, node:api:lint, node:worker:lint]
+    deps: [node:core:lint, node:api:lint, node:worker:lint, node:web:lint]
 
   # ----- Backend services -----
 

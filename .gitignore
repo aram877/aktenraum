@@ -35,3 +35,8 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+evals/local.yaml
+
+# Timestamped .env backups taken before config migrations — contain secrets.
+docker/.env.bak-*
+docker/*.env.bak-*

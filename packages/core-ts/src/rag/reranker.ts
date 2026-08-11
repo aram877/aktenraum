@@ -19,8 +19,24 @@
  * export benchmarked at ~11-19ms/candidate on CPU, beating the ~50ms/pair
  * Python fp32 baseline.
  */
-import { AutoModelForSequenceClassification, AutoTokenizer } from "@huggingface/transformers";
+import {
+  AutoModelForSequenceClassification,
+  AutoTokenizer,
+  env as transformersEnv,
+} from "@huggingface/transformers";
 import { logger } from "../log.js";
+
+// transformers.js defaults its model cache to a `.cache` directory INSIDE its
+// own node_modules folder. In a container that directory lives in an image
+// layer, so the ~571 MB reranker re-downloads on every rebuild and a rebuild
+// that interrupts a download leaves a truncated file behind — which surfaces
+// as "Protobuf parsing failed" at load time, not as a download error. Point
+// the cache at a real mount instead when one is configured.
+const configuredCacheDir =
+  process.env.TRANSFORMERS_CACHE ?? process.env.HUGGINGFACE_HUB_CACHE ?? process.env.HF_HOME;
+if (configuredCacheDir) {
+  transformersEnv.cacheDir = configuredCacheDir;
+}
 
 // Pinned default. Swappable at construction.
 export const DEFAULT_RERANKER_MODEL = "onnx-community/bge-reranker-v2-m3-ONNX";

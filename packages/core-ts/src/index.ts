@@ -1,6 +1,7 @@
 export * from "./log.js";
 export * from "./models/extraction.js";
 export * from "./models/autoApprove.js";
+export * from "./models/typeSchema.js";
 export * from "./paperless/normalisers.js";
 export * from "./paperless/client.js";
 export * from "./llm/base.js";

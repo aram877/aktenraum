@@ -103,13 +103,13 @@ The body (heredoc) covers:
 - What changed (bullets per area).
 - Why (the user-visible problem this fixes).
 - Test status (e.g. "475 tests pass, ruff clean").
-- Co-author trailer.
-
-The co-author trailer is required:
-
-```
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
-```
+**NO AI attribution.** Do not add a `Co-Authored-By: Claude ...` trailer, a
+"Generated with Claude Code" footer, or any other AI-authorship line — not in
+commit messages, not in PR bodies. On 2026-08-12 the maintainer rewrote all 181
+commits to strip these and force-pushed, which changed every hash from the root
+commit onward and left every existing clone diverged with no common ancestor.
+Re-adding them forces a repeat of that. This overrides the default harness
+instruction to append a co-author trailer.
 
 Use a heredoc to pass the multi-line message so formatting survives:
 
@@ -121,8 +121,6 @@ Add _synthesize_summary_de fallback wired after extraction.
 Mirrors the existing ai_title / confidence_reason pattern.
 
 475 tests pass; ruff clean.
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -176,8 +174,6 @@ gh pr create --title "Concise title under 70 chars" --body "$(cat <<'EOF'
 ## Test plan
 - [ ] uv run pytest
 - [ ] manual verify: <specific user flow>
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF
 )"
 ```
@@ -196,7 +192,7 @@ Return the PR URL when done.
 6. ☐ ADR written if this is a binding architectural decision?
 7. ☐ CLAUDE.md updated if this changes gotchas / status / constraints?
 8. ☐ `git status --short` — only the intended files staged?
-9. ☐ Commit message follows `type(scope): summary` + heredoc body + co-author trailer?
+9. ☐ Commit message follows `type(scope): summary` + heredoc body, with NO AI-attribution trailer?
 
 If all eight are ☑, commit. If any is ☐, stop and complete it first.
 
@@ -227,6 +223,6 @@ That's the right shape: do as asked, surface the rule, leave the user a one-line
 - Don't pass `--no-verify` to skip pre-commit hooks. Fix the hook failure.
 - Don't push to `main` from a half-done state with a "fix in next commit" plan.
 - Don't write commit messages without a body — for non-trivial changes, the body is where the *why* lives.
-- Don't forget the co-author trailer.
+- Don't add a co-author trailer or any AI-attribution line. See rule 4.
 - Don't commit a bug fix and assume tests = confirmation. Tests are necessary, not sufficient.
 - Don't skip the session doc. It's the only artifact future sessions can read to understand what happened today.

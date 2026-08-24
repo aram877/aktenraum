@@ -33,6 +33,8 @@ COPY --from=builder --chown=appuser:appuser /repo/packages/core-ts/dist /repo/pa
 COPY --from=builder --chown=appuser:appuser /repo/packages/core-ts/node_modules /repo/packages/core-ts/node_modules
 COPY --from=builder --chown=appuser:appuser /repo/services/api-node/package.json /repo/services/api-node/package.json
 COPY --from=builder --chown=appuser:appuser /repo/services/api-node/dist /repo/services/api-node/dist
+# tsc emits only JS; the schema bootstrap reads this SQL at runtime.
+COPY --from=builder --chown=appuser:appuser /repo/services/api-node/src/db/schema.sql /repo/services/api-node/dist/db/schema.sql
 COPY --from=builder --chown=appuser:appuser /repo/services/api-node/node_modules /repo/services/api-node/node_modules
 
 RUN mkdir -p /home/appuser/.cache/huggingface \

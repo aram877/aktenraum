@@ -8,6 +8,7 @@ import { AppModule } from "./app.module.js";
 import { FastApiErrorShapeFilter } from "./common/http-exception.filter.js";
 import { csrfMiddleware, securityHeadersMiddleware } from "./common/middleware.js";
 import { loadSettings } from "./config/settings.js";
+import { applySchema } from "./db/apply-schema.js";
 
 export async function bootstrap(): Promise<void> {
   const settings = loadSettings();
@@ -20,6 +21,8 @@ export async function bootstrap(): Promise<void> {
         "WEBHOOK_SECRET (bootstrap-secrets.sh generates one) in docker/.env.",
     });
   }
+
+  await applySchema(settings.DATABASE_URL);
 
   const app = await NestFactory.create(AppModule, { bufferLogs: false });
   app.setGlobalPrefix("api");

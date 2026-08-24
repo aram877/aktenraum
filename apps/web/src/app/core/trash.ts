@@ -60,11 +60,12 @@ export class TrashApi {
   }
 }
 
-export function injectTrashList() {
+export function injectTrashList(enabled: () => boolean = () => true) {
   const api = inject(TrashApi);
   return injectQuery(() => ({
     queryKey: [...TRASH_KEY, "list"],
     queryFn: () => api.list(),
+    enabled: enabled(),
     staleTime: 15_000,
   }));
 }

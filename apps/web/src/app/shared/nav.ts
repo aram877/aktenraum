@@ -2,7 +2,7 @@ import { Component, computed, inject, signal } from "@angular/core";
 import { Router, RouterLink, RouterLinkActive } from "@angular/router";
 
 import { injectInFlightCount } from "../core/documents";
-import { injectLogout } from "../core/auth";
+import { injectLogout, injectMe } from "../core/auth";
 import { injectTrashList } from "../core/trash";
 
 @Component({
@@ -12,8 +12,13 @@ import { injectTrashList } from "../core/trash";
 })
 export class Nav {
   private readonly router = inject(Router);
-  protected readonly inFlight = injectInFlightCount();
-  protected readonly trash = injectTrashList();
+  private readonly me = injectMe();
+  // The nav is authenticated chrome: it must not render on /login, and its
+  // two badge queries must not fire while logged out or every visit to the
+  // login page emits a pair of 401s.
+  protected readonly authenticated = computed(() => this.me.data() !== undefined);
+  protected readonly inFlight = injectInFlightCount(() => this.authenticated());
+  protected readonly trash = injectTrashList(() => this.authenticated());
   protected readonly logout = injectLogout();
 
   protected readonly inFlightCount = computed(() => this.inFlight.data()?.count ?? 0);

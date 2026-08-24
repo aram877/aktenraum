@@ -80,11 +80,12 @@ export function injectReprocess() {
   }));
 }
 
-export function injectInFlightCount() {
+export function injectInFlightCount(enabled: () => boolean = () => true) {
   const api = inject(DocumentsApi);
   return injectQuery(() => ({
     queryKey: ["in-flight"],
     queryFn: () => api.inFlight(),
+    enabled: enabled(),
     refetchInterval: 30_000,
     staleTime: 15_000,
   }));

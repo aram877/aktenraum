@@ -592,7 +592,7 @@ export class PaperlessClient {
     return createdBody.id;
   }
 
-  private async getTagId(name: string): Promise<number | null> {
+  async getTagId(name: string): Promise<number | null> {
     // See getOrCreateNamed for why we must use ?name__iexact= here.
     const cached = this.tagIdCache.get(name);
     if (cached && nowSeconds() - cached.when <= this.cacheTtlSeconds) {

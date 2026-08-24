@@ -1,7 +1,9 @@
-import { Component, computed, inject, signal } from "@angular/core";
+import { Component, computed, effect, inject, signal } from "@angular/core";
 import { Router, RouterLink, RouterLinkActive } from "@angular/router";
 
 import { injectInFlightCount } from "../core/documents";
+import { injectInboxList } from "../core/inbox";
+import { injectLiveCounts, LiveCountsSubscription } from "../core/live";
 import { injectLogout, injectMe } from "../core/auth";
 import { injectTrashList } from "../core/trash";
 
@@ -19,12 +21,36 @@ export class Nav {
   protected readonly authenticated = computed(() => this.me.data() !== undefined);
   protected readonly inFlight = injectInFlightCount(() => this.authenticated());
   protected readonly trash = injectTrashList(() => this.authenticated());
+  protected readonly inbox = injectInboxList({ pageSize: 1 }, () => this.authenticated());
   protected readonly logout = injectLogout();
 
-  protected readonly inFlightCount = computed(() => this.inFlight.data()?.count ?? 0);
-  protected readonly trashCount = computed(() => this.trash.data()?.total ?? 0);
+  // /api/events/counts pushes all three badges. The polled queries above stay
+  // as the fallback for when SSE cannot connect, so a badge is never blank
+  // just because the stream is down.
+  private readonly live = injectLiveCounts();
+  private readonly liveSubscription = inject(LiveCountsSubscription);
+
+  protected readonly inboxCount = computed(
+    () => this.live.data()?.inbox ?? this.inbox.data()?.total ?? 0,
+  );
+  protected readonly trashCount = computed(
+    () => this.live.data()?.trash ?? this.trash.data()?.total ?? 0,
+  );
+  // "In Bearbeitung" means the worker is busy with it. Documents already
+  // waiting in review carry their own badge, so subtract them rather than
+  // counting the same document twice.
+  protected readonly inFlightCount = computed(() =>
+    Math.max(0, (this.live.data()?.in_flight ?? this.inFlight.data()?.count ?? 0) - this.inboxCount()),
+  );
 
   protected readonly menuOpen = signal(false);
+
+  constructor() {
+    effect(() => {
+      if (this.authenticated()) this.liveSubscription.start();
+      else this.liveSubscription.stop();
+    });
+  }
 
   protected readonly links = [
     { to: "/", label: "Start", exact: true },

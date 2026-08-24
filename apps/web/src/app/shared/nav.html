@@ -14,6 +14,15 @@
             class="text-ink-muted hover:text-ink"
           >
             {{ link.label }}
+            @if (link.to === "/library" && inboxCount() > 0) {
+              <span
+                data-testid="review-badge"
+                title="Dokumente zur Prüfung"
+                class="ml-1 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-600"
+              >
+                {{ inboxCount() }}
+              </span>
+            }
             @if (link.to === "/trash" && trashCount() > 0) {
               <span class="ml-1 rounded-full bg-surface-raised px-1.5 py-0.5 text-[10px] text-ink-subtle">
                 {{ trashCount() }}
@@ -69,6 +78,14 @@
             class="flex min-h-11 items-center rounded-lg px-3 text-sm text-ink-muted hover:bg-canvas"
           >
             {{ link.label }}
+            @if (link.to === "/library" && inboxCount() > 0) {
+              <span
+                data-testid="review-badge-drawer"
+                class="ml-2 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-600"
+              >
+                {{ inboxCount() }}
+              </span>
+            }
             @if (link.to === "/trash" && trashCount() > 0) {
               <span class="ml-2 rounded-full bg-surface-raised px-1.5 py-0.5 text-[10px] text-ink-subtle">
                 {{ trashCount() }}

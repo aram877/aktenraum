@@ -104,12 +104,16 @@ export function injectInboxDetail(id: () => number | null) {
   }));
 }
 
-export function injectInboxList(params: { pageSize?: number } = {}) {
+export function injectInboxList(
+  params: { pageSize?: number } = {},
+  enabled: () => boolean = () => true,
+) {
   const api = inject(InboxApi);
   const pageSize = params.pageSize ?? 50;
   return injectQuery(() => ({
     queryKey: [...INBOX_KEY, "list", 1, pageSize, "-modified"],
     queryFn: () => api.list({ page: 1, pageSize, ordering: "-modified" }),
+    enabled: enabled(),
     staleTime: 30_000,
   }));
 }

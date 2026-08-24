@@ -89,7 +89,7 @@ Quick version (using the [`task` runner](https://taskfile.dev) — `brew install
 ```bash
 git clone <this-repo>
 cd aktenraum
-task bootstrap                       # host dirs + secrets + stack up + next-step hints
+task setup                       # host dirs + secrets + stack up + next-step hints
 ```
 
 Or without `task`:
@@ -100,8 +100,8 @@ bash scripts/bootstrap-secrets.sh    # generate runtime secrets in docker/*.env
 cd docker && docker compose up -d
 ```
 
-`task --list` enumerates every shortcut: `task up`, `task web:dev`,
-`task api:rebuild`, `task test`, `task logs SVC=auto-tagger`, etc.
+`task --list` enumerates every shortcut: `task start`, `task web:dev`,
+`task build:be`, `task test`, `task logs SVC=auto-tagger`, etc.
 
 After the first boot, mint a Paperless API token and run `bash scripts/bootstrap-paperless.sh` to create the AI custom fields and lifecycle tags. The SPA is at <http://localhost:8080> (override the port via `AKTENRAUM_WEB_PORT` in `docker/.env`).
 

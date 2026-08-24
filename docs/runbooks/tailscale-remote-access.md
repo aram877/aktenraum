@@ -1,7 +1,7 @@
 # Remote access via Tailscale (testing-phase topology)
 
 **Time to complete**: ~15 min for first-time setup, ~25 min if you hit one failure mode.
-**Pre-requisite**: aktenraum compose stack already running on the host machine (`task ps` shows all 10 containers healthy).
+**Pre-requisite**: aktenraum compose stack already running on the host machine (`task status` shows all 10 containers healthy).
 **Outcome**: you can reach aktenraum at `https://<host-machine-name>.<tailnet>.ts.net/` from any device you join to your Tailscale tailnet (phone, second laptop), over end-to-end-encrypted WireGuard. No public-internet exposure.
 
 For the rationale behind this topology (why Tailscale over VPS / Cloudflare Tunnel / Tauri-now), see [ADR-005](../adr/005-test-phase-access-via-tailscale.md).
@@ -23,7 +23,7 @@ The host is the machine that will run the compose stack 24/7 and proxy aktenraum
    - **Linux**: `sudo systemctl enable docker` (and `containerd` if it's separate).
 3. **Confirm aktenraum is up and healthy.** From a terminal in the repo:
    ```
-   task ps
+   task status
    ```
    All 10 services should show as `running`. Visit `http://localhost:8080` (or `http://localhost:${AKTENRAUM_WEB_PORT}` if you overrode the port) in a browser **on the host itself**. Login screen should load.
 4. **Create a Tailscale account.** Skip if you already have one. https://login.tailscale.com/start → sign in with Google / Microsoft / GitHub. The personal plan is free for up to 100 devices and is sufficient for this topology.
@@ -88,7 +88,7 @@ The host is the machine that will run the compose stack 24/7 and proxy aktenraum
 
 ## Phase E — Reboot test (highly recommended)
 
-15. **Reboot the host once.** Wait for it to come back up, log in to the OS, confirm Docker Desktop auto-started and aktenraum is healthy (`task ps`), then immediately try the Tailscale URL from your phone. This validates that:
+15. **Reboot the host once.** Wait for it to come back up, log in to the OS, confirm Docker Desktop auto-started and aktenraum is healthy (`task status`), then immediately try the Tailscale URL from your phone. This validates that:
     - `tailscale serve --bg` persisted across reboot (it should, automatically — that's what `--bg` does).
     - Docker Desktop's auto-start is correctly configured (from step 2).
     - Compose's `restart: unless-stopped` is bringing services back up (it is — defined in `docker/docker-compose.yml`).
@@ -154,7 +154,7 @@ Tailscale supports inviting other people to your tailnet ([user-sharing docs](ht
 
 **Diagnostic**: `tailscale serve status` shows the mapping is there, but the URL returns 404. Likely your nginx isn't reachable from `tailscale serve`'s view of localhost.
 
-**Remediation**: confirm `task ps` shows nginx as running. Confirm `curl http://localhost:8080` works on the host directly. If it doesn't, the compose stack is the issue, not Tailscale. If it does, double-check the port in your `tailscale serve` command matches `AKTENRAUM_WEB_PORT`.
+**Remediation**: confirm `task status` shows nginx as running. Confirm `curl http://localhost:8080` works on the host directly. If it doesn't, the compose stack is the issue, not Tailscale. If it does, double-check the port in your `tailscale serve` command matches `AKTENRAUM_WEB_PORT`.
 
 ### "I want to add a second client device but Tailscale says my tailnet is at the device limit"
 

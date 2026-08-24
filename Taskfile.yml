@@ -18,6 +18,11 @@ silent: true
 
 vars:
   DOCKER_DIR: docker
+  # pnpm is normally installed via corepack, which does NOT put a `pnpm`
+  # shim on PATH under every Node version manager (fnm, for one). Resolve
+  # it once rather than failing every JS task with "executable not found".
+  PNPM:
+    sh: command -v pnpm >/dev/null 2>&1 && echo pnpm || echo 'corepack pnpm'
   COMPOSE: docker compose --project-directory docker
   # Dev mode = prod compose + the dev overlay that bind-mounts source
   # dirs and runs `tsx watch`. See docker/docker-compose.dev.yml for the
@@ -118,8 +123,8 @@ tasks:
       - |
         echo "✓ Dev mode active."
         echo "  - both services run tsx watch (restart on .ts save)."
-        echo "  - Tail logs:    task dev:logs"
-        echo "  - Back to prod: task dev:down  (or: task up)"
+        echo "  - Tail logs:    task logs SVC=aktenraum-api"
+        echo "  - Back to prod: task dev:down"
 
   dev:down:
     desc: "Drop dev-mode overrides and bring services back up under the prod entrypoints"
@@ -127,32 +132,12 @@ tasks:
       - "{{.COMPOSE}} up -d aktenraum-api auto-tagger"
       - 'echo "✓ Prod-style services restored. (SPA / other services untouched.)"'
 
-  dev:logs:
-    desc: "Tail logs from aktenraum-api + auto-tagger (use during dev:up)"
-    cmds:
-      - "{{.COMPOSE_DEV}} logs -f --tail=50 aktenraum-api auto-tagger"
-
   # ----- Stack lifecycle (lower-level) -----
-
-  up:
-    desc: "Start the full Docker stack in the background (alias: task start)"
-    cmds:
-      - "{{.COMPOSE}} up -d"
-
-  down:
-    desc: "Stop the full stack — data preserved (alias: task stop)"
-    cmds:
-      - "{{.COMPOSE}} down"
 
   restart:
     desc: "Restart every service (does NOT re-read env files; use up/recreate for that)"
     cmds:
       - "{{.COMPOSE}} restart"
-
-  ps:
-    desc: "Show container status (alias: task status)"
-    cmds:
-      - "{{.COMPOSE}} ps"
 
   logs:
     desc: "Tail logs. SVC=<service> for a single service; omit for all."
@@ -183,7 +168,7 @@ tasks:
       - "{{.COMPOSE}} up -d"
       - bash scripts/fix-token.sh
       - |
-        TOKEN=$(grep '^PAPERLESS_API_TOKEN=' docker/auto-tagger.env | cut -d= -f2-)
+        TOKEN=$(grep '^PAPERLESS_API_TOKEN=' docker/.env | cut -d= -f2-)
         docker cp scripts/bootstrap-paperless.sh docker-paperless-1:/tmp/bootstrap-paperless.sh
         docker compose --project-directory docker exec -T \
           -e PAPERLESS_API_TOKEN="$TOKEN" \
@@ -203,11 +188,6 @@ tasks:
         echo "║  Write it down — it is not shown again.                      ║"
         echo "╚══════════════════════════════════════════════════════════════╝"
 
-  bootstrap:
-    desc: "Alias for: task setup (first-time setup)"
-    cmds:
-      - task: setup
-
   paperless:bootstrap:
     desc: "Create Paperless custom fields + lifecycle tags via REST API"
     cmds:
@@ -215,124 +195,32 @@ tasks:
       # runtime needed, and the same script the e2e harness uses.
       - bash scripts/bootstrap-paperless.sh
 
-  # ----- Frontend (SPA) -----
+  # ----- Development -----
 
-  web:install:
-    desc: "Install JS deps (pnpm)"
+  install:
+    desc: "Install workspace dependencies (pnpm)"
     cmds:
-      - pnpm install
+      - "{{.PNPM}} install"
 
   web:dev:
     desc: "Angular dev server on :4200 (proxies /api to the nginx edge on :8080)"
-    deps: [web:install]
+    deps: [install]
     cmds:
-      - pnpm --filter @aktenraum/web dev
-
-  web:build:
-    desc: "Production build of the Angular SPA into apps/web/dist"
-    deps: [web:install]
-    cmds:
-      - pnpm --filter @aktenraum/web build
-
-  web:lint:
-    desc: "ESLint on the SPA"
-    deps: [web:install]
-    cmds:
-      - pnpm --filter @aktenraum/web lint
-
-  web:types:
-    desc: "Regenerate TypeScript types from /api/openapi.json (stack must be up)"
-    deps: [web:install]
-    cmds:
-      - pnpm --filter @aktenraum/web generate:api-types
-
-  web:deploy:
-    desc: "Build the SPA into the nginx image (use after SPA changes when not running web:dev)"
-    cmds:
-      - "{{.COMPOSE}} up -d --build nginx"
-
-  # ----- Backend services -----
-
-  api:rebuild:
-    desc: "Rebuild + recreate aktenraum-api after code changes"
-    cmds:
-      - "{{.COMPOSE}} up -d --build aktenraum-api"
-
-  api:logs:
-    desc: "Tail aktenraum-api logs"
-    cmds:
-      - "{{.COMPOSE}} logs -f --tail=200 aktenraum-api"
-
-  tagger:rebuild:
-    desc: "Rebuild + recreate auto-tagger after code changes"
-    cmds:
-      - "{{.COMPOSE}} up -d --build auto-tagger"
-
-  tagger:logs:
-    desc: "Tail auto-tagger logs"
-    cmds:
-      - "{{.COMPOSE}} logs -f --tail=200 auto-tagger"
-
-  nginx:rebuild:
-    desc: "Rebuild + recreate nginx (picks up SPA changes; same as web:deploy)"
-    cmds:
-      - "{{.COMPOSE}} up -d --build nginx"
-
-  rebuild:all:
-    desc: "Rebuild every locally-built service (auto-tagger, aktenraum-api, nginx, backup)"
-    cmds:
-      - "{{.COMPOSE}} up -d --build auto-tagger aktenraum-api nginx backup"
+      - "{{.PNPM}} --filter @aktenraum/web dev"
 
   # ----- Tests + lint -----
 
   test:
     desc: "Run the full test suite across every workspace package"
-    deps: [web:install]
+    deps: [install]
     cmds:
-      - pnpm -r test
-
-  test:web:
-    desc: "Angular unit tests (first-party vitest runner)"
-    deps: [web:install]
-    cmds:
-      - pnpm --filter @aktenraum/web test
-
-  test:api:
-    desc: "aktenraum-api tests (typecheck + vitest)"
-    deps: [web:install]
-    cmds:
-      - pnpm --filter @aktenraum/api typecheck
-      - pnpm --filter @aktenraum/api test
-
-  test:worker:
-    desc: "auto-tagger tests"
-    deps: [web:install]
-    cmds:
-      - pnpm --filter @aktenraum/worker test
-
-  test:core:
-    desc: "aktenraum-core tests"
-    deps: [web:install]
-    cmds:
-      - pnpm --filter @aktenraum/core test
-
-  build:all:
-    desc: "Build every workspace package (tsc + Angular)"
-    deps: [web:install]
-    cmds:
-      - pnpm -r build
+      - "{{.PNPM}} -r test"
 
   lint:
     desc: "ESLint across every workspace package"
-    deps: [web:install]
+    deps: [install]
     cmds:
-      - pnpm -r lint
-
-  lint:web:
-    desc: "ESLint on the Angular SPA"
-    deps: [web:install]
-    cmds:
-      - pnpm --filter @aktenraum/web lint
+      - "{{.PNPM}} -r lint"
 
   # ----- One-shot ops -----
 
@@ -343,15 +231,15 @@ tasks:
         if [ -z "{{.ID}}" ]; then
           echo 'Usage: task reprocess ID=<doc-id>' >&2; exit 1
         fi
-        TOKEN=$(grep '^PAPERLESS_API_TOKEN=' docker/auto-tagger.env | cut -d= -f2-)
+        TOKEN=$(grep '^PAPERLESS_API_TOKEN=' docker/.env | cut -d= -f2-)
         if [ -z "$TOKEN" ]; then
-          echo 'PAPERLESS_API_TOKEN missing from docker/auto-tagger.env' >&2; exit 1
+          echo 'PAPERLESS_API_TOKEN missing from docker/.env' >&2; exit 1
         fi
         curl -sS -X PATCH "http://localhost:8000/api/documents/{{.ID}}/" \
           -H "Authorization: Token $TOKEN" \
           -H "Content-Type: application/json" \
           -d '{"tags": []}' -o /dev/null -w "PATCH status: %{http_code}\n"
-        echo "Cleared lifecycle tags on doc {{.ID}}. Poller picks up within 30s — task tagger:logs to watch."
+        echo "Cleared lifecycle tags on doc {{.ID}}. Poller picks up within 30s — task logs SVC=auto-tagger to watch."
 
   rag:backfill:
     desc: "Index every existing document into Qdrant for RAG (idempotent)"
@@ -372,11 +260,6 @@ tasks:
     desc: "Tear down the e2e stack and delete its volumes"
     cmds:
       - bash scripts/e2e-worker.sh --down
-
-  e2e:logs:
-    desc: "Tail the e2e worker logs"
-    cmds:
-      - docker compose -f docker/docker-compose.e2e.yml logs -f auto-tagger
 
   rag:reembed:
     desc: "Re-embed the whole corpus after an embedding-model/dimension change (drops the Qdrant collection, then backfills)"
@@ -425,15 +308,14 @@ tasks:
 
   # ----- DB / Qdrant inspection -----
 
-  db:paperless:
-    desc: "Open a psql shell on the Paperless database"
+  db:
+    desc: "Open a psql shell. DB=aktenraum (default) | paperless"
+    interactive: true
     cmds:
-      - "{{.COMPOSE}} exec postgres psql -U paperless -d paperless"
-
-  db:aktenraum:
-    desc: "Open a psql shell on the aktenraum database (users, type_fields)"
-    cmds:
-      - "{{.COMPOSE}} exec postgres psql -U paperless -d aktenraum"
+      - |
+        DB="{{.DB}}"
+        if [ -z "$DB" ]; then DB=aktenraum; fi
+        {{.COMPOSE}} exec postgres psql -U paperless -d "$DB"
 
   db:query:
     desc: 'Run a one-shot query against a DB. DB=aktenraum|paperless SQL="..."'
@@ -446,32 +328,16 @@ tasks:
         if [ -z "$DB" ]; then DB=aktenraum; fi
         {{.COMPOSE}} exec postgres psql -U paperless -d "$DB" -c "{{.SQL}}"
 
-  qdrant:dashboard:
-    desc: "Open the Qdrant web UI. Stack must be up; 127.0.0.1:6333:6333 mapping enabled."
-    cmds:
-      - |
-        URL="http://localhost:${AKTENRAUM_QDRANT_PORT:-6333}/dashboard"
-        echo "Opening $URL"
-        if command -v open >/dev/null 2>&1; then open "$URL"
-        elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$URL"
-        else echo "Open it manually in a browser."
-        fi
-
   qdrant:info:
-    desc: "Print the aktenraum_chunks collection info (point count, vector dims)"
+    desc: "Print the aktenraum_chunks collection info (vector dims) + exact point count"
     cmds:
       - |
         URL="http://localhost:${AKTENRAUM_QDRANT_PORT:-6333}"
         curl -sS "$URL/collections/aktenraum_chunks" | python3 -m json.tool
-
-  qdrant:count:
-    desc: "Total point count in aktenraum_chunks"
-    cmds:
-      - |
-        URL="http://localhost:${AKTENRAUM_QDRANT_PORT:-6333}"
         curl -sS -X POST "$URL/collections/aktenraum_chunks/points/count" \
-          -H "Content-Type: application/json" -d '{}' \
+          -H "Content-Type: application/json" -d '{"exact": true}' \
           | python3 -m json.tool
+        echo "Dashboard: $URL/dashboard"
 
   qdrant:chunks:
     desc: "Show the indexed chunks for one document. ID=<doc-id> required."

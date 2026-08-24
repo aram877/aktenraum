@@ -10,12 +10,12 @@
 ## The fast path (with `task`)
 
 ```bash
-task bootstrap
+task setup
 ```
 
-This runs `scripts/setup.sh` (host dirs) + `scripts/bootstrap-secrets.sh` (generates all REQUIRED secrets into `docker/*.env`) + `task up` (compose up) and prints the two manual follow-ups (mint Paperless API token, run `task paperless:bootstrap`). The bootstrap script is idempotent — re-runs are safe.
+This runs `scripts/setup.sh` (host dirs) + `scripts/bootstrap-secrets.sh` (generates all REQUIRED secrets into `docker/*.env`) + `task start` (compose up) and prints the two manual follow-ups (mint Paperless API token, run `task paperless:bootstrap`). The bootstrap script is idempotent — re-runs are safe.
 
-The remaining sections walk through every step in detail; do them only if `task bootstrap` doesn't fit your setup or you want the raw commands.
+The remaining sections walk through every step in detail; do them only if `task setup` doesn't fit your setup or you want the raw commands.
 
 ## Steps (raw)
 

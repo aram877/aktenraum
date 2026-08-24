@@ -20,13 +20,13 @@ Plain-language definitions for every acronym, framework, and piece of jargon tha
 
 ## Stack & infrastructure
 
-- **Docker Compose** — the tool that runs all 10 services (Paperless, Postgres, Redis, Qdrant, auto-tagger, aktenraum-api, nginx, gotenberg, tika, backup) from one `docker/docker-compose.yml` file. `task up` starts them.
+- **Docker Compose** — the tool that runs all 10 services (Paperless, Postgres, Redis, Qdrant, auto-tagger, aktenraum-api, nginx, gotenberg, tika, backup) from one `docker/docker-compose.yml` file. `task start` starts them.
 - **container** — an isolated process running one service. Each row of `docker compose ps` is a container.
 - **service** — a logical role in `docker-compose.yml` (e.g. `paperless`, `qdrant`). Maps 1:1 to a container in our setup.
 - **healthcheck** — a probe Docker runs against a container to mark it `(healthy)`. Used by `depends_on: service_healthy` to delay startup of dependent services.
 - **bind mount / volume** — a host directory mapped into a container so data survives container restarts. Our bind mounts live under `${AKTENRAUM_DATA_DIR:-${HOME}/aktenraum}/`.
 - **env file** — a `KEY=VALUE` text file Docker Compose loads into a service's environment. Each service has one (`docker/.env`, `auto-tagger.env`, `aktenraum-api.env`, `backup.env`). Per `ADR-002` they're not committed; `bootstrap-secrets.sh` generates them on first run.
-- **Taskfile** — `Taskfile.yml` at repo root (https://taskfile.dev). Wraps every common workflow as a one-liner — `task up`, `task tagger:rebuild`, `task lint`, etc. `task --list` enumerates them.
+- **Taskfile** — `Taskfile.yml` at repo root (https://taskfile.dev). Wraps every common workflow as a one-liner — `task start`, `task build:be`, `task lint`, etc. `task --list` enumerates them.
 - **uv** — fast Python package + venv manager (the `pip`/`venv`/`poetry` replacement we use). `pnpm install` installs, `pnpm -r test` runs.
 - **pnpm** — fast npm-compatible package manager for the SPA. `pnpm install`, `pnpm --filter @aktenraum/web build`.
 - **workspace (uv / pnpm)** — multiple packages sharing one lockfile + virtualenv. Our `packages/aktenraum-core` + `services/auto-tagger` + `services/aktenraum-api` are one uv workspace; the SPA is its own pnpm workspace.
@@ -57,7 +57,7 @@ Plain-language definitions for every acronym, framework, and piece of jargon tha
 - **TanStack Router** — React routing library with type-safe URL params. Routes defined in `apps/web/src/router.tsx`.
 - **TanStack Query** — server-state cache for React. Every `useQuery(...)` / `useMutation(...)` you see in the SPA is from here.
 - **Tailwind CSS v4** — utility-first CSS framework. Every `className="px-3 py-2 …"` you see is Tailwind.
-- **ESLint** — the JS/TS linter. `task lint:web` runs it.
+- **ESLint** — the JS/TS linter. `task lint` runs it.
 
 ---
 

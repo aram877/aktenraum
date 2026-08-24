@@ -54,38 +54,39 @@ External images are pinned by tag-and-digest in `docker/docker-compose.yml` so `
 
 The root `Taskfile.yml` ([Taskfile.dev](https://taskfile.dev), `brew install go-task`) wraps every common workflow. `task --list` enumerates them. Use these shortcuts in preference to raw commands so future sessions stay consistent:
 
-| Task | Equivalent |
+| Task | What it does |
 | --- | --- |
-| `task start` / `task stop` | friendly aliases for `compose up -d` / `compose down` |
-| `task status` | `compose ps` |
-| `task recover` | re-mint Paperless API token + restart auto-tagger + aktenraum-api (fixes 401 storms after any DB recreation) |
+| `task start` / `task stop` / `task status` | bring the stack up, take it down (data preserved), see what is running |
+| `task restart` | restart every service — does NOT re-read env files |
+| `task recreate SVC=auto-tagger` | recreate one service so it picks up env-file edits |
+| `task logs SVC=auto-tagger` | tail one service; omit `SVC` for all of them |
 | `task setup` | complete first-time setup: secrets → stack → token → Paperless bootstrap → backup init → first snapshot |
-| `task destroy` | stop stack + delete `AKTENRAUM_DATA_DIR` entirely (prompts for `DELETE` confirmation) |
-| `task build` | rebuild everything (nginx/SPA + auto-tagger + aktenraum-api) after code changes |
-| `task build:fe` | rebuild frontend only (nginx image with baked SPA) |
-| `task build:be` | rebuild backend only (auto-tagger + aktenraum-api) |
-| `task up` / `task down` / `task ps` / `task restart` | raw compose lifecycle (lower-level; prefer `start`/`stop`) |
-| `task logs SVC=auto-tagger` | tail a single service |
-| `task recreate SVC=auto-tagger` | recreate a service after env-file edits (env files are NOT re-read by `restart`) |
-| `task web:dev` | Vite hot-reload on `:5173`, bound to `0.0.0.0` so LAN devices can hit it |
-| `task dev:up` / `task dev:down` / `task dev:logs` | Hot-reload mode for the two Node services — bind-mounts `src/` and runs `tsx watch`. `.ts` saves go live in ~1s, no rebuild per edit. `dev:down` flips back to prod entrypoints. |
-| `task web:deploy` / `task nginx:rebuild` | bake the SPA into the nginx image |
-| `task api:rebuild` / `task tagger:rebuild` | rebuild + recreate a Python service |
-| `task test` / `task test` / `task test:web` | full suite or one half |
-| `task lint` / `task lint` / `task lint:web` | ruff + eslint |
-| `task reprocess ID=27` | clear lifecycle tags so the auto-tagger re-extracts |
-| `task rag:backfill` / `task rag:eval` | RAG ops |
-| `task rag:reembed` | drop the Qdrant collection + re-embed the whole corpus (run after an embedding-model/dimension change; prompts for confirmation) |
-| `task backup:run` / `task backup:snapshots` | manual backup ops |
-| `task e2e:worker` / `task e2e:down` / `task e2e:logs` | end-to-end test of the **Node** worker against a throwaway Paperless/Postgres/Qdrant stack (`docker/docker-compose.e2e.yml`, project `aktenraum-e2e`, ports 8100/8101/8102/6433). Never runs against the live stack — the driver refuses live-stack ports outright |
+| `task recover` | re-mint the Paperless API token + restart both Node services (fixes 401 storms after any DB recreation) |
+| `task destroy` | stop the stack and delete `AKTENRAUM_DATA_DIR` entirely (prompts for `DELETE`) |
+| `task build` | rebuild and restart everything (nginx/SPA + both Node services) |
+| `task build:fe` / `task build:be` | rebuild only the SPA-in-nginx image / only the two Node services |
+| `task dev:up` / `task dev:down` | hot-reload mode: bind-mounts `src/` and runs `tsx watch`, so a `.ts` save reloads in ~1s with no rebuild. `dev:down` restores the prod entrypoints |
+| `task web:dev` | Angular dev server on `:4200`, proxying `/api` to the nginx edge on `:8080` |
+| `task install` | `pnpm install` across the workspace |
+| `task test` / `task lint` | vitest and eslint across all four packages. One package: `pnpm --filter @aktenraum/api test` |
+| `task e2e:worker` / `task e2e:down` | end-to-end test of the worker against a **throwaway** Paperless/Postgres/Qdrant stack (`docker/docker-compose.e2e.yml`, project `aktenraum-e2e`, ports 8100/8101/8102/6433). Never runs against the live stack — the driver refuses live-stack ports outright |
+| `task reprocess ID=27` | clear lifecycle tags on one doc so the worker re-extracts it |
+| `task paperless:bootstrap` | create the AI custom fields + lifecycle tags via the Paperless REST API (idempotent) |
+| `task rag:backfill` / `task rag:eval` | index the existing corpus into Qdrant / score retrieval against `evals/golden-questions.yaml` |
+| `task rag:reembed` | drop the Qdrant collection and re-embed everything (run after an embedding-model/dimension change; prompts first) |
+| `task qdrant:info` / `task qdrant:chunks ID=27` | collection dims + exact point count / the indexed chunks for one document |
+| `task db` / `task db:query DB=aktenraum SQL="…"` | psql shell / one-shot query |
+| `task backup:run` / `task backup:snapshots` | manual snapshot / list them |
+| `task backup:check` / `task backup:verify` | repo integrity / non-destructive DR rehearsal (restore to staging + validate both DB dumps) |
+| `task tailscale:serve` / `task tailscale:status` | expose on the tailnet over HTTPS / show the current mappings |
 
 ### Start / stop (raw)
 
 ```bash
 cd docker
-docker compose up -d          # start all                 (task up)
-docker compose down           # stop all (data preserved) (task down)
-docker compose up -d --build auto-tagger   # rebuild after code changes (task tagger:rebuild)
+docker compose up -d          # start all                 (task start)
+docker compose down           # stop all (data preserved) (task stop)
+docker compose up -d --build auto-tagger   # rebuild after code changes (task build:be)
 docker compose up -d --build backup        # rebuild after backup changes
 ```
 
@@ -437,7 +438,7 @@ Use `/opsx:apply` skill to implement tasks from an approved change.
 | Auto-approve doesn't fire on a Rechnung you expected to skip review                                          | `docker compose logs auto-tagger \| grep routing_decision` and read the `reason=…` field on the matching `doc_id` line. Closed-enum values: `auto_approved` (both gates passed), `type_disabled` (rule.enabled=false for that type — flip the checkbox in `/settings → Auto-Genehmigung`), `confidence_below_min` (LLM gave the doc a low score relative to the per-type threshold — inspect `ai_confidence` + `ai_confidence_reason` in the inbox detail to see why, or lower the per-type Min. Konfidenz), `rules_unreachable_fail_closed` (aktenraum-api was unreachable at the auto-tagger's cold start — wait 60s or restart). Routing logic itself is correct and tested; the reason field tells you which gate blocked the doc. |
 | Duplicate dismissal is sticky via `ai-duplicate-dismissed`                                                   | Clicking "Markierung entfernen" on a doc now adds the `ai-duplicate-dismissed` aux tag in addition to removing `ai-duplicate`. The propagator's dedup helper (`auto-tagger propagator._find_duplicate_ids`) short-circuits if the NEW doc carries the dismissed tag and filters out candidates carrying it from the comparison set — so a re-propagation against the same correspondent cluster doesn't re-flag the user's prior decision. To un-dismiss (re-enable detection on a doc), remove `ai-duplicate-dismissed` manually in Paperless's tag UI; the next propagation will treat it like a fresh doc again. |
 | Qdrant tag payload only refreshes on star/unstar — NOT on `ai_suggested_tags` edits          | The RAG indexer (`auto-tagger indexer.index_document`) writes a doc's Qdrant payload (`tags`, `correspondent`, `doc_type`, `created_date`) exactly once, at first propagation. Editing "Vorgeschlagene Tags" on an already-`ai-propagated` doc in the Library review page only PATCHes the `ai_suggested_tags` custom field — it never touches Paperless's native `tags`, so it was never going to reach Qdrant either way; use "Erneut verarbeiten" if you want that edit to become real. The one native-tag-changing action that *is* kept fresh: starring/unstarring (`wichtig`) fires a best-effort `POST /trigger/reindex-metadata` (auto-tagger, mirrors `/trigger/propagate`) that refreshes just the Qdrant payload metadata via `QdrantVectorStore.updateMetadataByDocId` — no re-chunk, no re-embed. If a future feature adds a general native-tag editor to the Library page, wire it to the same trigger rather than reinventing it. |
-| **The live LLM model is the DB quality-tier map, NOT `OLLAMA_MODEL`** — setting `OLLAMA_MODEL` while the api is up does nothing | The auto-tagger + aktenraum-api resolve the model per-request from `app_settings.llm_model`/`answer_llm_model` (DB) through `aktenraum-api/src/settings/quality.ts`'s `QUALITY_TO_MODEL`, fetched via `GET /api/settings/active-llm-model` (secret-gated). `OLLAMA_MODEL` env is only the fallback when the api is unreachable. Symptom: `LLM-Extraktion fehlgeschlagen – model '<name>' not found (404)` even though `OLLAMA_MODEL` points at a pulled model → the active quality tier maps to a model that isn't pulled. Fix: edit `QUALITY_TO_MODEL` (then `task api:rebuild`) or flip the tier in `/settings → Qualität`, OR `ollama pull` the mapped model. The shipped map historically pointed at non-existent `gemma4:*` tags; repointed to `qwen2.5:14b-instruct-q8_0` on 2026-06-22. Model choice currently lives in committed code (machine-specific) — set it per host. |
+| **The live LLM model is the DB quality-tier map, NOT `OLLAMA_MODEL`** — setting `OLLAMA_MODEL` while the api is up does nothing | The auto-tagger + aktenraum-api resolve the model per-request from `app_settings.llm_model`/`answer_llm_model` (DB) through `aktenraum-api/src/settings/quality.ts`'s `QUALITY_TO_MODEL`, fetched via `GET /api/settings/active-llm-model` (secret-gated). `OLLAMA_MODEL` env is only the fallback when the api is unreachable. Symptom: `LLM-Extraktion fehlgeschlagen – model '<name>' not found (404)` even though `OLLAMA_MODEL` points at a pulled model → the active quality tier maps to a model that isn't pulled. Fix: edit `QUALITY_TO_MODEL` (then `task build:be`) or flip the tier in `/settings → Qualität`, OR `ollama pull` the mapped model. The shipped map historically pointed at non-existent `gemma4:*` tags; repointed to `qwen2.5:14b-instruct-q8_0` on 2026-06-22. Model choice currently lives in committed code (machine-specific) — set it per host. |
 | **transformers.js caches models inside `node_modules`, not `HF_HOME`** — the Node reranker re-downloads ~545 MB on every image rebuild and can leave a truncated file | `@huggingface/transformers` ignores `HF_HOME`/`HUGGINGFACE_HUB_CACHE` unless `env.cacheDir` is set explicitly. Unset, the ONNX model lands in an image layer: it re-downloads on every `docker compose build`, and a rebuild that interrupts a download leaves a partial file that fails at load with `Protobuf parsing failed` / `ModelProto does not have a graph` — which reads like a corrupt model, not a caching bug. `packages/core-ts/src/rag/reranker.ts` now sets `env.cacheDir` from `TRANSFORMERS_CACHE`/`HUGGINGFACE_HUB_CACHE`/`HF_HOME`. Related: a short-lived process (e.g. the eval runner) can start the download and exit before it finishes, poisoning the cache — let the long-running API finish its prewarm first. |
 | **A stale tag cache hides freshly-propagated tags for up to 5 minutes** (Python API only)     | `PaperlessGateway.list_tags()` caches name→id for 300s, but the propagator that *creates* suggested tags runs in the **auto-tagger — a different process** — so the API's map predates them and the projection silently drops every tag id it cannot resolve. Symptom: approve a document, then its new tags are missing from the Library row until the TTL lapses. Fixed in the Node port (`listTagsCovering` does a one-shot invalidate-and-refetch); **still present in the Python API**, which is slated for deletion at rewrite task 4.15. Note the entity-cache row above claims the gateway "auto-refreshes on unknown-field warnings" — that is true for custom **fields** and never was for **tags**. |
 | **Changing the embedding model/dimension requires a full re-index** — `ensure_collection()` only CREATES when missing, so it keeps a stale-dim Qdrant collection and new upserts/queries fail silently | Run `task rag:reembed`: it drops the `aktenraum_chunks` collection (from inside the auto-tagger container, no host curl) and runs `backfill --force`, which recreates it at the current `@aktenraum/core rag.DENSE_DIM` and re-embeds every document. Paperless docs are untouched — only the vector index is rebuilt; RAG/Ask is degraded until the backfill finishes. Also pull the new model first (`ollama pull <model>`) and set `EMBEDDING_MODEL` identically in both env files. |
@@ -493,13 +494,13 @@ One pnpm workspace, one lockfile, four packages. Run everything from the **repos
 
 ```bash
 pnpm install          # install all four packages
-pnpm -r build         # task build:all — tsc -b ×3 + the Angular build
+pnpm -r build         # task build — tsc -b ×3 + the Angular build
 pnpm -r test          # task test     — 533 tests across every package
 pnpm -r lint          # task lint     — eslint everywhere
 ```
 
-Per-package shortcuts: `task test:core`, `task test:api`, `task test:worker`, `task test:web`.
-`task test:api` also runs `tsc -p tsconfig.test.json`, which typechecks the test files that `vitest` would otherwise transpile without checking.
+Per-package shortcuts: `task test`, `task test`, `task test`, `task test`.
+`task test` also runs `tsc -p tsconfig.test.json`, which typechecks the test files that `vitest` would otherwise transpile without checking.
 
 Test counts and what they cover:
 
@@ -510,7 +511,7 @@ Test counts and what they cover:
 | `@aktenraum/worker` | 105 | routing matrix, queue semantics, prompt assembly, synthesizers, propagation, indexing |
 | `@aktenraum/web` | 79 | Angular's first-party `@angular/build:unit-test` builder on vitest |
 
-After a code change: `task api:rebuild` / `task tagger:rebuild` / `task web:deploy`, or `task build` for all three. Every Dockerfile's build context is the repo root, so an edit in `packages/aktenraum-core/src/` is picked up by rebuilding either service.
+After a code change: `task build:be` / `task build:be` / `task build:fe`, or `task build` for all three. Every Dockerfile's build context is the repo root, so an edit in `packages/aktenraum-core/src/` is picked up by rebuilding either service.
 
 For an inner loop without rebuilds, `task dev:up` bind-mounts `src/` into both services and runs `tsx watch` — a `.ts` save restarts the process in about a second. `task dev:down` restores the prod entrypoints.
 

@@ -29,17 +29,19 @@ shortcuts:
 
 | Task | Equivalent |
 |---|---|
-| `task bootstrap` | first-time setup orchestration |
-| `task up` / `task down` / `task ps` | compose lifecycle |
-| `task web:dev` | hot-reload SPA on `:5173`, LAN-accessible |
-| `task web:deploy` / `task nginx:rebuild` | bake SPA into the nginx image |
-| `task api:rebuild` / `task tagger:rebuild` | rebuild + recreate a backend |
+| `task setup` | first-time setup orchestration |
+| `task start` / `task stop` / `task status` | compose lifecycle |
+| `task web:dev` | Angular dev server on `:4200`, proxying `/api` to `:8080` |
+| `task build:fe` | bake SPA into the nginx image |
+| `task build:be` | rebuild + recreate both Node services |
+| `task dev:up` / `task dev:down` | hot-reload both Node services via `tsx watch` |
 | `task recreate SVC=auto-tagger` | recreate a service after env change |
 | `task logs SVC=auto-tagger` | tail one service |
-| `task test` / `task lint` | full suite or lint both stacks |
+| `task test` / `task lint` | vitest + eslint across all four packages |
 | `task reprocess ID=27` | clear lifecycle tags so a doc re-extracts |
 | `task rag:backfill` / `task rag:eval` | RAG ops |
-| `task backup:run` / `task backup:snapshots` | manual backup ops |
+| `task backup:run` / `task backup:verify` | manual snapshot / DR rehearsal |
+| `task e2e:worker` | full pipeline against a throwaway stack |
 
 If you don't have `task` installed, every recipe below also lists the
 raw command.
@@ -98,39 +100,42 @@ A more detailed walkthrough lives at
 ## Daily start / stop
 
 ```bash
-task up                              # start everything
-task down                            # stop everything (data preserved)
-task ps                              # status overview
+task start                           # start everything
+task stop                            # stop everything (data preserved)
+task status                          # status overview
 ```
 
 A typical dev session:
 
 ```bash
-task up                              # backend stack
-task web:dev                         # vite on :5173, bound to 0.0.0.0
+task start                           # backend stack
+task web:dev                         # Angular dev server on :4200
 ```
 
-Open <http://localhost:5173> for hot-reloaded SPA against the running
-compose stack. The production SPA at `:8080` is unaffected. A second
-device on your LAN can hit `http://<dev-machine-ip>:5173` and get the
-same hot-reload (Vite is bound to all interfaces and accepts any Host
-header).
+Open <http://localhost:4200> for the hot-reloaded SPA against the running
+compose stack; it proxies `/api` to the nginx edge on `:8080` (see
+`apps/web/proxy.conf.json`). The production SPA at `:8080` is unaffected.
+
+For the backend, `task dev:up` bind-mounts `src/` into both Node services
+and runs `tsx watch`, so a `.ts` save restarts the process in about a
+second with no image rebuild. `task dev:down` restores the prod
+entrypoints.
 
 ---
 
 ## Rebuilding after code changes
 
 `docker compose restart` does **not** re-read env files or pick up
-Python/source changes. Use `up -d --build`:
+source changes. Use `up -d --build`:
 
 | You changed | Task | Raw command |
 |---|---|---|
-| `services/auto-tagger/**` or `packages/aktenraum-core/**` | `task tagger:rebuild` | `docker compose up -d --build auto-tagger` |
-| `services/aktenraum-api/**` or `packages/aktenraum-core/**` | `task api:rebuild` | `docker compose up -d --build aktenraum-api` |
-| `apps/web/**` (production build, not dev server) | `task web:deploy` (alias of `nginx:rebuild`) | `docker compose up -d --build nginx` |
-| `docker/nginx/nginx.conf` | `task nginx:rebuild` | `docker compose up -d --build nginx` |
+| `services/auto-tagger/**` or `packages/aktenraum-core/**` | `task build:be` | `docker compose up -d --build auto-tagger` |
+| `services/aktenraum-api/**` or `packages/aktenraum-core/**` | `task build:be` | `docker compose up -d --build aktenraum-api` |
+| `apps/web/**` (production build, not dev server) | `task build:fe` | `docker compose up -d --build nginx` |
+| `docker/nginx/nginx.conf` | `task build:fe` | `docker compose up -d --build nginx` |
 | Any `docker/*.env` value | `task recreate SVC=<svc>` | `docker compose up -d <service>` |
-| `docker/docker-compose.yml` | `task up` | `docker compose up -d` |
+| `docker/docker-compose.yml` | `task start` | `docker compose up -d` |
 
 The auto-tagger Dockerfile's build context is the repo root, so a
 single rebuild picks up both `services/auto-tagger/src/` and
@@ -143,27 +148,30 @@ single rebuild picks up both `services/auto-tagger/src/` and
 ### Python (workspace root)
 
 ```bash
-pnpm install                              # install deps for both workspace members
-task test                         # full suite (~50s, 420+ tests)
-pnpm -r test services/auto-tagger   # auto-tagger only
-pnpm -r test -k webhook             # tests matching "webhook"
-task lint                         # ruff check
-task format                          # ruff format
+task install                        # pnpm install across the workspace
+task test                           # every package (~90s, 533 tests)
+task lint                           # eslint across every package
 ```
 
-The pytest suite is pure-function — no live HTTP, no docker dependency.
-You can run it without the stack up.
-
-### SPA
+One package at a time, or one file:
 
 ```bash
-task lint:web                        # eslint
-task test:web                        # tsc + vite production build
-task web:types                       # regenerate TS types from /api/openapi.json (stack must be running)
+pnpm --filter @aktenraum/api test                    # aktenraum-api only
+pnpm --filter @aktenraum/worker test -- prompt       # files matching "prompt"
+pnpm --filter @aktenraum/api typecheck               # tsc over the test files too
 ```
 
-There is no Vitest/Jest suite for the SPA yet — `tsc -b && vite build`
-covers types and compile-time correctness.
+| Package | Tests | Shape |
+| --- | --- | --- |
+| `@aktenraum/core` | 170 | pure functions — normalisers, chunker, models, the Paperless client over a fake fetch |
+| `@aktenraum/api` | 179 | a real Nest app over **pg-mem** plus a stateful fake Paperless, driven with supertest |
+| `@aktenraum/worker` | 105 | routing matrix, queue semantics, prompt assembly, synthesizers, propagation, indexing |
+| `@aktenraum/web` | 82 | Angular's first-party `@angular/build:unit-test` builder on vitest |
+
+None of these need the stack running. For the pipeline end to end —
+webhook, extraction, routing, propagation, dedup, Qdrant indexing —
+`task e2e:worker` drives a throwaway Paperless/Postgres/Qdrant stack and
+asserts 20 outcomes. It refuses to run against live-stack ports.
 
 ### CI
 

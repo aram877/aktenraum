@@ -333,7 +333,7 @@ links); (b) failed queries now retry once instead of 3×, and never retry
 
 **Test (rebuild the SPA first):**
 ```bash
-cd docker && docker compose up -d --build nginx   # or: task web:deploy
+cd docker && docker compose up -d --build nginx   # or: task build:fe
 ```
 - Open a doc in `/library/$id` or `/inbox/$id` that is flagged as a duplicate
   → the "Tags:" line should NOT list `ai-duplicate` / `ai-duplicate-dismissed`

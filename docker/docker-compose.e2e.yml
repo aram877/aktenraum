@@ -1,0 +1,171 @@
+name: aktenraum-e2e
+
+services:
+
+  paperless:
+    image: ghcr.io/paperless-ngx/paperless-ngx:2.20.15@sha256:6c86cad803970ea782683a8e80e7403444c5bf3cf70de63b4d3c8e87500db92f
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      gotenberg:
+        condition: service_started
+      tika:
+        condition: service_started
+    ports:
+      - "127.0.0.1:${E2E_PAPERLESS_PORT:-8100}:8000"
+    volumes:
+      - e2e-data:/usr/src/paperless/data
+      - e2e-media:/usr/src/paperless/media
+      - e2e-export:/usr/src/paperless/export
+      - e2e-consume:/usr/src/paperless/consume
+      - ./paperless-scripts:/usr/src/paperless/scripts:ro
+    environment:
+      PAPERLESS_REDIS: redis://redis:6379
+      PAPERLESS_DBHOST: postgres
+      PAPERLESS_DBUSER: paperless
+      PAPERLESS_DBPASS: e2e
+      PAPERLESS_SECRET_KEY: e2e-not-a-secret
+      PAPERLESS_TIME_ZONE: Europe/Berlin
+      PAPERLESS_OCR_LANGUAGE: deu+eng
+      PAPERLESS_ADMIN_USER: admin
+      PAPERLESS_ADMIN_PASSWORD: e2epassword
+      PAPERLESS_TIKA_ENABLED: "1"
+      PAPERLESS_TIKA_ENDPOINT: http://tika:9998
+      PAPERLESS_TIKA_GOTENBERG_ENDPOINT: http://gotenberg:3000
+      PAPERLESS_POST_CONSUME_SCRIPT: /usr/src/paperless/scripts/post_consume.sh
+      AKTENRAUM_WEBHOOK_SECRET: e2e-webhook-secret
+      AKTENRAUM_AUTO_TAGGER_URL: http://worker-node:8001
+    networks:
+      - e2e
+
+  postgres:
+    image: postgres:15
+    volumes:
+      - e2e-pgdata:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    environment:
+      POSTGRES_DB: paperless
+      POSTGRES_USER: paperless
+      POSTGRES_PASSWORD: e2e
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paperless"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks:
+      - e2e
+
+  redis:
+    image: redis:7
+    networks:
+      - e2e
+
+  gotenberg:
+    image: gotenberg/gotenberg:8.31.0@sha256:f0d86e8a1dbc7b33a5a65cb251d02bb271a48ffa989da3feb5ed7d954fe4d4b3
+    command:
+      - gotenberg
+      - --chromium-disable-javascript=true
+      - --chromium-allow-list=file:///tmp/.*
+    networks:
+      - e2e
+
+  tika:
+    image: apache/tika:latest@sha256:2a565f1ea1290bdcb74a7d35957d16a989ed44ef98790dcdcc28121d728fa583
+    networks:
+      - e2e
+
+  qdrant:
+    image: qdrant/qdrant:v1.17.1
+    volumes:
+      - e2e-qdrant:/qdrant/storage
+    ports:
+      - "127.0.0.1:${E2E_QDRANT_PORT:-6433}:6333"
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/6333"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    networks:
+      - e2e
+
+  aktenraum-api-node:
+    build:
+      context: ..
+      dockerfile: services/api-node/Dockerfile
+    # The e2e API exists only to serve the worker's auto-approve rule fetch and
+    # to own the schema bootstrap. QDRANT_URL is deliberately empty here: it
+    # disables RAG retrieval and with it the ~571 MB reranker prewarm, which
+    # OOM-kills the container when the live stack is also up. The WORKER keeps
+    # QDRANT_URL set, so indexing still runs and is asserted against Qdrant.
+    mem_limit: ${E2E_API_MEM_LIMIT:-1g}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://paperless:e2e@postgres:5432/aktenraum
+      JWT_SECRET: e2e-jwt-not-a-secret
+      COOKIE_SECURE: "false"
+      BOOTSTRAP_USERNAME: admin
+      BOOTSTRAP_PASSWORD: e2epassword
+      PAPERLESS_BASE_URL: http://paperless:8000
+      PAPERLESS_API_TOKEN: ${E2E_PAPERLESS_API_TOKEN:-}
+      WEBHOOK_SECRET: e2e-webhook-secret
+      QDRANT_URL: ""
+      LLM_BACKEND: ollama
+      OLLAMA_BASE_URL: ${E2E_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:14b-instruct-q8_0}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-qwen3-embedding:4b}
+    ports:
+      - "127.0.0.1:${E2E_API_PORT:-8102}:8002"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - e2e
+
+  worker-node:
+    build:
+      context: ..
+      dockerfile: services/worker-node/Dockerfile
+    depends_on:
+      paperless:
+        condition: service_started
+      qdrant:
+        condition: service_healthy
+      aktenraum-api-node:
+        condition: service_started
+    environment:
+      PAPERLESS_BASE_URL: http://paperless:8000
+      PAPERLESS_API_TOKEN: ${E2E_PAPERLESS_API_TOKEN:-}
+      WEBHOOK_SECRET: e2e-webhook-secret
+      AKTENRAUM_API_URL: http://aktenraum-api-node:8002
+      QDRANT_URL: http://qdrant:6333
+      LLM_BACKEND: ollama
+      OLLAMA_BASE_URL: ${E2E_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:14b-instruct-q8_0}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-qwen3-embedding:4b}
+      POLL_INTERVAL_SECONDS: "10"
+      LOG_LEVEL: DEBUG
+    mem_limit: ${E2E_WORKER_MEM_LIMIT:-2g}
+    ports:
+      - "127.0.0.1:${E2E_WORKER_PORT:-8101}:8001"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - e2e
+
+networks:
+  e2e:
+    driver: bridge
+
+volumes:
+  e2e-data:
+  e2e-media:
+  e2e-export:
+  e2e-consume:
+  e2e-pgdata:
+  e2e-qdrant:

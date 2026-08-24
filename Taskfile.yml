@@ -454,6 +454,21 @@ tasks:
     cmds:
       - bash scripts/run-rag-eval.sh
 
+  e2e:worker:
+    desc: "End-to-end test of the Node worker against a THROWAWAY Paperless stack (never the live one)"
+    cmds:
+      - bash scripts/e2e-worker.sh
+
+  e2e:down:
+    desc: "Tear down the e2e stack and delete its volumes"
+    cmds:
+      - bash scripts/e2e-worker.sh --down
+
+  e2e:logs:
+    desc: "Tail the e2e worker logs"
+    cmds:
+      - docker compose -f docker/docker-compose.e2e.yml logs -f worker-node
+
   rag:reembed:
     desc: "Re-embed the whole corpus after an embedding-model/dimension change (drops the Qdrant collection, then backfills)"
     prompt: "This deletes the Qdrant vector index and re-embeds every document from scratch. Your documents in Paperless are untouched — only the search index is rebuilt. RAG/Ask is degraded until the backfill finishes. Continue?"

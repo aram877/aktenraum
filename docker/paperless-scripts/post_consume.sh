@@ -11,6 +11,9 @@
 #
 # Paperless documents the env vars it provides:
 #   https://docs.paperless-ngx.com/advanced_usage/#post-consumption-script
+#
+# AKTENRAUM_AUTO_TAGGER_URL overrides the target so the isolated e2e stack
+# (docker-compose.e2e.yml) can point at a differently-named worker service.
 
 if [ -z "${DOCUMENT_ID:-}" ]; then
   exit 0
@@ -20,5 +23,5 @@ curl -sS --max-time 5 \
   -H "Content-Type: application/json" \
   -H "X-Aktenraum-Secret: ${AKTENRAUM_WEBHOOK_SECRET:-}" \
   -d "{\"document_id\": ${DOCUMENT_ID}}" \
-  http://auto-tagger:8001/trigger/extract \
+  "${AKTENRAUM_AUTO_TAGGER_URL:-http://auto-tagger:8001}/trigger/extract" \
   >/dev/null 2>&1 || true

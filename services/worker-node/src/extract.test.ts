@@ -1,7 +1,13 @@
-import { describe, expect, it } from "vitest";
-import type { DocumentExtraction, DocumentType } from "@aktenraum/core-ts";
+import { describe, expect, it, vi } from "vitest";
+import {
+  LIFECYCLE_TAGS,
+  type DocumentExtraction,
+  type DocumentType,
+  type PaperlessClient,
+  type PaperlessDocument,
+} from "@aktenraum/core-ts";
 
-import { applyFallbacks, formatError } from "./extract.js";
+import { applyFallbacks, formatError, isUntrustedSource, lifecycleTagsOn } from "./extract.js";
 
 function extraction(overrides: Partial<DocumentExtraction> = {}): DocumentExtraction {
   return {
@@ -97,5 +103,77 @@ describe("formatError", () => {
 
   it("handles a non-Error throw without crashing", () => {
     expect(formatError("X", "plain string")).toContain("plain string");
+  });
+});
+
+const TAG_IDS: Record<string, number> = {
+  "ai-pending": 1,
+  "ai-approved": 2,
+  "ai-rejected": 3,
+  "ai-propagated": 4,
+  "ai-propagation-error": 5,
+  "ai-error": 6,
+  "email-ingested": 90,
+  wichtig: 91,
+};
+
+function tagClient(overrides: Record<string, number | null> = {}): PaperlessClient {
+  return {
+    getTagId: vi.fn(async (name: string) =>
+      name in overrides ? overrides[name] : (TAG_IDS[name] ?? null),
+    ),
+  } as unknown as PaperlessClient;
+}
+
+function doc(tags: number[] | undefined): PaperlessDocument {
+  return { id: 1, tags } as unknown as PaperlessDocument;
+}
+
+describe("lifecycleTagsOn", () => {
+  it("reports the lifecycle tags a document actually carries", async () => {
+    expect(await lifecycleTagsOn(tagClient(), doc([91, 4]))).toEqual(["ai-propagated"]);
+  });
+
+  it("reports every lifecycle tag when several are set", async () => {
+    const present = await lifecycleTagsOn(tagClient(), doc([1, 6]));
+    expect(new Set(present)).toEqual(new Set(["ai-pending", "ai-error"]));
+  });
+
+  it("returns nothing for an untagged or non-lifecycle-tagged document", async () => {
+    expect(await lifecycleTagsOn(tagClient(), doc([]))).toEqual([]);
+    expect(await lifecycleTagsOn(tagClient(), doc(undefined))).toEqual([]);
+    expect(await lifecycleTagsOn(tagClient(), doc([91]))).toEqual([]);
+  });
+
+  it("short-circuits without querying Paperless when the document has no tags", async () => {
+    const client = tagClient();
+    await lifecycleTagsOn(client, doc([]));
+    expect(client.getTagId).not.toHaveBeenCalled();
+  });
+
+  it("treats a lifecycle tag that does not exist in Paperless as absent", async () => {
+    expect(await lifecycleTagsOn(tagClient({ "ai-propagated": null }), doc([4]))).toEqual([]);
+  });
+
+  it("checks the whole lifecycle set, so a new tag cannot be silently skipped", async () => {
+    const client = tagClient();
+    await lifecycleTagsOn(client, doc([999]));
+    expect(vi.mocked(client.getTagId).mock.calls.map(([name]) => name)).toEqual([...LIFECYCLE_TAGS]);
+  });
+});
+
+describe("isUntrustedSource", () => {
+  it("flags an email-ingested document", async () => {
+    expect(await isUntrustedSource(tagClient(), doc([90]))).toBe(true);
+  });
+
+  it("does not flag a document from a trusted path", async () => {
+    expect(await isUntrustedSource(tagClient(), doc([91, 4]))).toBe(false);
+    expect(await isUntrustedSource(tagClient(), doc([]))).toBe(false);
+    expect(await isUntrustedSource(tagClient(), doc(undefined))).toBe(false);
+  });
+
+  it("does not flag when the tag is absent from Paperless entirely", async () => {
+    expect(await isUntrustedSource(tagClient({ "email-ingested": null }), doc([90]))).toBe(false);
   });
 });

@@ -27,7 +27,7 @@ Plain-language definitions for every acronym, framework, and piece of jargon tha
 - **bind mount / volume** — a host directory mapped into a container so data survives container restarts. Our bind mounts live under `${AKTENRAUM_DATA_DIR:-${HOME}/aktenraum}/`.
 - **env file** — a `KEY=VALUE` text file Docker Compose loads into a service's environment. Each service has one (`docker/.env`, `auto-tagger.env`, `aktenraum-api.env`, `backup.env`). Per `ADR-002` they're not committed; `bootstrap-secrets.sh` generates them on first run.
 - **Taskfile** — `Taskfile.yml` at repo root (https://taskfile.dev). Wraps every common workflow as a one-liner — `task up`, `task tagger:rebuild`, `task lint`, etc. `task --list` enumerates them.
-- **uv** — fast Python package + venv manager (the `pip`/`venv`/`poetry` replacement we use). `uv sync` installs, `uv run pytest` runs.
+- **uv** — fast Python package + venv manager (the `pip`/`venv`/`poetry` replacement we use). `pnpm install` installs, `pnpm -r test` runs.
 - **pnpm** — fast npm-compatible package manager for the SPA. `pnpm install`, `pnpm --filter @aktenraum/web build`.
 - **workspace (uv / pnpm)** — multiple packages sharing one lockfile + virtualenv. Our `packages/aktenraum-core` + `services/auto-tagger` + `services/aktenraum-api` are one uv workspace; the SPA is its own pnpm workspace.
 - **Tauri** — the framework we'll use to ship aktenraum as a desktop app (per ADR-002). A small Rust shell that bundles a browser WebView and starts/stops the Docker stack. Not built yet; phased plan in `docs/plans/desktop-app.md`.
@@ -41,7 +41,7 @@ Plain-language definitions for every acronym, framework, and piece of jargon tha
 - **FastAPI** — the web framework `aktenraum-api` is built on. Async Python; we use it for the REST endpoints under `/api/*`.
 - **uvicorn** — the ASGI web server that runs the FastAPI app inside the `aktenraum-api` container.
 - **ASGI** — Async Server Gateway Interface. The Python convention for async-aware web servers. FastAPI is ASGI-native.
-- **Starlette** — the foundation FastAPI sits on. We touch it directly for middleware (`services/aktenraum-api/src/aktenraum_api/middleware.py`).
+- **Starlette** — the foundation FastAPI sits on. We touch it directly for middleware (`services/aktenraum-api/src/middleware.py`).
 - **aiohttp** — async HTTP library. We use it inside the auto-tagger for the `/trigger/extract` webhook listener (FastAPI is overkill there).
 - **SQLAlchemy 2 (async)** — the ORM for the `aktenraum` Postgres database (users, settings, type-fields). Always `async`.
 - **Alembic** — schema-migration tool that goes with SQLAlchemy. Migrations live under `services/aktenraum-api/alembic/versions/`.
@@ -50,7 +50,7 @@ Plain-language definitions for every acronym, framework, and piece of jargon tha
 - **pydantic-settings** — the env-var loader part of Pydantic v2. Our `Settings` classes inherit `BaseSettings`.
 - **httpx** — async HTTP client library. Used by `aktenraum-api` and `aktenraum-core` to talk to Paperless / Qdrant / Ollama / Anthropic.
 - **structlog** — structured-log library (logs as key=value JSON instead of strings). Every log line in the project goes through it.
-- **pytest / ruff** — Python test runner / linter. `task test:py` runs pytest, `task lint:py` runs ruff.
+- **pytest / ruff** — Python test runner / linter. `task test` runs pytest, `task lint` runs ruff.
 - **React 19** — the UI library for the SPA.
 - **TypeScript** — typed JavaScript. The SPA is 100% TypeScript.
 - **Vite** — the SPA's build tool + dev server. `task web:dev` runs it.
@@ -70,7 +70,7 @@ Plain-language definitions for every acronym, framework, and piece of jargon tha
 - **bge-reranker-v2-m3** — the cross-encoder reranker we use after the initial Qdrant search. Sentence-transformers-based; loaded inside `aktenraum-api`.
 - **embedding** — a list of numbers (1024 for bge-m3) representing the meaning of a piece of text. Two embeddings are "close" if the underlying texts mean similar things. We compute embeddings for every doc chunk at index time and for the user's question at query time.
 - **dense vector / sparse vector** — two ways to represent a chunk's meaning. Dense is the 1024-float bge-m3 output (semantic similarity). Sparse is more like a keyword index. Qdrant stores both and we query a hybrid.
-- **chunk** — a paragraph-sized slice of a document's OCR'd text (~500 tokens, ~50-token overlap). The unit of indexing in Qdrant. Defined in `packages/aktenraum-core/src/aktenraum_core/rag/chunker.py`.
+- **chunk** — a paragraph-sized slice of a document's OCR'd text (~500 tokens, ~50-token overlap). The unit of indexing in Qdrant. Defined in `packages/aktenraum-core/src/rag/chunker.py`.
 - **token** — a sub-word unit the LLM works in. Roughly ~4 chars or ~0.75 words per token in English/German.
 - **OCR** — Optical Character Recognition. Paperless converts a scanned PDF into text using OCR. The text shows up in `doc.content` and is what we feed to the LLM.
 - **RAG** — Retrieval-Augmented Generation. The pattern of *fetching* relevant chunks of your own data and feeding them to the LLM as context, so the LLM's answer is grounded in your documents instead of its training data. Our `/api/ai/answer/stream` endpoint is RAG.
@@ -80,7 +80,7 @@ Plain-language definitions for every acronym, framework, and piece of jargon tha
 - **vector store** — generic name for "thing that stores embeddings and answers similarity queries." Qdrant is our vector store.
 - **prompt** — the text we send to the LLM. Has a system part ("Du bist ein Assistent …") and a user part (the doc text or the question).
 - **prompt injection** — when content inside the input (a malicious PDF's OCR text) overrides our system prompt and makes the LLM emit something we didn't want (e.g. fake `confidence=0.99` to skip review). Mitigated by the per-type `auto_approve_rules` table (the user has to enable each type before any doc of that type can auto-approve, regardless of how high a confidence the LLM emits); see ADR-003 context section.
-- **system prompt** — the part of the prompt that defines the LLM's role / rules. Our extraction system prompt lives in `services/auto-tagger/src/auto_tagger/tagger.py` as `SYSTEM_PROMPT`.
+- **system prompt** — the part of the prompt that defines the LLM's role / rules. Our extraction system prompt lives in `services/auto-tagger/src/tagger.py` as `SYSTEM_PROMPT`.
 - **few-shot exemplars** — past documents + their extractions, prepended to the system prompt so the LLM mimics the user's vetted style. Configured via `FEW_SHOT_EXAMPLES` env var.
 - **history hint** — short German line prepended to the system prompt naming the dominant past document_type for a known sender. Drives corpus-driven classification without retraining.
 - **lifecycle tag** — one of `ai-pending`, `ai-approved`, `ai-rejected`, `ai-propagated`, `ai-propagation-error`, `ai-error`. Tracks where a doc is in the AI pipeline. The canonical list lives in `aktenraum_core.paperless.client.LIFECYCLE_TAGS`. **Auxiliary** flags (`ai-auto-approved`, `ai-low-confidence`, `ai-duplicate`, `ai-duplicate-dismissed`, `ai-index-error`, plus the user-facing `email-ingested` and `wichtig`) coexist with a lifecycle tag; they are NOT lifecycle states on their own. See the lifecycle-tag table in `docs/architecture.md`.
@@ -208,7 +208,7 @@ Plain-language definitions for every acronym, framework, and piece of jargon tha
 - **CI / Continuous Integration** — automation that runs tests + lint on every push. Our CI is `.github/workflows/ci.yml` (uv + pytest + ruff + pnpm build).
 - **hot reload / HMR** — when the dev server reapplies your code change without a full page refresh. Vite gives us HMR for the SPA via `task web:dev`. The Python services don't have HMR yet (see next-session pick-up in the previous session note).
 - **backfill** — a one-time script that fills in data that the live pipeline didn't produce yet. `scripts/backfill-rag-index.sh` indexes the existing corpus into Qdrant.
-- **eval harness** — script that scores the system against a curated set of expected answers. `evals/golden-questions.yaml` is the input; `python -m aktenraum_api.eval.runner` runs it and reports recall@K and MRR.
+- **eval harness** — script that scores the system against a curated set of expected answers. `evals/golden-questions.yaml` is the input; `python -m aktenraum-api eval.runner` runs it and reports recall@K and MRR.
 - **recall@K** — fraction of questions where the expected doc id is in the top K retrieved. Higher is better.
 - **MRR / Mean Reciprocal Rank** — averages `1/rank` across questions. Penalises the expected doc being lower in the list. Higher is better.
 
@@ -216,7 +216,7 @@ Plain-language definitions for every acronym, framework, and piece of jargon tha
 
 ## Domain-specific German terms (the 27 document types)
 
-These are the document_type values the AI extracts and routes on. Most are self-explanatory; the disambiguation rules live in `services/auto-tagger/src/auto_tagger/tagger.py` SYSTEM_PROMPT and `docs/document-types.md`.
+These are the document_type values the AI extracts and routes on. Most are self-explanatory; the disambiguation rules live in `services/auto-tagger/src/tagger.py` SYSTEM_PROMPT and `docs/document-types.md`.
 
 - **Rechnung** — invoice / bill (asks for payment).
 - **Beleg** — payment proof: Quittung, Kassenbon, Zahlungsbestätigung. Distinct from Rechnung (which asks for payment) and from Kontoauszug (which lists many transactions).

@@ -1,38 +1,49 @@
-FROM python:3.13-slim AS base
+# Debian, not Alpine: transformers.js pulls onnxruntime-node, whose prebuilt
+# native binding is glibc-linked (`ld-linux-aarch64.so.1`). On a musl base it
+# builds fine and then dies at require() time with ERR_DLOPEN_FAILED.
+FROM node:22-slim AS builder
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+RUN corepack enable
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+WORKDIR /repo
 
-WORKDIR /app
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
+COPY packages/aktenraum-core/package.json packages/aktenraum-core/package.json
+COPY services/aktenraum-api/package.json services/aktenraum-api/package.json
 
-# Workspace manifests first for layer cache.
-COPY pyproject.toml uv.lock ./
-COPY packages/aktenraum-core/pyproject.toml packages/aktenraum-core/pyproject.toml
-COPY services/auto-tagger/pyproject.toml services/auto-tagger/pyproject.toml
-COPY services/aktenraum-api/pyproject.toml services/aktenraum-api/pyproject.toml
+RUN pnpm install --frozen-lockfile=false --filter @aktenraum/core... --filter @aktenraum/api...
 
-RUN uv sync --frozen --no-dev --no-install-workspace
+COPY packages/aktenraum-core/ packages/aktenraum-core/
+COPY services/aktenraum-api/ services/aktenraum-api/
 
-# Workspace member sources.
-COPY packages/aktenraum-core/src/ packages/aktenraum-core/src/
-COPY services/aktenraum-api/src/ services/aktenraum-api/src/
-COPY services/aktenraum-api/alembic.ini services/aktenraum-api/alembic.ini
-COPY services/aktenraum-api/alembic/ services/aktenraum-api/alembic/
-COPY services/aktenraum-api/entrypoint.sh services/aktenraum-api/entrypoint.sh
+RUN pnpm --filter @aktenraum/core build \
+    && pnpm --filter @aktenraum/api build \
+    && pnpm prune --prod
 
-RUN uv sync --frozen --no-dev
+FROM node:22-slim AS runtime
 
-RUN useradd --create-home --shell /bin/bash appuser \
-    && chmod +x /app/services/aktenraum-api/entrypoint.sh \
-    && chown -R appuser:appuser /app \
-    # Pre-create the HuggingFace cache path so the named volume mount in
-    # docker-compose.yml inherits appuser ownership. Without this, Docker
-    # creates the mount point as root and sentence-transformers fails with
-    # PermissionError on the first reranker download.
-    && mkdir -p /home/appuser/.cache/huggingface \
+RUN groupadd --system appuser && useradd --system --gid appuser --create-home appuser
+
+WORKDIR /repo
+
+COPY --from=builder --chown=appuser:appuser /repo/node_modules /repo/node_modules
+COPY --from=builder --chown=appuser:appuser /repo/package.json /repo/package.json
+COPY --from=builder --chown=appuser:appuser /repo/packages/aktenraum-core/package.json /repo/packages/aktenraum-core/package.json
+COPY --from=builder --chown=appuser:appuser /repo/packages/aktenraum-core/dist /repo/packages/aktenraum-core/dist
+COPY --from=builder --chown=appuser:appuser /repo/packages/aktenraum-core/node_modules /repo/packages/aktenraum-core/node_modules
+COPY --from=builder --chown=appuser:appuser /repo/services/aktenraum-api/package.json /repo/services/aktenraum-api/package.json
+COPY --from=builder --chown=appuser:appuser /repo/services/aktenraum-api/dist /repo/services/aktenraum-api/dist
+# tsc emits only JS; the schema bootstrap reads this SQL at runtime.
+COPY --from=builder --chown=appuser:appuser /repo/services/aktenraum-api/src/db/schema.sql /repo/services/aktenraum-api/dist/db/schema.sql
+COPY --from=builder --chown=appuser:appuser /repo/services/aktenraum-api/node_modules /repo/services/aktenraum-api/node_modules
+
+RUN mkdir -p /home/appuser/.cache/huggingface \
     && chown -R appuser:appuser /home/appuser/.cache
+
 USER appuser
 
-ENTRYPOINT ["/app/services/aktenraum-api/entrypoint.sh"]
+WORKDIR /repo/services/aktenraum-api
+
+EXPOSE 8002
+
+CMD ["node", "dist/main.js"]

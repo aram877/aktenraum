@@ -104,7 +104,7 @@ A `WEBHOOK_SECRET` shared between Paperless and the auto-tagger is sent in
 ### 2. Extraction
 
 The auto-tagger runs up to six concurrent asyncio tasks via `asyncio.gather`
-in [`services/auto-tagger/src/auto_tagger/main.py`](../services/auto-tagger/src/auto_tagger/main.py):
+in [`services/auto-tagger/src/main.py`](../services/auto-tagger/src/main.py):
 the extraction worker + poller, the propagation worker + poller, the
 RAG indexer, and the aiohttp webhook server.
 
@@ -158,8 +158,8 @@ For each document the worker does:
    `ai_confidence_reason`, `ai_error_message`).
 6. Apply lifecycle tag(s) based on the per-`DocumentType` auto-approve
    rule + the doc's confidence (see
-   [`services/auto-tagger/src/auto_tagger/auto_approve_config.py`](../services/auto-tagger/src/auto_tagger/auto_approve_config.py)
-   and [`services/aktenraum-api/src/aktenraum_api/settings/auto_approve_service.py`](../services/aktenraum-api/src/aktenraum_api/settings/auto_approve_service.py)):
+   [`services/auto-tagger/src/auto_approve_config.py`](../services/auto-tagger/src/auto_approve_config.py)
+   and [`services/aktenraum-api/src/settings/auto_approve_service.py`](../services/aktenraum-api/src/settings/auto_approve_service.py)):
    - `rule.enabled = true` AND `confidence ≥ rule.min_confidence` →
      `ai-approved` + `ai-auto-approved` (skip review, propagation will fire)
    - `rule.enabled = false` for this type → `ai-pending` with reason
@@ -206,7 +206,7 @@ User actions:
 ### 4. Propagation
 
 A second polling loop in the auto-tagger
-([`services/auto-tagger/src/auto_tagger/propagator.py`](../services/auto-tagger/src/auto_tagger/propagator.py))
+([`services/auto-tagger/src/propagator.py`](../services/auto-tagger/src/propagator.py))
 scans every 30 s for `ai-approved` documents and:
 
 1. Reads the AI fields (`ai_correspondent`, `ai_document_type`,
@@ -270,7 +270,7 @@ retrieval, so extraction + propagation still work in a RAG-less deployment.
 
 If RAG is disabled or any stage fails, the pipeline degrades gracefully —
 the answer step falls back to AI-metadata-only. `bge-reranker-v2-m3` is
-**pre-warmed in lifespan** as a background task (`aktenraum_api.main._warm_reranker`)
+**pre-warmed in lifespan** as a background task (`aktenraum-api main._warm_reranker`)
 and cached in the `aktenraum-hf-cache` named volume, so the first `/ask`
 after a rebuild does NOT block on the ~2.1 GB HuggingFace download. A
 fresh-host cold start takes ~80s; rebuilds reuse the volume and are
@@ -348,7 +348,7 @@ full-screen.
 
 Bootstrapped by [`scripts/bootstrap-paperless.sh`](../scripts/bootstrap-paperless.sh).
 Six tags are core lifecycle states (the canonical list lives in
-`packages/aktenraum-core/src/aktenraum_core/paperless/client.py`
+`packages/aktenraum-core/src/paperless/client.py`
 `LIFECYCLE_TAGS`); the rest are auxiliary flags that coexist with a
 lifecycle tag and never appear alone in the state machine.
 

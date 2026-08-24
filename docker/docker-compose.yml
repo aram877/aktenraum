@@ -124,16 +124,15 @@ services:
       dockerfile: services/auto-tagger/Dockerfile
     restart: unless-stopped
     # Cap RAM so a runaway extraction/indexing job can't OOM-kill postgres
-    # mid-write. Tune per host via AUTO_TAGGER_MEM_LIMIT. ADR-004 calls for
-    # independent caps on the two Python services.
+    # mid-write. Tune per host via AUTO_TAGGER_MEM_LIMIT.
     mem_limit: ${AUTO_TAGGER_MEM_LIMIT:-3g}
     depends_on:
       paperless:
         condition: service_started
       qdrant:
         condition: service_healthy
-      # Soft dependency: the auto-tagger boots even if aktenraum-api is
-      # still warming up. When unreachable the rule-fetch fails closed
+      # Soft dependency: the worker boots even if aktenraum-api is still
+      # warming up. When unreachable the auto-approve rule fetch fails closed
       # (everything routes to ai-pending) until the cache populates.
       aktenraum-api:
         condition: service_started
@@ -152,62 +151,18 @@ services:
       context: ..
       dockerfile: services/aktenraum-api/Dockerfile
     restart: unless-stopped
-    # Cap RAM so a runaway (reranker ~2.1 GB load + concurrent requests)
-    # can't OOM-kill postgres mid-write. Tune per host via
-    # AKTENRAUM_API_MEM_LIMIT. ADR-004 calls for independent caps.
-    mem_limit: ${AKTENRAUM_API_MEM_LIMIT:-6g}
+    # Cap RAM so a runaway (reranker load + concurrent requests) can't
+    # OOM-kill postgres mid-write. Tune per host via AKTENRAUM_API_MEM_LIMIT.
+    mem_limit: ${AKTENRAUM_API_MEM_LIMIT:-4g}
     volumes:
-      # RAG eval cases (Phase 1.10). Bind-mounted instead of baked into
-      # the image so editing golden-questions.yaml doesn't require a
-      # rebuild — the runner re-reads the file on every invocation.
-      # Read-only so a buggy runner can never trash the cases.
-      - ../evals:/app/evals:ro
-      # HuggingFace cache for the bge-reranker-v2-m3 model (~600 MB).
-      # Without this volume every `docker compose up -d --build
-      # aktenraum-api` re-pays the download. The Dockerfile runs as
-      # appuser whose $HOME is /home/appuser; HF_HOME below pins the
-      # location regardless of any future USER change.
-      - aktenraum-hf-cache:/home/appuser/.cache/huggingface
-    depends_on:
-      postgres:
-        condition: service_healthy
-      qdrant:
-        condition: service_healthy
-    env_file:
-      - path: .env
-        required: false
-    environment:
-      # Built from PAPERLESS_DB* above so the DSN is always consistent.
-      DATABASE_URL: postgresql+asyncpg://${PAPERLESS_DBUSER:-paperless}:${PAPERLESS_DBPASS}@postgres:5432/aktenraum
-      # Pin HuggingFace cache into the named volume so reranker downloads
-      # survive image rebuilds.
-      HF_HOME: /home/appuser/.cache/huggingface
-      HUGGINGFACE_HUB_CACHE: /home/appuser/.cache/huggingface/hub
-    expose:
-      - "8002"
-    networks:
-      - internal
-
-  # Node/NestJS rewrite of aktenraum-api, running side-by-side with the
-  # Python service during the strangler migration (openspec change
-  # rewrite-stack-nodejs-angular). nginx sends every request to the Python
-  # service unless the caller opts in with `X-Aktenraum-Backend: node` or an
-  # `aktenraum_backend=node` cookie, so starting this container changes
-  # nothing for existing users. Both services share the same `aktenraum`
-  # database and the same Paperless token — safe because the API layer only
-  # reads and writes state the user already drives; unlike the worker, there
-  # is no lifecycle-tag race between two readers.
-  aktenraum-api-node:
-    build:
-      context: ..
-      dockerfile: services/api-node/Dockerfile
-    restart: unless-stopped
-    mem_limit: ${AKTENRAUM_API_NODE_MEM_LIMIT:-4g}
-    volumes:
+      # RAG eval cases. Bind-mounted instead of baked into the image so
+      # editing golden-questions.yaml doesn't require a rebuild — the runner
+      # re-reads the file on every invocation. Read-only so a buggy runner
+      # can never trash the cases.
       - ../evals:/repo/evals:ro
       # transformers.js caches the ONNX reranker here (~571 MB for the q8
-      # export). Separate volume from the Python service's HF cache: the two
-      # download different artifacts for the same model.
+      # export). Without the volume every rebuild re-pays the download, and
+      # an interrupted rebuild leaves a truncated file that fails at load.
       - aktenraum-node-hf-cache:/home/appuser/.cache/huggingface
     depends_on:
       postgres:
@@ -218,6 +173,7 @@ services:
       - path: .env
         required: false
     environment:
+      # Built from PAPERLESS_DB* above so the DSN is always consistent.
       DATABASE_URL: postgresql+asyncpg://${PAPERLESS_DBUSER:-paperless}:${PAPERLESS_DBPASS}@postgres:5432/aktenraum
       HF_HOME: /home/appuser/.cache/huggingface
       HUGGINGFACE_HUB_CACHE: /home/appuser/.cache/huggingface/hub
@@ -265,11 +221,9 @@ networks:
 
 volumes:
   # Survives `docker compose up -d --build aktenraum-api` so the
-  # bge-reranker-v2-m3 (~600 MB) is downloaded once, not on every
-  # rebuild. Lifespan warm-up in aktenraum_api.main pre-loads the
-  # model into RAM at startup; this volume keeps the bytes on disk.
-  aktenraum-hf-cache:
-  # Same purpose for the Node service, kept separate: transformers.js pulls
-  # the `onnx-community/bge-reranker-v2-m3-ONNX` q8 export, not the
-  # sentence-transformers weights the Python service downloads.
+  # `onnx-community/bge-reranker-v2-m3-ONNX` q8 export (~571 MB) is
+  # downloaded once, not on every rebuild. RetrievalModule pre-warms the
+  # model at startup; this volume keeps the bytes on disk. An interrupted
+  # rebuild without it leaves a truncated file that fails at load with a
+  # protobuf parse error rather than a download error.
   aktenraum-node-hf-cache:

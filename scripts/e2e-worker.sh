@@ -82,8 +82,8 @@ PAPERLESS_BASE_URL="${PAPERLESS}" \
 PAPERLESS_API_TOKEN="${TOKEN}" \
   bash "${REPO_ROOT}/scripts/bootstrap-paperless.sh" >/dev/null
 
-step "Starting aktenraum-api-node + worker-node"
-"${COMPOSE[@]}" up -d --build aktenraum-api-node worker-node
+step "Starting aktenraum-api + auto-tagger"
+"${COMPOSE[@]}" up -d --build aktenraum-api auto-tagger
 
 step "Waiting for the worker's webhook listener"
 for _ in $(seq 1 60); do
@@ -339,7 +339,7 @@ printf '  %d passed, %d failed\n' "${pass}" "${fail}"
 if [ "${fail}" -gt 0 ]; then
   echo
   echo "Worker logs (last 60 lines):"
-  "${COMPOSE[@]}" logs --tail=60 worker-node
+  "${COMPOSE[@]}" logs --tail=60 auto-tagger
 fi
 echo
 echo "Stack is still up for inspection. Tear it down with:"

@@ -1,6 +1,6 @@
 ---
 name: lifecycle-tag-state-machine
-description: Use when working on the auto-tagger, propagator, indexer, or any code that reads/writes Paperless tags to drive the AI pipeline. Documents the 6 lifecycle tags + 2 auxiliary markers, the state-machine semantics (what each tag means, valid transitions, who owns each transition), the swap-then-verify idempotency pattern, the asyncio.shield() requirement around lifecycle PATCHes, and the reprocess flow. Triggers when editing services/auto-tagger/src/auto_tagger/{tagger,propagator,indexer,main}.py, services/aktenraum-api/src/aktenraum_api/inbox/service.py, or paperless_gw.swap_lifecycle_tag.
+description: Use when working on the auto-tagger, propagator, indexer, or any code that reads/writes Paperless tags to drive the AI pipeline. Documents the 6 lifecycle tags + 2 auxiliary markers, the state-machine semantics (what each tag means, valid transitions, who owns each transition), the swap-then-verify idempotency pattern, the cancellation semantics around lifecycle PATCHes, and the reprocess flow. Triggers when editing services/auto-tagger/src/{extract,propagate,indexer,loops}.ts, services/aktenraum-api/src/inbox/inbox.service.ts, or PaperlessGateway.swapLifecycleTag.
 ---
 
 # Lifecycle-tag state machine
@@ -32,7 +32,7 @@ ai-low-confidence         ← coexists with ai-pending; UI sorts these to top of
 ai-auto-approved          ← pinned through approval+propagation; UI renders "Auto-genehmigt" forever
 ```
 
-Defined in `packages/aktenraum-core/src/aktenraum_core/paperless/client.py`:
+Defined in `packages/aktenraum-core/src/paperless/client.ts`:
 
 ```python
 LIFECYCLE_TAGS = (
@@ -160,7 +160,7 @@ The auto-tagger has its own `_apply_tags` in `tagger.py:_apply_tags` which is **
 The propagator's tag-flipping PATCH is wrapped in `asyncio.shield()`:
 
 ```python
-# services/auto-tagger/src/auto_tagger/propagator.py
+# services/auto-tagger/src/propagator.py
 await asyncio.shield(
     paperless.patch_document_native_fields(
         doc_id,

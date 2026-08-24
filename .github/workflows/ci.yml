@@ -11,33 +11,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  python:
-    name: python (lint + tests)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-          # Cache key includes the workspace lockfile so a dep change invalidates the cache.
-          cache-dependency-glob: uv.lock
-
-      - name: Install Python 3.13
-        run: uv python install 3.13
-
-      - name: Sync workspace (incl. dev group)
-        run: uv sync --frozen
-
-      - name: Lint
-        run: uv run ruff check
-
-      - name: Test
-        run: uv run pytest -v
-
-  web:
-    name: web (lint + build)
+  ci:
+    name: lint + build + tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -55,49 +30,13 @@ jobs:
         run: pnpm install --frozen-lockfile=false
 
       - name: Lint
-        run: pnpm --filter @aktenraum/web lint
+        run: pnpm -r lint
 
       - name: Build
-        run: pnpm --filter @aktenraum/web build
-
-  node:
-    name: node (lint + build + tests)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-
-      - name: Install
-        run: pnpm install --frozen-lockfile=false
-
-      - name: Lint
-        run: |
-          pnpm --filter @aktenraum/core-ts lint
-          pnpm --filter @aktenraum/api-node lint
-          pnpm --filter @aktenraum/worker-node lint
-          pnpm --filter @aktenraum/web-angular lint
-
-      - name: Build
-        run: |
-          pnpm --filter @aktenraum/core-ts build
-          pnpm --filter @aktenraum/api-node build
-          pnpm --filter @aktenraum/worker-node build
-          pnpm --filter @aktenraum/web-angular build
+        run: pnpm -r build
 
       - name: Typecheck tests
-        run: pnpm --filter @aktenraum/api-node typecheck
+        run: pnpm --filter @aktenraum/api typecheck
 
       - name: Test
-        run: |
-          pnpm --filter @aktenraum/core-ts test
-          pnpm --filter @aktenraum/api-node test
-          pnpm --filter @aktenraum/web-angular test
-          pnpm --filter @aktenraum/worker-node test
+        run: pnpm -r test

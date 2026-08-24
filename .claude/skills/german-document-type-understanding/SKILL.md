@@ -3,7 +3,7 @@
 This skill covers the entire taxonomy of accepted document types in Aktenraum, utilizing the 27 discrete German classifications defined in `aktenraum_core/models/DocumentType`. It governs how documents are processed upon ingestion, reviewed in the Inbox, and finally propagated to native Paperless tags.
 
 ## Core Concepts
-*   **Taxonomy Source:** The single source of truth for document types is the Python `DocumentType` enum (from `packages/aktenraum-core/src/aktenraum_core/models/extraction.py`). Any manual edit to this list should be treated as a feature change and documented via an ADR.
+*   **Taxonomy Source:** The single source of truth for document types is the Python `DocumentType` enum (from `packages/aktenraum-core/src/models/extraction.ts`). Any manual edit to this list should be treated as a feature change and documented via an ADR.
 *   **Disambiguation:** The system relies heavily on context clues provided by the LLM's prompt to distinguish between types that sound similar (e.g., `Bescheid` vs. `Behördenbrief`).
 *   **Field Mapping:** Each DocumentType must have a unique schema for its key fields (e.g., `Rechnung` requires `gesamtbetrag`, while `Gehaltsabrechnung` requires `brutto_gehalt` and `netto_gehalt`).
 
@@ -49,5 +49,5 @@ The specific definitions and mandatory field sets are as follows:
 4.  **Order of Failure:** When the model fails classification, the fallback should always be **So/Sonstiges**, preventing silent data loss without explicit failure feedback.
 
 ## Skill Triggers
-*   **Auto-load on edits to:** `services/auto-tagger/src/auto_tagger/tagger.py`, `packages/aktenraum-core/src/aktenraum_core/models/extraction.py`.
+*   **Auto-load on edits to:** `services/auto-tagger/src/{prompt,extract,synthesizers}.ts`, `packages/aktenraum-core/src/models/extraction.ts`.
 *   **Usage**: When a user needs clarification or rule adherence regarding a German document type before modifying the core logic.

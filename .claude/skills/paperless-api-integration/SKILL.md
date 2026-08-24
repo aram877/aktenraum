@@ -1,6 +1,6 @@
 ---
 name: paperless-api-integration
-description: Use when adding or modifying any code that calls Paperless's REST API — either via `PaperlessClient` in `packages/aktenraum-core/src/aktenraum_core/paperless/client.py` (auto-tagger side) or via `PaperlessGateway` in `services/aktenraum-api/src/aktenraum_api/paperless_gw.py` (BFF side). Documents the silently-ignored filters, the full-array PATCH semantics for custom_fields and tags, the date/monetary/string normalisers required at the boundary, the swap_lifecycle_tag TOCTOU retry loop, and the entity-cache TTL behaviour. Triggers on edits to those two files, on adding a new gateway method, or when investigating a "Paperless rejected the PATCH" / "field didn't show up in Paperless" debug session.
+description: Use when adding or modifying any code that calls Paperless's REST API — either via `PaperlessClient` in `packages/aktenraum-core/src/paperless/client.ts` (auto-tagger side) or via `PaperlessGateway` in `services/aktenraum-api/src/paperless/paperless.gateway.ts` (BFF side). Documents the silently-ignored filters, the full-array PATCH semantics for custom_fields and tags, the date/monetary/string normalisers required at the boundary, the swap_lifecycle_tag TOCTOU retry loop, and the entity-cache TTL behaviour. Triggers on edits to those two files, on adding a new gateway method, or when investigating a "Paperless rejected the PATCH" / "field didn't show up in Paperless" debug session.
 ---
 
 # Paperless API integration
@@ -9,8 +9,8 @@ Paperless's REST API has a handful of footguns that have each cost at least one 
 
 There are **two** clients in the codebase, both wrapping `httpx.AsyncClient`:
 
-- `PaperlessClient` (`packages/aktenraum-core/src/aktenraum_core/paperless/client.py`) — used by the auto-tagger (extraction + propagation + indexing). Lives in the core package so it can be shared.
-- `PaperlessGateway` (`services/aktenraum-api/src/aktenraum_api/paperless_gw.py`) — the BFF-side gateway. Holds the Paperless API token; never returns it to a caller. The SPA never has the token.
+- `PaperlessClient` (`packages/aktenraum-core/src/paperless/client.ts`) — used by the auto-tagger (extraction + propagation + indexing). Lives in the core package so it can be shared.
+- `PaperlessGateway` (`services/aktenraum-api/src/paperless/paperless.gateway.ts`) — the BFF-side gateway. Holds the Paperless API token; never returns it to a caller. The SPA never has the token.
 
 They share most of the gotchas below. Where the two diverge, the rule says which.
 
@@ -65,7 +65,7 @@ await gateway.patch_document_custom_fields(
 
 ## Rule 3 — every value must be normalised at the boundary
 
-Paperless rejects almost every "natural" German format. The normalisers live in `packages/aktenraum-core/src/aktenraum_core/paperless/normalisers.py`. **Always run user-supplied values through them before PATCHing.**
+Paperless rejects almost every "natural" German format. The normalisers live in `packages/aktenraum-core/src/paperless/normalisers.py`. **Always run user-supplied values through them before PATCHing.**
 
 | Field type | Format Paperless wants | What users emit | Helper |
 | --- | --- | --- | --- |

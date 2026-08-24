@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # run-rag-eval.sh — execute the RAG eval harness against the live stack.
 #
-# Wraps `python -m aktenraum_api.eval.runner` running inside the
+# Wraps `node dist/eval/runner.js` running inside the
 # aktenraum-api container so it picks up the live Qdrant / Ollama /
 # reranker config from env without the host needing any of those deps.
 #
@@ -33,4 +33,4 @@ fi
 
 # `-T` keeps stdout clean for `--json` consumers.
 docker compose -f docker/docker-compose.yml exec -T aktenraum-api \
-    /app/.venv/bin/python -m aktenraum_api.eval.runner "$@"
+    node dist/eval/runner.js "$@"

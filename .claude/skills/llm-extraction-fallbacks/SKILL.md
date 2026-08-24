@@ -1,11 +1,11 @@
 ---
 name: llm-extraction-fallbacks
-description: Use when adding fields to DocumentExtraction or any LLM-extracted Pydantic schema in this repo, when investigating why a field arrives empty from the small local LLM, or when adding new ai_* custom fields. Documents the small-LLM field-drop problem rooted in Pydantic defaults, the post-extraction synthesizer pattern, the OCR-regex heuristic for ref-numbers, and the prompt-tightening conventions. Triggers when editing services/auto-tagger/src/auto_tagger/tagger.py, packages/aktenraum-core/src/aktenraum_core/models/extraction.py, or seeing a user report like "ai_summary_de / ai_title / reference_numbers is empty".
+description: Use when adding fields to DocumentExtraction or any LLM-extracted zod schema in this repo, when investigating why a field arrives empty from the small local LLM, or when adding new ai_* custom fields. Documents the small-LLM field-drop problem rooted in zod schema defaults, the post-extraction synthesizer pattern, the OCR-regex heuristic for ref-numbers, and the prompt-tightening conventions. Triggers when editing services/auto-tagger/src/{prompt,extract,synthesizers}.ts, packages/aktenraum-core/src/models/extraction.ts, or seeing a user report like "ai_summary_de / ai_title / reference_numbers is empty".
 ---
 
 # LLM extraction fallbacks
 
-The auto-tagger asks an LLM to fill a `DocumentExtraction` Pydantic model. **Small local models (≤8B class) routinely drop fields that have Pydantic defaults.** This skill documents the canonical pattern for catching those drops.
+The auto-tagger asks an LLM to fill a `DocumentExtraction` Pydantic model. **Small local models (≤8B class) routinely drop fields that have zod schema defaults.** This skill documents the canonical pattern for catching those drops.
 
 ---
 
@@ -117,7 +117,7 @@ Negative examples (`Verbiete: …`) help too — small models otherwise produce 
 4. **Add the custom field in Paperless** — extend `scripts/bootstrap-paperless.sh` with `ensure_custom_field "ai_<field>" "string"` (or `monetary`, `date`, `longtext`).
 5. **Bootstrap existing installs** — manually call the bootstrap script on running paperless; the gateway's TTL cache will pick up the new field within 5 min (or call `gateway._custom_field_ids_cache = None` to force).
 6. **If optional-with-default → add a synthesizer.** Follow the pattern above. Add unit tests.
-7. **Add to the `InboxDetail` schema** in `services/aktenraum-api/src/aktenraum_api/inbox/schemas.py` if the SPA should see / edit it.
+7. **Add to the `InboxDetail` schema** in `services/aktenraum-api/src/inbox/schemas.py` if the SPA should see / edit it.
 8. **Add to the SPA form** in `apps/web/src/routes/InboxReview.tsx` and `LibraryReview.tsx`.
 
 Skip step 6 only if empty is genuinely correct (the `suggested_tags` decision).

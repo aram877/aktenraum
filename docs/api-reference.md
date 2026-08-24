@@ -150,7 +150,7 @@ double-downloading.
 | POST | `/api/documents/{id}/star` | 🔒 | Adds the `wichtig` user tag (auto-creates the tag on first call). The SPA renders a gold star pill and sorts `wichtig` first in tag chips. |
 | DELETE | `/api/documents/{id}/star` | 🔒 | Removes the `wichtig` tag. |
 | POST | `/api/documents/{id}/dismiss-duplicate` | 🔒 | Removes the `ai-duplicate` tag and adds the sticky `ai-duplicate-dismissed` aux tag so future propagations against the same cluster don't re-flag the doc. |
-| GET  | `/api/documents/{id}/duplicate-candidates` | 🔒 | Re-runs the field-based dedup detector (`packages/aktenraum-core/src/aktenraum_core/dedup.py`) against the live corpus and returns the matching propagated docs so the detail page can render "Mögliches Duplikat von #N" links. |
+| GET  | `/api/documents/{id}/duplicate-candidates` | 🔒 | Re-runs the field-based dedup detector (`packages/aktenraum-core/src/dedup.py`) against the live corpus and returns the matching propagated docs so the detail page can render "Mögliches Duplikat von #N" links. |
 | DELETE | `/api/documents/{id}` | 🔒 | **Soft-delete** (moves the doc to Paperless's trash). Recoverable for `PAPERLESS_EMPTY_TRASH_DELAY` days (default 30) until the trash is emptied. 204 No Content. Invalidates the SPA's library + inbox caches. Hard-delete + Qdrant chunk purge happens via `/api/trash/*`. |
 
 ---
@@ -267,13 +267,13 @@ Definitive types live alongside the routers:
 
 | Schema | File |
 |---|---|
-| `SearchFilter` / `DocumentSummary` / `AskResponse` / `AnswerResponse` | [`services/aktenraum-api/src/aktenraum_api/ai/schemas.py`](../services/aktenraum-api/src/aktenraum_api/ai/schemas.py) |
-| `InboxItem` / `InboxDetail` / `InboxFieldUpdate` / `InboxList` | [`services/aktenraum-api/src/aktenraum_api/inbox/schemas.py`](../services/aktenraum-api/src/aktenraum_api/inbox/schemas.py) |
-| `LibraryItem` / `LibraryList` / `TagFacet` / `TagFacetList` | [`services/aktenraum-api/src/aktenraum_api/library/schemas.py`](../services/aktenraum-api/src/aktenraum_api/library/schemas.py) |
-| `UploadResponse` / `ReprocessResponse` / `InFlightCount` / `TaskStatus` / `DocumentStatus` | [`services/aktenraum-api/src/aktenraum_api/documents/`](../services/aktenraum-api/src/aktenraum_api/documents/) |
-| `TypeFieldsResponse` | [`services/aktenraum-api/src/aktenraum_api/type_fields/`](../services/aktenraum-api/src/aktenraum_api/type_fields/) |
-| `DocumentType` enum, `DocumentExtraction` | [`packages/aktenraum-core/src/aktenraum_core/models/extraction.py`](../packages/aktenraum-core/src/aktenraum_core/models/extraction.py) |
-| `TYPE_FIELD_SCHEMA` map | [`packages/aktenraum-core/src/aktenraum_core/models/type_schema.py`](../packages/aktenraum-core/src/aktenraum_core/models/type_schema.py) |
+| `SearchFilter` / `DocumentSummary` / `AskResponse` / `AnswerResponse` | [`services/aktenraum-api/src/ai/schemas.py`](../services/aktenraum-api/src/ai/schemas.py) |
+| `InboxItem` / `InboxDetail` / `InboxFieldUpdate` / `InboxList` | [`services/aktenraum-api/src/inbox/schemas.py`](../services/aktenraum-api/src/inbox/schemas.py) |
+| `LibraryItem` / `LibraryList` / `TagFacet` / `TagFacetList` | [`services/aktenraum-api/src/library/schemas.py`](../services/aktenraum-api/src/library/schemas.py) |
+| `UploadResponse` / `ReprocessResponse` / `InFlightCount` / `TaskStatus` / `DocumentStatus` | [`services/aktenraum-api/src/documents/`](../services/aktenraum-api/src/documents/) |
+| `TypeFieldsResponse` | [`services/aktenraum-api/src/type_fields/`](../services/aktenraum-api/src/type_fields/) |
+| `DocumentType` enum, `DocumentExtraction` | [`packages/aktenraum-core/src/models/extraction.py`](../packages/aktenraum-core/src/models/extraction.py) |
+| `TYPE_FIELD_SCHEMA` map | [`packages/aktenraum-core/src/models/type_schema.py`](../packages/aktenraum-core/src/models/type_schema.py) |
 
 ---
 

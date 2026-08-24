@@ -36,7 +36,7 @@ services:
       PAPERLESS_TIKA_GOTENBERG_ENDPOINT: http://gotenberg:3000
       PAPERLESS_POST_CONSUME_SCRIPT: /usr/src/paperless/scripts/post_consume.sh
       AKTENRAUM_WEBHOOK_SECRET: e2e-webhook-secret
-      AKTENRAUM_AUTO_TAGGER_URL: http://worker-node:8001
+      AKTENRAUM_AUTO_TAGGER_URL: http://auto-tagger:8001
     networks:
       - e2e
 
@@ -91,10 +91,10 @@ services:
     networks:
       - e2e
 
-  aktenraum-api-node:
+  aktenraum-api:
     build:
       context: ..
-      dockerfile: services/api-node/Dockerfile
+      dockerfile: services/aktenraum-api/Dockerfile
     # The e2e API exists only to serve the worker's auto-approve rule fetch and
     # to own the schema bootstrap. QDRANT_URL is deliberately empty here: it
     # disables RAG retrieval and with it the ~571 MB reranker prewarm, which
@@ -127,22 +127,22 @@ services:
     networks:
       - e2e
 
-  worker-node:
+  auto-tagger:
     build:
       context: ..
-      dockerfile: services/worker-node/Dockerfile
+      dockerfile: services/auto-tagger/Dockerfile
     depends_on:
       paperless:
         condition: service_started
       qdrant:
         condition: service_healthy
-      aktenraum-api-node:
+      aktenraum-api:
         condition: service_started
     environment:
       PAPERLESS_BASE_URL: http://paperless:8000
       PAPERLESS_API_TOKEN: ${E2E_PAPERLESS_API_TOKEN:-}
       WEBHOOK_SECRET: e2e-webhook-secret
-      AKTENRAUM_API_URL: http://aktenraum-api-node:8002
+      AKTENRAUM_API_URL: http://aktenraum-api:8002
       QDRANT_URL: http://qdrant:6333
       LLM_BACKEND: ollama
       OLLAMA_BASE_URL: ${E2E_OLLAMA_BASE_URL:-http://host.docker.internal:11434}

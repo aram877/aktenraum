@@ -176,13 +176,13 @@ Same upgrade path. Find returns documents (not chunks), but underneath uses the 
 Each becomes its own commit (per the user's preference for clean small commits).
 
 - **1.1 — Chunker module.** `aktenraum-core/src/aktenraum_core/rag/chunker.py`. Paragraph-aware splitter. Pure function, fully testable without dependencies.
-- **1.2 — Embedder module.** `aktenraum_core.rag.embedder.OllamaEmbedder` calling Ollama's `/api/embed` (and `/api/embed` for sparse — bge-m3 specifics). Tested with a stub HTTP server.
-- **1.3 — Qdrant client wrapper.** `aktenraum_core.rag.vector_store.QdrantStore`. Thin wrapper: ensure-collection, upsert, search, delete-by-doc-id. Tested with `respx`.
+- **1.2 — Embedder module.** `@aktenraum/core rag.embedder.OllamaEmbedder` calling Ollama's `/api/embed` (and `/api/embed` for sparse — bge-m3 specifics). Tested with a stub HTTP server.
+- **1.3 — Qdrant client wrapper.** `@aktenraum/core rag.vector_store.QdrantStore`. Thin wrapper: ensure-collection, upsert, search, delete-by-doc-id. Tested with `respx`.
 - **1.4 — Qdrant container in compose.** `docker/docker-compose.yml` adds a `qdrant` service with persistent volume under `${AKTENRAUM_DATA_DIR}/qdrant` (forward-compatible with Phase 0.2). Healthcheck.
 - **1.5 — Indexer task in auto-tagger.** Fifth concurrent task. Triggered on propagation. Includes `ai-index-error` lifecycle tag for failures.
 - **1.6 — Backfill script.** `scripts/backfill-rag-index.sh` — one-shot, idempotent, resumable.
-- **1.7 — Reranker module.** `aktenraum_core.rag.reranker` using `sentence-transformers` directly. Loads `bge-reranker-v2-m3` once at process start; reranks (query, chunks) → ordered.
-- **1.8 — Hybrid retrieval at query time.** New `aktenraum_api.rag.retrieve` that runs dense+sparse+payload filter via Qdrant, RRF-fuses, reranks. Replaces the current `_enrich_with_ai_fields` step in `/answer/stream`.
+- **1.7 — Reranker module.** `@aktenraum/core rag.reranker` using `sentence-transformers` directly. Loads `bge-reranker-v2-m3` once at process start; reranks (query, chunks) → ordered.
+- **1.8 — Hybrid retrieval at query time.** New `aktenraum-api rag.retrieve` that runs dense+sparse+payload filter via Qdrant, RRF-fuses, reranks. Replaces the current `_enrich_with_ai_fields` step in `/answer/stream`.
 - **1.9 — Modify `/answer/stream` prompt.** Use chunks (not full-doc summaries) as context. Citations now reference `(doc_id, page?)` so the SPA can deep-link to a page.
 - **1.10 — Eval harness.** YAML + runner + CI integration. `make eval` target.
 - **1.11 — Model auto-pull integration.** Reuse Phase 0.3 (when it lands) — bge-m3 and bge-reranker-v2-m3 added to the pull list. Until then, manual `ollama pull` documented in CLAUDE.md.

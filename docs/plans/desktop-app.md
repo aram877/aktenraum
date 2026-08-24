@@ -39,7 +39,7 @@ Concrete deliverables:
 2. **`AKTENRAUM_DATA_DIR` end-to-end.** Audit and replace every reference to `~/aktenraum/`:
    - `docker-compose.yml` volume mounts.
    - `scripts/bootstrap-paperless.sh` and friends.
-   - `services/aktenraum-api/src/aktenraum_api/config.py` (data paths, if any).
+   - `services/aktenraum-api/src/config.py` (data paths, if any).
    - Default per-platform: `~/Library/Application Support/aktenraum/` (macOS), `%APPDATA%\aktenraum\` (Windows), `$XDG_DATA_HOME/aktenraum/` (Linux).
 
 3. **Model pull on first run.** Extend `bootstrap.sh` (or split into `scripts/pull-models.sh`) to:

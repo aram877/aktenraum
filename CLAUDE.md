@@ -1,6 +1,6 @@
 # aktenraum — Claude working guide
 
-Self-hosted personal DMS built on Paperless-ngx with an AI classification layer. Everything runs in Docker. Scripts target bash and run on macOS, Linux, or Windows (Git Bash). Deployment target is Docker Desktop or native Linux Docker.
+Self-hosted personal DMS built on Paperless-ngx with an AI classification layer. Everything runs in Docker. The application code is TypeScript end to end — NestJS API, Node worker, Angular SPA, one shared library — in a single pnpm workspace. Scripts target bash and run on macOS, Linux, or Windows (Git Bash). Deployment target is Docker Desktop or native Linux Docker.
 
 **Deep-dive docs for humans** (skim before changing anything load-bearing — they describe the *why* this guide takes for granted):
 
@@ -18,20 +18,20 @@ Self-hosted personal DMS built on Paperless-ngx with an AI classification layer.
 
 ## Skills for Claude (auto-invoked from `.claude/skills/<name>/SKILL.md`)
 
-Six project-specific skills capture the patterns and gotchas that recur in this repo. Each loads automatically when its trigger conditions match — e.g. editing `paperless_gw.py` auto-loads `paperless-api-integration`. When in doubt, invoke them explicitly with `/<skill-name>`.
+Six project-specific skills capture the patterns and gotchas that recur in this repo. Each loads automatically when its trigger conditions match — e.g. editing `paperless.gateway.ts` auto-loads `paperless-api-integration`. When in doubt, invoke them explicitly with `/<skill-name>`.
 
-- **[`paperless-api-integration`](.claude/skills/paperless-api-integration/SKILL.md)** — every Paperless REST API gotcha (`?name__iexact=` not `?name=`, custom_fields full-array PATCH replace, monetary/date normalisers, 128-char string limits, longtext fields, `swap_lifecycle_tag` TOCTOU+retry, entity-cache TTL invalidation). Auto-loads when touching `PaperlessClient` or `PaperlessGateway`.
-- **[`llm-extraction-fallbacks`](.claude/skills/llm-extraction-fallbacks/SKILL.md)** — the small-LLM field-drop problem rooted in Pydantic defaults, the post-extraction synthesizer pattern (`_synthesize_*`), the OCR-regex heuristic for ref-numbers, and the prompt-tightening conventions. Auto-loads when editing `tagger.py`, `extraction.py`, or investigating "empty `ai_*` field" reports.
-- **[`aktenraum-commit-discipline`](.claude/skills/aktenraum-commit-discipline/SKILL.md)** — the project-specific commit rules (never commit before tests, never commit after a bug fix without user confirmation) plus the binding documentation cadence (session note + ADR + CLAUDE.md update in the same commit). Auto-loads before any commit/push.
-- **[`fastapi-route-pattern`](.claude/skills/fastapi-route-pattern/SKILL.md)** — the standard router/service/schemas layout, dependency-injection order, gateway-error → HTTP-status mapping (404/409/502), CSRF compatibility, the get-document-then-patch idiom. Auto-loads when editing any `aktenraum_api/*/router.py`.
-- **[`lifecycle-tag-state-machine`](.claude/skills/lifecycle-tag-state-machine/SKILL.md)** — the 8 lifecycle/auxiliary tags, valid transitions, who owns each, the `asyncio.shield()` requirement around lifecycle PATCHes, idempotency expectations. Auto-loads when editing `tagger.py`, `propagator.py`, `indexer.py`, `inbox/service.py`, or `swap_lifecycle_tag`.
-- **[`spa-data-fetching`](.claude/skills/spa-data-fetching/SKILL.md)** — TanStack Query conventions (query-key shape, invalidation rules, `staleTime` table, dedup-by-key for sharing data across components), TanStack Router lazy-route + `RouteSuspense` wrapper, SSE consumer pattern. Auto-loads when editing `apps/web/src/lib/*.ts`, `apps/web/src/routes/*.tsx`, or `router.tsx`.
+- **[`paperless-api-integration`](.claude/skills/paperless-api-integration/SKILL.md)** — every Paperless REST API gotcha (`?name__iexact=` not `?name=`, custom_fields full-array PATCH replace, monetary/date normalisers, 128-char string limits, longtext fields, `swapLifecycleTag` TOCTOU+retry, entity-cache TTL invalidation). Auto-loads when touching `PaperlessClient` or `PaperlessGateway`.
+- **[`llm-extraction-fallbacks`](.claude/skills/llm-extraction-fallbacks/SKILL.md)** — the small-LLM field-drop problem, the post-extraction synthesizer pattern, the OCR-regex heuristic for ref-numbers, and the prompt-tightening conventions. Auto-loads when editing `services/auto-tagger/src/{prompt,extract,synthesizers}.ts` or investigating "empty `ai_*` field" reports.
+- **[`aktenraum-commit-discipline`](.claude/skills/aktenraum-commit-discipline/SKILL.md)** — the project-specific commit rules (never commit before tests, never commit after a bug fix without user confirmation) plus the binding documentation cadence. Auto-loads before any commit/push.
+- **[`nestjs-route-pattern`](.claude/skills/nestjs-route-pattern/SKILL.md)** — the standard controller/service/schemas layout, DI order, gateway-error → HTTP-status mapping (404/409/502), the FastAPI-compatible `{detail}` error shape, CSRF compatibility, the get-document-then-patch idiom, and the pg-mem test harness. Auto-loads when editing any `services/aktenraum-api/src/*/*.controller.ts`.
+- **[`lifecycle-tag-state-machine`](.claude/skills/lifecycle-tag-state-machine/SKILL.md)** — the 8 lifecycle/auxiliary tags, valid transitions, who owns each, cancellation semantics around lifecycle PATCHes, idempotency expectations. Auto-loads when editing `extract.ts`, `propagate.ts`, `indexer.ts`, `inbox.service.ts`, or `swapLifecycleTag`.
+- **[`spa-data-fetching`](.claude/skills/spa-data-fetching/SKILL.md)** — TanStack Query conventions for Angular (query-key shape, invalidation rules, `staleTime` table, the signal-input → computed-queryKey pattern), lazy routes, the SSE consumer, and the zoneless testing rules. Auto-loads when editing `apps/web/src/app/core/*.ts` or any route component.
 
 ---
 
 ## Stack (10 services — all in `docker/docker-compose.yml`)
 
-Two Python services (`auto-tagger` for workers, `aktenraum-api` for HTTP) is a deliberate split — see [`docs/adr/004-two-python-services.md`](docs/adr/004-two-python-services.md) for the rationale (process isolation, independent memory caps, independent restart cadence) and the conditions that would justify revisiting it.
+Two Node services (`auto-tagger` for background work, `aktenraum-api` for HTTP) is a deliberate split — see [`docs/adr/004-two-python-services.md`](docs/adr/004-two-python-services.md) for the rationale (process isolation, independent memory caps, independent restart cadence). The rationale survived the TypeScript migration unchanged; only the runtime differs.
 
 External images are pinned by tag-and-digest in `docker/docker-compose.yml` so `latest`-drift can't silently change runtime behaviour; bump with intent.
 
@@ -43,8 +43,8 @@ External images are pinned by tag-and-digest in `docker/docker-compose.yml` so `
 | gotenberg     | gotenberg/gotenberg:8.31.0          | PDF conversion                                                  | internal                                             |
 | tika          | apache/tika (digest-pinned)         | Document parsing                                                | internal                                             |
 | qdrant        | qdrant/qdrant:v1.17.1               | RAG vector store (chunks + payload)                             | internal (6333 REST, 6334 gRPC)                      |
-| auto-tagger   | local build                         | AI extraction worker + RAG indexer (event-driven)               | internal                                             |
-| aktenraum-api | local build                         | FastAPI HTTP API for the SPA (auth, AI features, RAG retrieval) | internal (8002)                                      |
+| auto-tagger   | local build (Node 22)               | AI extraction worker + RAG indexer (event-driven)               | internal                                             |
+| aktenraum-api | local build (Node 22)               | NestJS HTTP API for the SPA (auth, AI features, RAG retrieval)  | internal (8002)                                      |
 | nginx         | local build                         | Edge: serves SPA static + reverse-proxies `/api/*`              | `127.0.0.1:8080` (override via `AKTENRAUM_WEB_PORT`) |
 | backup        | local build                         | Daily restic backup via crond                                   | internal                                             |
 
@@ -68,11 +68,11 @@ The root `Taskfile.yml` ([Taskfile.dev](https://taskfile.dev), `brew install go-
 | `task logs SVC=auto-tagger` | tail a single service |
 | `task recreate SVC=auto-tagger` | recreate a service after env-file edits (env files are NOT re-read by `restart`) |
 | `task web:dev` | Vite hot-reload on `:5173`, bound to `0.0.0.0` so LAN devices can hit it |
-| `task dev:up` / `task dev:down` / `task dev:logs` | Hot-reload mode for the Python services — bind-mounts source + runs `uvicorn --reload` (api) and `watchfiles` (auto-tagger). `.py` saves go live in ~1s, no rebuild per edit. `dev:down` flips back to prod entrypoints. |
+| `task dev:up` / `task dev:down` / `task dev:logs` | Hot-reload mode for the two Node services — bind-mounts `src/` and runs `tsx watch`. `.ts` saves go live in ~1s, no rebuild per edit. `dev:down` flips back to prod entrypoints. |
 | `task web:deploy` / `task nginx:rebuild` | bake the SPA into the nginx image |
 | `task api:rebuild` / `task tagger:rebuild` | rebuild + recreate a Python service |
-| `task test` / `task test:py` / `task test:web` | full suite or one half |
-| `task lint` / `task lint:py` / `task lint:web` | ruff + eslint |
+| `task test` / `task test` / `task test:web` | full suite or one half |
+| `task lint` / `task lint` / `task lint:web` | ruff + eslint |
 | `task reprocess ID=27` | clear lifecycle tags so the auto-tagger re-extracts |
 | `task rag:backfill` / `task rag:eval` | RAG ops |
 | `task rag:reembed` | drop the Qdrant collection + re-embed the whole corpus (run after an embedding-model/dimension change; prompts for confirmation) |
@@ -116,8 +116,8 @@ docker compose logs --tail=50 paperless
 | Webhook secret         | `WEBHOOK_SECRET` in `docker/.env` (single entry — all services load the same file). Gates paperless's `post_consume` webhook, the auto-tagger's `/trigger/*` endpoints, the aktenraum-api `/api/settings/active-llm-model` + `/api/settings/active-auto-approve-rules` internal endpoints. |
 | auto-tagger → api      | `AKTENRAUM_API_URL` in `docker/.env` (default `http://aktenraum-api:8002`). Used for type-specific extraction PATCH + the per-DocumentType auto-approve rule fetch.                                                                                       |
 | LLM backend            | `LLM_BACKEND=ollama` or `anthropic` in `docker/.env` (shared by both auto-tagger and aktenraum-api)                                                                                                                                         |
-| Ollama model           | **NOTE: `OLLAMA_MODEL` is only a fallback.** The live extraction/answer model is resolved per-request from the `app_settings` quality-tier map (`aktenraum_api/settings/quality.py` → `QUALITY_TO_MODEL`), not this env var (see the Known-gotcha row). `OLLAMA_MODEL=qwen2.5:14b-instruct-q8_0` (~16 GB) is used only when the api is unreachable. Smaller models (≤8B) reliably drop schema fields — the Python fallbacks catch them but the output is less specific. Both `OLLAMA_MODEL` and `OLLAMA_ANSWER_MODEL` are in `docker/.env`. |
-| Embedding model        | `EMBEDDING_MODEL=qwen3-embedding:4b` (2560-dim) in `docker/.env` — single entry, shared by both auto-tagger (indexing) and aktenraum-api (query). Pull with `ollama pull qwen3-embedding:4b`. Dimension is pinned in `aktenraum_core.rag.DENSE_DIM`; changing the model to a different dim requires `task rag:reembed`. (Migrated off bge-m3/1024 on 2026-06-22.) |
+| Ollama model           | **NOTE: `OLLAMA_MODEL` is only a fallback.** The live extraction/answer model is resolved per-request from the `app_settings` quality-tier map (`aktenraum-api/src/settings/quality.ts` → `QUALITY_TO_MODEL`), not this env var (see the Known-gotcha row). `OLLAMA_MODEL=qwen2.5:14b-instruct-q8_0` (~16 GB) is used only when the api is unreachable. Smaller models (≤8B) reliably drop schema fields — the synthesizer fallbacks catch them but the output is less specific. Both `OLLAMA_MODEL` and `OLLAMA_ANSWER_MODEL` are in `docker/.env`. |
+| Embedding model        | `EMBEDDING_MODEL=qwen3-embedding:4b` (2560-dim) in `docker/.env` — single entry, shared by both auto-tagger (indexing) and aktenraum-api (query). Pull with `ollama pull qwen3-embedding:4b`. Dimension is pinned in `@aktenraum/core rag.DENSE_DIM`; changing the model to a different dim requires `task rag:reembed`. (Migrated off bge-m3/1024 on 2026-06-22.) |
 | AI search → Paperless  | `PAPERLESS_API_TOKEN` in `docker/.env` — shared token used by both auto-tagger and aktenraum-api; required for `/api/ai/*`                                                                                                                                                     |
 | AI search → LLM        | `ANTHROPIC_API_KEY` (when `LLM_BACKEND=anthropic`) or `OLLAMA_BASE_URL` + `OLLAMA_MODEL` (when `LLM_BACKEND=ollama`), all in `docker/.env`                                                                                                             |
 | AI answer → bigger LLM | Optional `OLLAMA_ANSWER_MODEL` / `ANTHROPIC_ANSWER_MODEL` in `docker/.env` — overrides the model used by `/api/ai/answer` only; pair a fast small model for filter extraction with a smarter big one for prose answers (8B is too small to read citations reliably; 14B+ recommended) |
@@ -153,8 +153,8 @@ docker compose exec paperless curl -sS -H "Content-Type: application/json" \
 
 ### Paperless API gotchas (each cost a debug session)
 
-- **`?name=` is silently ignored on `/api/tags/`** — it returns the default first page regardless. Use `?name__iexact=<name>` for exact match. The Python-side equality check stays as defence in depth (see `aktenraum_core.paperless.client._get_or_create_named`).
-- **Custom fields with `data_type=string` have a hard 128-char DB limit.** Anything longer 400s the entire PATCH. We truncate at the boundary with `_truncate_string_field` (in `aktenraum_core.paperless.normalisers`, ellipsis at 128 chars). The complementary `data_type=longtext` (Paperless 2.x+) has no length cap; fields backed by it must NOT be truncated. Use `truncate_for_field(name, value)` at the boundary — it consults the `LONGTEXT_FIELDS` allowlist (currently `{"ai_summary_de"}`) and skips truncation for those. To add a new longtext field: extend `LONGTEXT_FIELDS`, add the matching `ensure_custom_field … "longtext"` line in `scripts/bootstrap-paperless.sh`, and run `scripts/migrate-ai-summary-to-longtext.sh` (rename for the new field) to migrate existing installs.
+- **`?name=` is silently ignored on `/api/tags/`** — it returns the default first page regardless. Use `?name__iexact=<name>` for exact match. The Python-side equality check stays as defence in depth (see `PaperlessClient` in `@aktenraum/core`).
+- **Custom fields with `data_type=string` have a hard 128-char DB limit.** Anything longer 400s the entire PATCH. We truncate at the boundary with `_truncate_string_field` (in `@aktenraum/core paperless/normalisers`, ellipsis at 128 chars). The complementary `data_type=longtext` (Paperless 2.x+) has no length cap; fields backed by it must NOT be truncated. Use `truncate_for_field(name, value)` at the boundary — it consults the `LONGTEXT_FIELDS` allowlist (currently `{"ai_summary_de"}`) and skips truncation for those. To add a new longtext field: extend `LONGTEXT_FIELDS`, add the matching `ensure_custom_field … "longtext"` line in `scripts/bootstrap-paperless.sh`, and run `scripts/migrate-ai-summary-to-longtext.sh` (rename for the new field) to migrate existing installs.
 - **Custom fields with `data_type=monetary` require the format `<ISO_CODE><amount>`** (e.g., `EUR149.99`) — the German format `149,99 EUR` is rejected. We normalise via `_normalize_monetary` (handles symbols, German/Anglophone thousands separators).
 - **Custom fields with `data_type=date` require strict YYYY-MM-DD.** German `DD.MM.YYYY`, slashes, month-year-only all rejected. We normalise via `_normalize_date`.
 - **Paperless's content-OCR date detector cannot be disabled.** It runs in the consumer (`documents/consumer.py:430`) when the parser ships no PDF metadata date and grabs _any_ date from the OCR text. It commonly picks up birthdates from CVs / IDs. Workaround: rely on the AI's `ai_issue_date` being correct so propagation overrides it; for a known recurring bad date use `PAPERLESS_IGNORE_DATES` env var.
@@ -167,69 +167,88 @@ docker compose exec paperless curl -sS -H "Content-Type: application/json" \
 
 ```
 /
-├── pyproject.toml               # uv workspace root (no project of its own)
-├── uv.lock                      # workspace-wide lockfile
-├── .python-version              # 3.13
+├── package.json                 # pnpm workspace root
+├── pnpm-workspace.yaml          # apps/* + services/* + packages/*
+├── pnpm-lock.yaml               # workspace-wide lockfile
+├── .nvmrc                       # Node 22
 ├── .github/
-│   └── workflows/ci.yml         # uv setup → ruff check → pytest (workspace-root)
+│   └── workflows/ci.yml         # pnpm install → pnpm -r lint/build/test
 ├── docker/
 │   ├── docker-compose.yml       # full stack definition
-│   ├── .env                     # gitignored — Paperless secrets
-│   ├── .env.example             # committed template
+│   ├── docker-compose.dev.yml   # dev overlay: bind-mount src + `tsx watch`
+│   ├── docker-compose.e2e.yml   # THROWAWAY stack for worker e2e (project aktenraum-e2e)
 │   ├── .env                     # gitignored — unified secrets + config for all services
 │   ├── .env.example             # committed template
 │   ├── backup/                  # backup service: Dockerfile, entrypoint.sh, crontab
+│   ├── nginx/                   # Dockerfile (bakes the SPA) + nginx.conf
 │   ├── paperless-scripts/       # post_consume.sh — paperless → auto-tagger webhook trigger
 │   └── systemd/                 # systemd units for future Linux-native deploy
 ├── packages/
-│   └── aktenraum-core/          # shared Python lib — uv workspace member
-│       └── src/aktenraum_core/
-│           ├── llm/             # AnthropicBackend, OllamaBackend, base Protocol, factory
-│           ├── paperless/       # client.py (PaperlessClient + LIFECYCLE_TAGS), normalisers.py
-│           └── models/          # DocumentExtraction, DocumentType enum (26 values), KeyDates, coercion validators
+│   └── aktenraum-core/          # @aktenraum/core — shared TS library, ESM
+│       └── src/
+│           ├── llm/             # AnthropicBackend, OllamaBackend, base interface, factory
+│           ├── paperless/       # client.ts (PaperlessClient + LIFECYCLE_TAGS), normalisers.ts
+│           ├── models/          # DocumentExtraction, DocumentType (27), typeSchema.ts
+│           ├── rag/             # chunker, embedder, vectorStore, reranker
+│           └── logger.ts        # structured JSON events
 ├── services/
-│   └── auto-tagger/             # Python 3.13, uv workspace member
-│       ├── src/auto_tagger/
-│       │   ├── config.py        # Pydantic BaseSettings (all env vars)
-│       │   ├── tagger.py        # German prompt + routing + few-shot + history hint
-│       │   ├── propagator.py    # ai-approved → native fields + ai-propagated
-│       │   ├── webhook.py       # aiohttp listener for paperless's post_consume hook
-│       │   └── main.py          # asyncio.gather of extraction worker, poller, propagation, http server
-│       ├── tests/               # pytest suite — pure-function, no live HTTP
-│       │   ├── conftest.py      # `make_settings` fixture used across files
-│       │   ├── test_models.py   # DocumentExtraction validation (imports from aktenraum_core.models)
-│       │   ├── test_paperless.py# normalisers + LIFECYCLE_TAGS (imports from aktenraum_core.paperless)
-│       │   ├── test_propagator.py# suggested-tags filter
-│       │   ├── test_tagger.py   # routing matrix + history hint + few-shot rendering
-│       │   └── test_webhook.py  # aiohttp handler (auth, queue, /health)
-│       └── Dockerfile           # python:3.13-slim + uv, non-root user (build context = repo root)
+│   ├── aktenraum-api/           # @aktenraum/api — NestJS (ESM), port 8002
+│   │   ├── src/
+│   │   │   ├── main.ts          # applySchema → NestFactory → middleware → listen
+│   │   │   ├── db/              # drizzle schema.ts + runnable schema.sql + applySchema
+│   │   │   ├── paperless/       # PaperlessGateway + typed errors
+│   │   │   ├── common/          # CSRF + security headers + {detail} error filter
+│   │   │   ├── ai/ inbox/ library/ documents/ trash/ settings/ auth/ upload/ type-fields/
+│   │   │   ├── eval/            # RAG eval runner + metrics
+│   │   │   └── test/            # pg-mem harness + stateful fake Paperless
+│   │   └── Dockerfile           # node:22-slim, non-root (build context = repo root)
+│   └── auto-tagger/             # @aktenraum/worker — 5 concurrent loops, port 8001
+│       ├── src/
+│       │   ├── config.ts        # zod-validated env
+│       │   ├── prompt.ts        # German SYSTEM_PROMPT + few-shot + history hint
+│       │   ├── extract.ts       # LLM call, fallbacks, lifecycle tagging
+│       │   ├── routing.ts       # confidence/auto-approve routing matrix
+│       │   ├── propagate.ts     # ai-approved → native fields + dedup
+│       │   ├── indexer.ts       # chunk → embed → upsert into Qdrant
+│       │   ├── backfill.ts      # one-shot RAG backfill CLI
+│       │   ├── webhook.ts       # secret-gated listener for post_consume
+│       │   └── loops.ts/main.ts # orchestration + graceful shutdown
+│       └── Dockerfile           # node:22-slim, non-root
 ├── apps/
-│   └── web/                     # placeholder — Vite + React SPA scaffolded in Phase 1
+│   └── web/                     # @aktenraum/web — Angular 22, zoneless, Tailwind v4
+│       └── src/app/
+│           ├── core/            # ApiClient + one query service per area
+│           ├── shared/          # nav, processing badge
+│           └── <route>/         # login, home, library, ask, upload, trash, settings, …
 ├── docs/
 │   ├── adr/                     # Architecture Decision Records
-│   ├── plans/
-│   │   └── custom-frontend.md   # multi-phase roadmap for the AI-first SPA replacement
+│   ├── plans/                   # multi-phase roadmaps
+│   ├── sessions/                # per-session summaries (binding cadence)
 │   └── runbooks/                # first-time-setup, operations, restore, rotate-keys
 ├── scripts/
 │   ├── setup.sh                 # create ~/aktenraum/ dirs
-│   ├── bootstrap-paperless.sh   # create AI custom fields + tags via API
+│   ├── bootstrap-secrets.sh     # generate every secret except the Paperless token
+│   ├── bootstrap-paperless.sh   # create AI custom fields + tags via API (bash + curl)
+│   ├── e2e-worker.sh            # end-to-end worker test against the throwaway stack
+│   ├── backfill-rag-index.sh    # wrapper → `node dist/backfill.js` in the worker
+│   ├── run-rag-eval.sh          # wrapper → `node dist/eval/runner.js` in the api
 │   └── backup.sh                # host-side manual backup (mirrors container logic)
 └── openspec/
-    └── changes/                 # aktenraum-foundation, backup-timer (completed) + extract-aktenraum-core (in flight)
+    └── changes/                 # active + archived change proposals
 ```
 
 ---
 
 ## Auto-tagger behaviour
 
-The service runs four concurrent async tasks via `asyncio.gather` in `main.py`, sharing one `asyncio.Queue[int]` for extraction work:
+The service runs five concurrent loops from `loops.ts`, orchestrated by `main.ts`, sharing `AsyncQueue<number>` instances for extraction, propagation and indexing work:
 
 ```
                         Paperless's post_consume_script
                                       ↓
                           POST /trigger/extract
                                       ↓
-   poller ─────────► asyncio.Queue[int] ◄───── webhook handler
+   poller ─────────► AsyncQueue<number> ◄────── webhook handler
    (every 30s,                |
    safety net)                ▼
                        extraction worker
@@ -263,13 +282,13 @@ The auto-tagger's poller excludes the six lifecycle tags from its scan; the work
 - **Worker**: drains queue. Per-doc steps:
   1. Re-fetch by id; skip if any lifecycle tag (race protection)
   2. Build prompt: base SYSTEM_PROMPT + (optional) per-correspondent history hint + (optional) few-shot exemplars from propagated corpus
-  3. Call configured LLM backend; validate via Pydantic
+  3. Call configured LLM backend; validate via zod
   4. PATCH 12 `ai_*` custom fields (with monetary, date, string normalisers at boundary)
   5. Apply lifecycle tag(s) per routing rules (single PATCH)
 
-### Confidence-based routing (`tagger._route_lifecycle_tags`)
+### Confidence-based routing (`routing.routeLifecycleTags`)
 
-Per-`DocumentType` rules live in the aktenraum-api `auto_approve_rules` table (one row per enum value, 26 total), edited from `/settings → Auto-Genehmigung` in the SPA. The auto-tagger fetches them over HTTP (`GET /api/settings/active-auto-approve-rules`, secret-gated via `WEBHOOK_SECRET`) with a 60-second in-process TTL cache (`auto_tagger/auto_approve_config.py`).
+Per-`DocumentType` rules live in the aktenraum-api `auto_approve_rules` table (one row per enum value, 27 total), edited from `/settings → Auto-Genehmigung` in the SPA. The auto-tagger fetches them over HTTP (`GET /api/settings/active-auto-approve-rules`, secret-gated via `WEBHOOK_SECRET`) with a 60-second in-process TTL cache (`auto-tagger/src/auto-approve-config.ts`).
 
 | Condition                                                                        | Tag(s) applied                                                            |
 | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
@@ -288,7 +307,7 @@ The legacy `AUTO_APPROVE_TYPES` + `AUTO_APPROVE_CONFIDENCE` env vars have been r
 
 Together these turn user corrections into future signal: edit the AI fields pre-approval, OR rename a Correspondent post-propagation, and the next extraction sees the corrected version.
 
-### Propagation (`propagator.process_approved_document`)
+### Propagation (`propagate.processApprovedDocument`)
 
 - Polls every 30s for `ai-approved`
 - Reads `ai_correspondent` / `ai_document_type` / `ai_issue_date` / `ai_suggested_tags`
@@ -315,7 +334,7 @@ Switch by editing `docker/.env` and running `docker compose up -d auto-tagger ak
 
 Rechnung · Gehaltsabrechnung · Kontoauszug · Nebenkostenabrechnung · Hausgeldabrechnung · Mahnung · Vertrag · Kündigung · Versicherung · Steuer · Lohnsteuerbescheinigung · Spendenbescheinigung · Bescheid · Behördenbrief · Sozialversicherungsmeldung · Kfz · Bußgeldbescheid · Arztbrief · Krankschreibung · Garantie · Urkunde · Ausweis · Zeugnis · Arbeitszeugnis · Mitgliedschaft · Beleg · Sonstiges
 
-Defined in `packages/aktenraum-core/src/aktenraum_core/models/extraction.py` `DocumentType` enum. Prompt definitions in `services/auto-tagger/src/auto_tagger/tagger.py` `SYSTEM_PROMPT` (with explicit disambiguation rules — read before editing). Per-type extraction fields in `packages/aktenraum-core/src/aktenraum_core/models/type_schema.py` `TYPE_FIELD_SCHEMA`.
+Defined in `packages/aktenraum-core/src/models/extraction.ts` `DocumentType`. Prompt definitions in `services/auto-tagger/src/prompt.ts` `SYSTEM_PROMPT` (with explicit disambiguation rules — read before editing; its exact length is pinned by a test so an accidental edit fails CI). Per-type extraction fields in `packages/aktenraum-core/src/models/typeSchema.ts` `TYPE_FIELD_SCHEMA`, typed as `Record<DocumentType, …>` so a missing type is a compile error.
 
 **Gotchas — disambiguation rules baked into SYSTEM_PROMPT**:
 
@@ -330,7 +349,7 @@ Defined in `packages/aktenraum-core/src/aktenraum_core/models/extraction.py` `Do
 
 ## Validation patterns at the LLM/Paperless boundary
 
-Local LLMs (especially small ones like gemma4 8B) emit data the Paperless API rejects on edge cases. We layer two defences: schema-level coercion at the Pydantic boundary, and value normalisation at the PATCH boundary.
+Local LLMs (especially small ones like gemma4 8B) emit data the Paperless API rejects on edge cases. We layer two defences: schema-level coercion at the zod boundary, and value normalisation at the PATCH boundary.
 
 | Issue                                                                           | Where                                                             | Fix                                                                                           |
 | ------------------------------------------------------------------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
@@ -371,7 +390,7 @@ openspec instructions <id> --change "<name>"  # get writing instructions per art
 ```
 
 Artifacts: `proposal.md` → `design.md` + `specs/` → `tasks.md` → implement.
-Completed changes: `aktenraum-foundation`, `backup-timer`. In flight: `extract-aktenraum-core` (foundation for the custom-frontend roadmap; see `docs/plans/custom-frontend.md`).
+Completed changes: `aktenraum-foundation`, `backup-timer`, `extract-aktenraum-core`, `rewrite-stack-nodejs-angular`. Nothing in flight.
 
 **Distribution direction (binding)**: aktenraum is being built for sale as a Tauri desktop app wrapping the Docker Compose stack — not as a Docker tarball. See `docs/adr/002-distribution-desktop-app.md` for the constraints this places on every change (no committed secrets, configurable data dir, idempotent first-run, model auto-pull, etc.) and `docs/plans/desktop-app.md` for the phased roadmap. **Phase 0 — self-bootstrapping compose — is the unblocker; nothing Tauri-specific lands until Phase 0 is done.** **Currently deferred per [ADR-005](docs/adr/005-test-phase-access-via-tailscale.md): during the testing phase the maintainer validates the product via Tailscale-mediated remote access (`docs/runbooks/tailscale-remote-access.md`); Phase 0 resumes when the milestones listed in ADR-005 are met.**
 
@@ -407,21 +426,21 @@ Use `/opsx:apply` skill to implement tasks from an approved change.
 | Same content uploaded twice                                                                                 | Paperless dedups by SHA1 — duplicate is silently dropped, no double-processing                                                                                                                  |
 | **CSRF middleware blocks browser requests with `Sec-Fetch-Site: cross-site`** on state-changing methods + `/preview` + `/download` | Internal callers (auto-tagger webhook, paperless `post_consume`) bypass by including `X-Aktenraum-Secret`. See ADR-003. Tauri WebView will need the same header or a same-origin proxy. |
 | `PaperlessClient` entity caches (tag id, custom field id, name maps) are TTL'd 5 min by default            | After out-of-band Paperless changes (`scripts/bootstrap-paperless.sh`, manual delete), call `client.invalidate_caches()` or wait one TTL; the gateway also auto-refreshes on unknown-field warnings |
-| Auto-approve rule changes take up to 60s to take effect in the auto-tagger                                  | The auto-tagger fetches the rule set with a 60-second in-process TTL cache (`auto_approve_config.py`). Saves in `/settings → Auto-Genehmigung` land in Postgres immediately but the next routing decision can use a cached older snapshot. On a SAVE-then-upload-immediately workflow this can mean the first doc still routes under the old rules. Workaround: wait one minute, or restart `auto-tagger` to force a cold fetch. Failures: rule store unreachable + populated cache → reuse cache + WARN; rule store unreachable + cold start → fail-closed (every doc → pending) until the next successful fetch. |
+| Auto-approve rule changes take up to 60s to take effect in the auto-tagger                                  | The auto-tagger fetches the rule set with a 60-second in-process TTL cache (`auto-approve-config.ts`). Saves in `/settings → Auto-Genehmigung` land in Postgres immediately but the next routing decision can use a cached older snapshot. On a SAVE-then-upload-immediately workflow this can mean the first doc still routes under the old rules. Workaround: wait one minute, or restart `auto-tagger` to force a cold fetch. Failures: rule store unreachable + populated cache → reuse cache + WARN; rule store unreachable + cold start → fail-closed (every doc → pending) until the next successful fetch. |
 | `COOKIE_SECURE` defaults to `True`                                                                          | Localhost dev sets `COOKIE_SECURE=false` in `docker/.env` to allow login over plain http://localhost:8080; production HTTPS deploys leave it unset                                  |
 | Login appears to succeed but every API call returns 401 — auth cookie set, never sent                       | Cause is `COOKIE_SECURE=true` (the default) combined with plain-HTTP access (typically `http://<lan-ip>:8080` from a non-host device). The browser refuses to send a `Secure` cookie over plain HTTP, so login looks like it works then bounces indefinitely. Fix: use the Tailscale MagicDNS HTTPS URL (`https://<host>.<tailnet>.ts.net/`) instead. Do NOT flip `COOKIE_SECURE=false` to "fix" this — that weakens security for no reason. See `docs/runbooks/tailscale-remote-access.md` failure-mode appendix. |
 | `swap_lifecycle_tag` can raise `PaperlessConflictError` (HTTP 409) under heavy concurrency                  | Three-attempt verify-and-retry built in; if the third attempt still races, the SPA surfaces a "refresh and try again" message                                                                   |
 | nginx `client_max_body_size 500m` caps total multipart upload size                                          | Per-file limit (`upload_max_file_bytes`, 25 MB default) and file-count limit (`upload_max_files_per_request`, 20) enforced server-side; MIME content-type allowlist rejects unknown formats     |
 | Small LLMs (≤8B) drop `summary_de`, `reference_numbers`, `suggested_tags` despite the prompt rule           | Tagger has post-extraction fallbacks: `_synthesize_summary_de` (deterministic German summary from struct fields) + `_extract_reference_numbers_from_text` (regex sweep over OCR for Aktenzeichen/Rechnungsnr./Vertragsnr./Kundennr./Vorgangsnr./Bestellnr./Auftragsnr./Policennr./Steuernr.). Logs `summary_de_synthesized` / `reference_numbers_harvested` when they fire. `suggested_tags` has no synthesis fallback — risk of fabricating useless tags is higher than benefit |
 | Approve action feels laggy (up to 30s before propagation)                                                   | The `POST /api/inbox/{id}/approve` handler fires a best-effort `POST /trigger/propagate` against auto-tagger (`AUTO_TAGGER_URL`, default `http://auto-tagger:8001`). Both services now load the same `docker/.env` so `WEBHOOK_SECRET` is always consistent. If the trigger returns 401, verify the containers were recreated after the last `.env` edit (`task build` or `docker compose up -d`). Symptom: approve returns 200 but the doc takes up to 30s to flip from `ai-approved` → `ai-propagated`.                                                                                                                                                                                                                                                |
-| **`DELETE /api/documents/{id}/` is a soft-delete, not hard-delete** — Paperless 2.x always moves to `/api/trash/` | The previous `paperless_gw.delete_document` docstring claimed "no soft-delete", which was wrong. Hard-delete only happens via `POST /api/trash/` with `action: "empty"` — the trash service does that AND `vector_store.delete_by_doc_id` on the SPA's "Endgültig löschen" / "Papierkorb leeren" paths. Without an empty step, soft-deleted docs auto-purge after `PAPERLESS_EMPTY_TRASH_DELAY` days (default 30). Note: a soft-deleted doc's Qdrant chunks remain in the index until the empty step runs — RAG retrieval can still surface "trashed" content until the user actually empties. Real fix is a follow-up (query-time exclusion or a chunk-payload `trashed` flag). |
+| **`DELETE /api/documents/{id}/` is a soft-delete, not hard-delete** — Paperless 2.x always moves to `/api/trash/` | The previous `PaperlessGateway.deleteDocument` docstring claimed "no soft-delete", which was wrong. Hard-delete only happens via `POST /api/trash/` with `action: "empty"` — the trash service does that AND `vectorStore.deleteByDocId` on the SPA's "Endgültig löschen" / "Papierkorb leeren" paths. Without an empty step, soft-deleted docs auto-purge after `PAPERLESS_EMPTY_TRASH_DELAY` days (default 30). Note: a soft-deleted doc's Qdrant chunks remain in the index until the empty step runs — RAG retrieval can still surface "trashed" content until the user actually empties. Real fix is a follow-up (query-time exclusion or a chunk-payload `trashed` flag). |
 | Auto-approve doesn't fire on a Rechnung you expected to skip review                                          | `docker compose logs auto-tagger \| grep routing_decision` and read the `reason=…` field on the matching `doc_id` line. Closed-enum values: `auto_approved` (both gates passed), `type_disabled` (rule.enabled=false for that type — flip the checkbox in `/settings → Auto-Genehmigung`), `confidence_below_min` (LLM gave the doc a low score relative to the per-type threshold — inspect `ai_confidence` + `ai_confidence_reason` in the inbox detail to see why, or lower the per-type Min. Konfidenz), `rules_unreachable_fail_closed` (aktenraum-api was unreachable at the auto-tagger's cold start — wait 60s or restart). Routing logic itself is correct and tested; the reason field tells you which gate blocked the doc. |
-| Duplicate dismissal is sticky via `ai-duplicate-dismissed`                                                   | Clicking "Markierung entfernen" on a doc now adds the `ai-duplicate-dismissed` aux tag in addition to removing `ai-duplicate`. The propagator's dedup helper (`auto_tagger.propagator._find_duplicate_ids`) short-circuits if the NEW doc carries the dismissed tag and filters out candidates carrying it from the comparison set — so a re-propagation against the same correspondent cluster doesn't re-flag the user's prior decision. To un-dismiss (re-enable detection on a doc), remove `ai-duplicate-dismissed` manually in Paperless's tag UI; the next propagation will treat it like a fresh doc again. |
-| Qdrant tag payload only refreshes on star/unstar — NOT on `ai_suggested_tags` edits          | The RAG indexer (`auto_tagger.indexer.index_document`) writes a doc's Qdrant payload (`tags`, `correspondent`, `doc_type`, `created_date`) exactly once, at first propagation. Editing "Vorgeschlagene Tags" on an already-`ai-propagated` doc in the Library review page only PATCHes the `ai_suggested_tags` custom field — it never touches Paperless's native `tags`, so it was never going to reach Qdrant either way; use "Erneut verarbeiten" if you want that edit to become real. The one native-tag-changing action that *is* kept fresh: starring/unstarring (`wichtig`) fires a best-effort `POST /trigger/reindex-metadata` (auto-tagger, mirrors `/trigger/propagate`) that refreshes just the Qdrant payload metadata via `QdrantVectorStore.update_metadata_by_doc_id` — no re-chunk, no re-embed. If a future feature adds a general native-tag editor to the Library page, wire it to the same trigger rather than reinventing it. |
-| **The live LLM model is the DB quality-tier map, NOT `OLLAMA_MODEL`** — setting `OLLAMA_MODEL` while the api is up does nothing | The auto-tagger + aktenraum-api resolve the model per-request from `app_settings.llm_quality`/`answer_llm_quality` (DB) through `aktenraum_api/settings/quality.py`'s `QUALITY_TO_MODEL`, fetched via `GET /api/settings/active-llm-model` (secret-gated). `OLLAMA_MODEL` env is only the fallback when the api is unreachable. Symptom: `LLM-Extraktion fehlgeschlagen – model '<name>' not found (404)` even though `OLLAMA_MODEL` points at a pulled model → the active quality tier maps to a model that isn't pulled. Fix: edit `QUALITY_TO_MODEL` (then `task api:rebuild`) or flip the tier in `/settings → Qualität`, OR `ollama pull` the mapped model. The shipped map historically pointed at non-existent `gemma4:*` tags; repointed to `qwen2.5:14b-instruct-q8_0` on 2026-06-22. Model choice currently lives in committed code (machine-specific) — set it per host. |
+| Duplicate dismissal is sticky via `ai-duplicate-dismissed`                                                   | Clicking "Markierung entfernen" on a doc now adds the `ai-duplicate-dismissed` aux tag in addition to removing `ai-duplicate`. The propagator's dedup helper (`auto-tagger propagator._find_duplicate_ids`) short-circuits if the NEW doc carries the dismissed tag and filters out candidates carrying it from the comparison set — so a re-propagation against the same correspondent cluster doesn't re-flag the user's prior decision. To un-dismiss (re-enable detection on a doc), remove `ai-duplicate-dismissed` manually in Paperless's tag UI; the next propagation will treat it like a fresh doc again. |
+| Qdrant tag payload only refreshes on star/unstar — NOT on `ai_suggested_tags` edits          | The RAG indexer (`auto-tagger indexer.index_document`) writes a doc's Qdrant payload (`tags`, `correspondent`, `doc_type`, `created_date`) exactly once, at first propagation. Editing "Vorgeschlagene Tags" on an already-`ai-propagated` doc in the Library review page only PATCHes the `ai_suggested_tags` custom field — it never touches Paperless's native `tags`, so it was never going to reach Qdrant either way; use "Erneut verarbeiten" if you want that edit to become real. The one native-tag-changing action that *is* kept fresh: starring/unstarring (`wichtig`) fires a best-effort `POST /trigger/reindex-metadata` (auto-tagger, mirrors `/trigger/propagate`) that refreshes just the Qdrant payload metadata via `QdrantVectorStore.updateMetadataByDocId` — no re-chunk, no re-embed. If a future feature adds a general native-tag editor to the Library page, wire it to the same trigger rather than reinventing it. |
+| **The live LLM model is the DB quality-tier map, NOT `OLLAMA_MODEL`** — setting `OLLAMA_MODEL` while the api is up does nothing | The auto-tagger + aktenraum-api resolve the model per-request from `app_settings.llm_model`/`answer_llm_model` (DB) through `aktenraum-api/src/settings/quality.ts`'s `QUALITY_TO_MODEL`, fetched via `GET /api/settings/active-llm-model` (secret-gated). `OLLAMA_MODEL` env is only the fallback when the api is unreachable. Symptom: `LLM-Extraktion fehlgeschlagen – model '<name>' not found (404)` even though `OLLAMA_MODEL` points at a pulled model → the active quality tier maps to a model that isn't pulled. Fix: edit `QUALITY_TO_MODEL` (then `task api:rebuild`) or flip the tier in `/settings → Qualität`, OR `ollama pull` the mapped model. The shipped map historically pointed at non-existent `gemma4:*` tags; repointed to `qwen2.5:14b-instruct-q8_0` on 2026-06-22. Model choice currently lives in committed code (machine-specific) — set it per host. |
 | **transformers.js caches models inside `node_modules`, not `HF_HOME`** — the Node reranker re-downloads ~545 MB on every image rebuild and can leave a truncated file | `@huggingface/transformers` ignores `HF_HOME`/`HUGGINGFACE_HUB_CACHE` unless `env.cacheDir` is set explicitly. Unset, the ONNX model lands in an image layer: it re-downloads on every `docker compose build`, and a rebuild that interrupts a download leaves a partial file that fails at load with `Protobuf parsing failed` / `ModelProto does not have a graph` — which reads like a corrupt model, not a caching bug. `packages/core-ts/src/rag/reranker.ts` now sets `env.cacheDir` from `TRANSFORMERS_CACHE`/`HUGGINGFACE_HUB_CACHE`/`HF_HOME`. Related: a short-lived process (e.g. the eval runner) can start the download and exit before it finishes, poisoning the cache — let the long-running API finish its prewarm first. |
 | **A stale tag cache hides freshly-propagated tags for up to 5 minutes** (Python API only)     | `PaperlessGateway.list_tags()` caches name→id for 300s, but the propagator that *creates* suggested tags runs in the **auto-tagger — a different process** — so the API's map predates them and the projection silently drops every tag id it cannot resolve. Symptom: approve a document, then its new tags are missing from the Library row until the TTL lapses. Fixed in the Node port (`listTagsCovering` does a one-shot invalidate-and-refetch); **still present in the Python API**, which is slated for deletion at rewrite task 4.15. Note the entity-cache row above claims the gateway "auto-refreshes on unknown-field warnings" — that is true for custom **fields** and never was for **tags**. |
-| **Changing the embedding model/dimension requires a full re-index** — `ensure_collection()` only CREATES when missing, so it keeps a stale-dim Qdrant collection and new upserts/queries fail silently | Run `task rag:reembed`: it drops the `aktenraum_chunks` collection (from inside the auto-tagger container, no host curl) and runs `backfill --force`, which recreates it at the current `aktenraum_core.rag.DENSE_DIM` and re-embeds every document. Paperless docs are untouched — only the vector index is rebuilt; RAG/Ask is degraded until the backfill finishes. Also pull the new model first (`ollama pull <model>`) and set `EMBEDDING_MODEL` identically in both env files. |
+| **Changing the embedding model/dimension requires a full re-index** — `ensure_collection()` only CREATES when missing, so it keeps a stale-dim Qdrant collection and new upserts/queries fail silently | Run `task rag:reembed`: it drops the `aktenraum_chunks` collection (from inside the auto-tagger container, no host curl) and runs `backfill --force`, which recreates it at the current `@aktenraum/core rag.DENSE_DIM` and re-embeds every document. Paperless docs are untouched — only the vector index is rebuilt; RAG/Ask is degraded until the backfill finishes. Also pull the new model first (`ollama pull <model>`) and set `EMBEDDING_MODEL` identically in both env files. |
 | **Never run the Node worker against the live Paperless while the Python `auto-tagger` is up** | Both claim work by writing lifecycle tags, so they race: a document can be extracted twice, propagated twice (two correspondents/tags created), and indexed twice into Qdrant. Use the isolated stack (`task e2e:worker`) for any Node-worker testing. The cutover is deliberately atomic — stop one, start the other (rewrite task 6.10). |
 | **The Node API creates its own schema; `0000_certain_guardian.sql` does NOT** | That file is drizzle-kit *introspection* output with its whole body commented out — a drift oracle, not a runnable migration. The runnable copy is `services/api-node/src/db/schema.sql`, applied transactionally by `applySchema()` before `NestFactory.create`. Symptom when it is missing or unshipped: `api_start_failed … Failed query: select "id" from "users"` at boot on a fresh database. `tsc` does not copy `.sql`, so the Dockerfile must copy it into `dist/db/` — if you add a table, add it to `schema.ts` AND `schema.sql` (`apply-schema.test.ts` fails otherwise). The file also seeds `alembic_version='0006'` when empty so a Python API redeployed during the rollback window doesn't replay migrations onto existing tables. |
 
@@ -441,8 +460,8 @@ Use `/opsx:apply` skill to implement tasks from an approved change.
 | Few-shot exemplars from propagated corpus                                                       | ✅ Available (`FEW_SHOT_EXAMPLES > 0`)                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | Per-correspondent history hint                                                                  | ✅ Default on                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Webhook trigger from paperless `post_consume_script`                                            | ✅ Running                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| Pytest suite + ruff + GitHub Actions CI                                                         | ✅ Running (239 tests)                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| Custom Vite + React SPA shell                                                                   | ✅ Running (`apps/web`, served by nginx on `:8080`)                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Test suite (vitest ×4) + eslint + GitHub Actions CI                                              | ✅ Running (533 tests)                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Angular SPA                                                                                     | ✅ Running (`apps/web`, Angular 22 zoneless, served by nginx on `:8080`)                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | Find docs (`/api/ai/find` backend; SPA `/find` page removed)                                    | ⚠️ Backend-only — the `/api/ai/find` endpoint + closed-enum `SearchFilter` translator still exist and are tested, but the SPA `/find` page (and `FilterChips`) were removed 2026-06-01: structured AI search overlapped with Ask AI, so the nav folded down to one AI entry point. `/find` now 404s in the SPA; the Ask page's "weitere Treffer" footnote links to the Bibliothek instead. The backend route is currently unused by the frontend — keep it (cheap, tested) or retire in a later cleanup.                                                                                                                                                                                                          |
 | Ask AI conversational Q&A (`/api/ai/answer` + `/ask`)                                           | ✅ Phase 2.5 — German prose answer with citations; small model for filter, big model for answer                                                                                                                                                                                                                                                                                                                                                                               |
 | Document preview/download proxies (`/api/documents/{id}/{preview,download}`)                    | ✅ Reusable across Ask/Find/Inbox/Library; token never reaches the browser                                                                                                                                                                                                                                                                                                                                                                                                    |
@@ -452,75 +471,64 @@ Use `/opsx:apply` skill to implement tasks from an approved change.
 | Reprocess (`POST /api/documents/{id}/reprocess`)                                                | ✅ Clears all 7 lifecycle tags; pings auto-tagger webhook (with optional `WEBHOOK_SECRET`) for instant turnaround; falls back to the 30s poller. Reprocess button on the preview modal                                                                                                                                                                                                                                                                                        |
 | Processing visibility (`/documents/in-flight`, `/task/{uuid}`, `/{id}/status`, ProcessingBadge) | ✅ DocumentSummary carries `lifecycle_tags`; shared SPA badge (Wartet auf KI / Wird übertragen / Verarbeitet / In Inbox / Fehler / etc.) renders on Library rows + Find/Ask cards; Upload page polls task → doc-status → lifecycle for live progress; Nav shows a global "N in Bearbeitung" pill, refetched every 30s                                                                                                                                                         |
 | RAG retrieval (Qdrant + Qwen3-Embedding-4B + bge-reranker-v2-m3)                                | ✅ Phase 1 — chunker, embedder, vector store, indexer task in auto-tagger, backfill script, hybrid retrieval, reranker, eval harness all live. (Embedder migrated bge-m3 → qwen3-embedding:4b, 2560-dim, 2026-06-22; `task rag:reembed` rebuilds the index after a model/dim change.) `/api/ai/answer/stream` serves chunk-grounded answers with `[Quelle: <id>]` citations. Opt-in via `QDRANT_URL` (set in compose by default; empty disables and falls back to AI-metadata-only path). 10/12 sub-phases done; 1.11 (model auto-pull) joins desktop-app 0.3, 1.12 (docs) ongoing. See `docs/plans/rag-phase-1.md`. |
-| RAG eval harness                                                                                | ✅ Phase 1.10 — `python -m aktenraum_api.eval.runner` (or `bash scripts/run-rag-eval.sh`) reports recall@K + MRR over `evals/golden-questions.yaml`. JSON output for CI threshold gates.                                                                                                                                                                                                                                                                                      |
+| RAG eval harness                                                                                | ✅ Phase 1.10 — `python -m aktenraum-api eval.runner` (or `bash scripts/run-rag-eval.sh`) reports recall@K + MRR over `evals/golden-questions.yaml`. JSON output for CI threshold gates.                                                                                                                                                                                                                                                                                      |
 | Confidence-vs-correctness eval (`scripts/eval-confidence-correlation.py`)                       | ✅ Available — joins `ai_confidence` against an "approved-unedited" proxy (correspondent + doctype match) over the propagated corpus, emits CSV + Pearson. Initial run on n=19 shows confidence clustered at ~0.978 (zero variance) so Pearson is meaningless until the corpus diversifies. **Decision criterion**: re-evaluate auto-approve routing once N≥50 docs span all three buckets; if Pearson <~0.3 then per-type `min_confidence` is gating on noise and should be revisited (rules can still vary by type, just with different thresholds). Until then, the seeded defaults (every type disabled, `min_confidence=0.90`) keep auto-approve off until the operator opts in via `/settings → Auto-Genehmigung`. |
-| Papierkorb / Trash (`/api/trash/*` + `/trash` page)                                             | ✅ Two-step delete model: Löschen on the preview / library row moves the doc to Paperless's trash (recoverable for `PAPERLESS_EMPTY_TRASH_DELAY` days, default 30); `/trash` lists trashed docs with per-row Wiederherstellen / Endgültig löschen and a top-bar Papierkorb leeren modal. Endgültig löschen and Empty trash hard-delete in Paperless AND purge the doc's Qdrant chunks via `vector_store.delete_by_doc_id` (best-effort: Qdrant cleanup failure logs `trash_qdrant_purge_failed` but never fails the user request). Nav-bar Papierkorb badge polls `?page_size=1` on the same 30s cadence as the in-flight pill. |
-| Duplikat-Erkennung (`ai-duplicate` aux tag)                                                     | ✅ Field-based detector at `packages/aktenraum-core/src/aktenraum_core/dedup.py` (lifted from auto-tagger so aktenraum-api can also import it for the on-demand duplicate-candidates endpoint). Runs inline in `propagator.process_approved_document` after every successful propagation: fetches up to 200 `ai-propagated` docs filtered to the new doc's correspondent, and flags pairs that share correspondent + `ai_issue_date` + `ai_document_type` (when both sides have a type — backward-compat with older corpora) AND ((monetary amounts within 0.01 EUR) OR (any `ai_reference_numbers` overlap). Both pair members are tagged `ai-duplicate` (idempotent). The type discriminator fixes the common false positive where a Rechnung + its Beleg (payment confirmation) from the same vendor on the same day for the same amount used to be flagged. The tag is in `_BADGE_TAGS` so Library rows render a purple pill. **Sticky dismissal**: clicking "Kein Duplikat" on the detail page adds `ai-duplicate-dismissed`; the helper skips docs carrying that tag on future propagations. **On-demand candidate list**: `GET /api/documents/{id}/duplicate-candidates` re-runs the same detector against the live corpus so the detail page can render "Mögliches Duplikat von #N" links. |
-| Important star (`wichtig` user tag)                                                             | ✅ Per-doc "Als wichtig markieren" toggle on `DocumentPreviewModal` (`POST /api/documents/{id}/star` / `DELETE`). The tag is plain Paperless — filterable via `/library?tags=wichtig`. SPA sorts `wichtig` to the front of tag-chip lists in Library rows + cards (`sortTagsImportantFirst` in `apps/web/src/lib/documents.ts`) and renders it as a gold ★ pill so it stands out at a glance. The tag is auto-created on first star (no bootstrap dependency) and pre-seeded by `scripts/bootstrap-paperless.sh` for new installs. |
+| Papierkorb / Trash (`/api/trash/*` + `/trash` page)                                             | ✅ Two-step delete model: Löschen on the preview / library row moves the doc to Paperless's trash (recoverable for `PAPERLESS_EMPTY_TRASH_DELAY` days, default 30); `/trash` lists trashed docs with per-row Wiederherstellen / Endgültig löschen and a top-bar Papierkorb leeren modal. Endgültig löschen and Empty trash hard-delete in Paperless AND purge the doc's Qdrant chunks via `vectorStore.deleteByDocId` (best-effort: Qdrant cleanup failure logs `trash_qdrant_purge_failed` but never fails the user request). Nav-bar Papierkorb badge polls `?page_size=1` on the same 30s cadence as the in-flight pill. |
+| Duplikat-Erkennung (`ai-duplicate` aux tag)                                                     | ✅ Field-based detector at `packages/aktenraum-core/src/dedup.ts` (lifted from auto-tagger so aktenraum-api can also import it for the on-demand duplicate-candidates endpoint). Runs inline in `propagate.processApprovedDocument` after every successful propagation: fetches up to 200 `ai-propagated` docs filtered to the new doc's correspondent, and flags pairs that share correspondent + `ai_issue_date` + `ai_document_type` (when both sides have a type — backward-compat with older corpora) AND ((monetary amounts within 0.01 EUR) OR (any `ai_reference_numbers` overlap). Both pair members are tagged `ai-duplicate` (idempotent). The type discriminator fixes the common false positive where a Rechnung + its Beleg (payment confirmation) from the same vendor on the same day for the same amount used to be flagged. The tag is in `_BADGE_TAGS` so Library rows render a purple pill. **Sticky dismissal**: clicking "Kein Duplikat" on the detail page adds `ai-duplicate-dismissed`; the helper skips docs carrying that tag on future propagations. **On-demand candidate list**: `GET /api/documents/{id}/duplicate-candidates` re-runs the same detector against the live corpus so the detail page can render "Mögliches Duplikat von #N" links. |
+| Important star (`wichtig` user tag)                                                             | ✅ Per-doc "Als wichtig markieren" toggle on `DocumentPreviewModal` (`POST /api/documents/{id}/star` / `DELETE`). The tag is plain Paperless — filterable via `/library?tags=wichtig`. SPA sorts `wichtig` to the front of tag-chip lists in Library rows + cards (`sortTagsImportantFirst` in `apps/web/src/app/core/documents.ts`) and renders it as a gold ★ pill so it stands out at a glance. The tag is auto-created on first star (no bootstrap dependency) and pre-seeded by `scripts/bootstrap-paperless.sh` for new installs. |
 | Email ingestion (IMAP → consume pipeline)                                                       | ✅ Opt-in via `AKTENRAUM_MAIL_*` in `docker/.env`. `scripts/bootstrap-paperless.sh` auto-loads those vars and provisions a Paperless mail account + rule (idempotent: re-runs reconcile drift incl. password rotation). Paperless polls the mailbox every ~10 minutes; attachments matching `*.pdf,*.png,*.jpg,*.jpeg,*.tif,*.tiff` flow through the same consume pipeline as the watched folder (SHA1 dedup, OCR, auto-tagger). Each ingested doc gets the `email-ingested` tag (sky blue, `#0ea5e9`) so the user can filter via `/library?tags=email-ingested`. Rule defaults: INBOX, MARK_READ after consume, max 30 days history on first poll, filename-as-title. Provider-agnostic — Gmail (App Password), Outlook, Fastmail, self-hosted IMAP. Unsetting `AKTENRAUM_MAIL_IMAP_SERVER` does NOT delete an existing account; remove via Paperless's admin UI. |
 | Remote access via Tailscale (testing-phase topology)                                            | ✅ Runbook + ADR-005 — `tailscale serve --bg --https=443 http://localhost:8080` on the host, `https://<host>.<tailnet>.ts.net/` from any tailnet device. No public exposure. See `docs/runbooks/tailscale-remote-access.md` and `docs/adr/005-test-phase-access-via-tailscale.md`. Shortcuts: `task tailscale:serve` / `task tailscale:status`.                                                                                                                                |
 | Self-service password change (`POST /api/auth/change-password` + Konto section on `/settings`)  | ✅ Verifies current password + min 8-char new password + `new != current`. Success clears the session cookie (forces re-login on the current device; other devices' JWTs expire on their own at the 8h default). No DB schema change. Replaces the previous "edit bcrypt hash via psql" workaround for password rotation.                                                                                                                                                       |
 | Mobile responsiveness (`md:` breakpoint = 768px, `lg:` = 1024px)                                | ✅ Nav collapses to hamburger drawer below `md:`. Library archive: sidebar collapses behind a "Filter & Tags" toggle on mobile; table swaps to a card-list (one `<li>` per doc). Library review tab: same table-to-cards swap. Inbox/Library detail pages: stacked two-pane gets a "PDF / Bearbeiten" tab toggle below `lg:` so the user isn't scrolling past a full-height iframe to reach the form. Keyboard-shortcut hints in detail pages are `hidden md:inline` (no kbd on phones). DocumentPreviewModal is full-screen below `sm:` (no rounded corners, no padding). Touch targets bumped to 40-44px on mobile via responsive `h-10 w-10 sm:h-auto sm:w-auto` pattern. All other pages (Login / Home / Ask / Find / Trash / Upload / Settings) verified mobile-OK with the existing single-column layouts. |
 | Backup integrity checks (`restic check`)                                                        | ✅ Weekly `restic check --read-data-subset=5%` in the backup entrypoint (Sundays; `BACKUP_FORCE_CHECK=true` to force). On-demand via `task backup:check`; full recoverability rehearsal (check + filesystem restore to staging + both DB dumps validated) via `task backup:verify` / `docker/backup/verify-backup.sh`. |
-| Node.js/Angular rewrite (`rewrite-stack-nodejs-angular`)                                        | 🚧 **In flight — 46/62.** `packages/core-ts` (shared lib), `services/api-node` (NestJS, ESM), `services/worker-node` (worker skeleton) and `apps/web-angular` (Angular 22) are live in the pnpm workspace alongside the Python/React originals. nginx routes `/api/*` to **Python by default**; opt into the Node API per-request with `X-Aktenraum-Backend: node` or per-session with an `aktenraum_backend=node` cookie (see `docker/nginx/nginx.conf` — flipping the default is a one-line change to the third `map` block). Angular runs on `:4200` via `task node:web:dev`, proxying `/api` to the nginx edge, and is NOT yet served in production. Nothing Python or React has been deleted. See `openspec/changes/rewrite-stack-nodejs-angular/tasks.md` for per-task detail. |
+| Node.js/Angular rewrite (`rewrite-stack-nodejs-angular`)                                        | ✅ **Complete — see [ADR-007](docs/adr/007-nodejs-angular-migration.md).** The stack is TypeScript end to end: `@aktenraum/core` (shared lib), `@aktenraum/api` (NestJS, ESM), `@aktenraum/worker` (5 concurrent loops), `@aktenraum/web` (Angular 22, zoneless). The Python services, the React SPA, the uv workspace and the `X-Aktenraum-Backend` strangler switch are all deleted. Verified live: upload → webhook → extraction → routing → propagation → Qdrant indexing, plus a 20-assertion e2e run (`task e2e:worker`). |
 | Mobile document scan (`/scan`)                                                                  | ❌ **Removed 2026-08-11** — see [ADR-006](docs/adr/006-drop-mobile-document-scan.md). Route, libs, Nav/Home entry points and the `pdf-lib` + `react-image-crop` deps are gone; the OpenSpec change is archived. Mobile capture is now "photograph with the OS camera, upload via `/upload`". |
 | Health endpoint / Prometheus metrics                                                            | 🔲 Planned                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
 ---
 
-## Auto-tagger development workflow
+## Development workflow
 
-Run all Python commands from the **repository root** — it is the uv workspace root and the workspace shares one `uv.lock` and one `.venv` across `packages/aktenraum-core` and `services/auto-tagger`.
-
-```bash
-uv sync                          # install incl. dev deps (pytest, ruff, etc.) for both members
-uv run pytest                    # task test:py — full suite across both members
-uv run ruff check                # task lint:py — lint both members
-```
-
-After Python changes: `task tagger:rebuild` (or `cd docker && docker compose up -d --build auto-tagger`). The Dockerfile build context is the repo root, so edits to either `services/auto-tagger/src/` or `packages/aktenraum-core/src/` are picked up by the rebuild.
-
-Test layout (all pure-function, no live HTTP):
-
-- `services/auto-tagger/tests/conftest.py` — `make_settings` fixture
-- `services/auto-tagger/tests/test_paperless.py` — normalisers, truncator, lifecycle tags (imports from `aktenraum_core.paperless` + `aktenraum_core.paperless.normalisers`)
-- `services/auto-tagger/tests/test_tagger.py` — routing matrix, history hint, few-shot rendering, `_split_csv`
-- `services/auto-tagger/tests/test_propagator.py` — suggested-tags filter
-- `services/auto-tagger/tests/test_models.py` — Pydantic validation (imports from `aktenraum_core.models`)
-- `services/auto-tagger/tests/test_webhook.py` — aiohttp handler (auth, queue, /health) via `TestClient`
-
-`aktenraum-core` does not yet have its own test suite; tests for the moved modules continue to live under `services/auto-tagger/tests/` and are kept there until `aktenraum-core` grows core-only behaviour worth covering separately.
-
-CI (`.github/workflows/ci.yml`) runs two jobs on push and PR: `python` (ruff + pytest from the workspace root) and `web` (`pnpm install` + lint + build). Action versions are `actions/checkout@v6` and `astral-sh/setup-uv@v7` — both Node-24-runtime to avoid the Node-20 deprecation.
-
----
-
-## Frontend (SPA) development workflow
-
-The SPA lives at `apps/web/` (Vite + React 19 + TypeScript + Tailwind v4 + TanStack Router + TanStack Query). All commands run from the repo root.
+One pnpm workspace, one lockfile, four packages. Run everything from the **repository root**.
 
 ```bash
-pnpm install                                          # task web:install
-pnpm --filter @aktenraum/web dev                      # task web:dev   — vite on :5173, bound to 0.0.0.0
-                                                      # proxies /api → http://localhost:8080 (nginx)
-pnpm --filter @aktenraum/web build                    # task web:build — production bundle into apps/web/dist
-pnpm --filter @aktenraum/web lint                     # task web:lint
-pnpm --filter @aktenraum/web generate:api-types       # task web:types — codegen TS types from /api/openapi.json
+pnpm install          # install all four packages
+pnpm -r build         # task build:all — tsc -b ×3 + the Angular build
+pnpm -r test          # task test     — 533 tests across every package
+pnpm -r lint          # task lint     — eslint everywhere
 ```
 
-For a full-stack dev cycle, keep the compose stack up (`task up`), then run `task web:dev` for hot-reloaded SPA changes. Two Vite knobs control proxy + LAN exposure: `VITE_API_PROXY_TARGET` (default `http://localhost:8080`; honour `AKTENRAUM_WEB_PORT`) and `VITE_HOST` (default `0.0.0.0`). Vite accepts any `Host` header so a second device hitting `http://<dev-machine-ip>:5173` works without further config.
+Per-package shortcuts: `task test:core`, `task test:api`, `task test:worker`, `task test:web`.
+`task test:api` also runs `tsc -p tsconfig.test.json`, which typechecks the test files that `vitest` would otherwise transpile without checking.
 
-Production deploys go through the nginx container, which builds the SPA in a multi-stage Docker build — no Node runtime needed at deploy time. Run `task web:deploy` after SPA changes when you are NOT using the dev server.
+Test counts and what they cover:
+
+| Package | Tests | Shape |
+| --- | --- | --- |
+| `@aktenraum/core` | 170 | pure functions — normalisers, chunker, models, the Paperless client against a fake fetch |
+| `@aktenraum/api` | 179 | real Nest app over **pg-mem** + a stateful fake Paperless, driven with supertest |
+| `@aktenraum/worker` | 105 | routing matrix, queue semantics, prompt assembly, synthesizers, propagation, indexing |
+| `@aktenraum/web` | 79 | Angular's first-party `@angular/build:unit-test` builder on vitest |
+
+After a code change: `task api:rebuild` / `task tagger:rebuild` / `task web:deploy`, or `task build` for all three. Every Dockerfile's build context is the repo root, so an edit in `packages/aktenraum-core/src/` is picked up by rebuilding either service.
+
+For an inner loop without rebuilds, `task dev:up` bind-mounts `src/` into both services and runs `tsx watch` — a `.ts` save restarts the process in about a second. `task dev:down` restores the prod entrypoints.
+
+The Angular dev server (`task web:dev`) serves on `:4200` and proxies `/api` to the nginx edge on `:8080` (see `apps/web/proxy.conf.json`). Production deploys bake the SPA into the nginx image in a multi-stage build — no Node needed at deploy time.
+
+**End-to-end**: `task e2e:worker` runs the whole pipeline against a throwaway Paperless/Postgres/Qdrant stack. It never touches the live stack and refuses to start on live-stack ports.
+
+CI (`.github/workflows/ci.yml`) is one job: `pnpm install` → `pnpm -r lint` → `pnpm -r build` → typecheck → `pnpm -r test`.
 
 ---
 
 ## aktenraum-api notes
 
-- FastAPI app factory at `aktenraum_api.main:create_app()`. The CLI entrypoint (`aktenraum-api`) calls it and runs uvicorn on port 8002.
+- NestJS app bootstrapped in `src/main.ts`, listening on port 8002. It runs as **ESM** — `@aktenraum/core` is ESM-only and a CJS build produced a dual-package hazard.\n- **`applySchema()` runs before `NestFactory.create`.** It applies `src/db/schema.sql` (idempotent `CREATE TABLE IF NOT EXISTS`) in one transaction. Module init hooks query `users` and `auto_approve_rules`; without this a fresh database dies at boot. Note `src/db/0000_certain_guardian.sql` is drizzle-kit *introspection* output and is entirely commented out — a drift oracle, not a migration.
 - Auth: HS256 JWT in an httpOnly `SameSite=Lax` cookie. The SPA never reads the token. `JWT_SECRET` is required at startup; missing/empty → the service exits non-zero.
-- Bootstrap: on lifespan startup, if `users` is empty AND `BOOTSTRAP_USERNAME` + `BOOTSTRAP_PASSWORD` are set, one user is inserted. Idempotent across restarts.
+- Bootstrap: on startup, if `users` is empty AND `BOOTSTRAP_USERNAME` + `BOOTSTRAP_PASSWORD` are set, one user is inserted. A reconciler inserts an `auto_approve_rules` row for any `DocumentType` missing one. Both idempotent across restarts.
 - DB: SQLAlchemy 2 async + asyncpg. Engine and sessionmaker live on `app.state` (no module globals); `get_session` reads the sessionmaker from `request.app.state.session_factory`.
-- Migrations: Alembic under `services/aktenraum-api/alembic/`. The container entrypoint runs `alembic upgrade head` before starting uvicorn.
+- Schema: `src/db/schema.sql`, applied by `applySchema()` at startup (see above). `src/db/schema.ts` is the Drizzle model; `apply-schema.test.ts` fails if the two drift, so a new table must be added to both.
 - The `aktenraum` Postgres database is created by `docker/postgres-init/01-create-aktenraum-db.sh` on a fresh `pgdata` volume. **For existing installs**, run once: `docker compose exec postgres psql -U paperless -c "CREATE DATABASE aktenraum OWNER paperless;"`
 
 ### AI: Find docs (`/api/ai/find`)
@@ -528,31 +536,31 @@ Production deploys go through the nginx container, which builds the SPA in a mul
 > **Note (2026-06-01)**: the SPA `/find` page + `FilterChips` component + the `useFind` client hook were removed; AI search folded into Ask AI. The backend endpoint below still exists and is tested but is no longer called by the frontend.
 
 - `POST /api/ai/find` is the structured-search endpoint. Auth-gated. Accepts either `{"query": str}` (LLM path) or `{"filter": SearchFilter}` (no LLM, used for chip-edit re-runs). Returns `{filter, results, explanation, total}`.
-- `SearchFilter` is closed-enum: `document_type` reuses `aktenraum_core.models.DocumentType`, plus `correspondent`, `date_from`, `date_to`, `text`, `tags`. Unknown doc types → 422. Cross-type amount filtering was removed when the generic `monetary_amount` field was retired — money lives on type-specific schemas only (Rechnung.gesamtbetrag, Mahnung.forderungsbetrag, etc.).
-- Server-side `PaperlessGateway` (`aktenraum_api.paperless_gw`) holds the API token; per-process correspondent / tag / custom-field-id caches; the token never reaches the SPA.
-- Translator (`aktenraum_api.ai.translate`) → Paperless query params using `document_type__id` / `correspondent__id` (the bare names are silently ignored — same gotcha class as `?name=` on `/api/tags/`).
-- Prompt (`aktenraum_api.ai.prompt`) inlines the doc-type taxonomy, the live correspondent list (cap 200), date rules, and a few German few-shot exemplars. An explicit note tells the LLM there are no amount fields on the filter. **Modular extras**: `ai.intent.detect_intents(query)` runs a German keyword classifier (`SALARY` / `SPENDING` / `TAX` / `INSURANCE` / `HOUSING` / `MEDICAL` / `ID_DOCUMENT` / `CAR` / `CONTRACT`); whenever an intent fires, the matched `ai.prompt_modules.MODULES[doc_type].filter_examples` are appended to the few-shot block so the LLM sees a typed mapping for the shape at hand. Neutral queries fall through to the static set unchanged (prompt-cache stable). Substring match by default — short ambiguous keywords (`pass`, `lohn`) opt into strict whole-word matching via `_STRICT_KEYWORDS`.
+- `SearchFilter` is closed-enum: `document_type` reuses `DocumentType` from `@aktenraum/core`, plus `correspondent`, `date_from`, `date_to`, `text`, `tags`. Unknown doc types → 422. Cross-type amount filtering was removed when the generic `monetary_amount` field was retired — money lives on type-specific schemas only (Rechnung.gesamtbetrag, Mahnung.forderungsbetrag, etc.).
+- Server-side `PaperlessGateway` (`src/paperless/paperless.gateway.ts`) holds the API token; per-process correspondent / tag / custom-field-id caches; the token never reaches the SPA.
+- Translator (`src/ai/translate.ts`) → Paperless query params using `document_type__id` / `correspondent__id` (the bare names are silently ignored — same gotcha class as `?name=` on `/api/tags/`).
+- Prompt (`src/ai/prompt.ts`) inlines the doc-type taxonomy, the live correspondent list (cap 200), date rules, and a few German few-shot exemplars. An explicit note tells the LLM there are no amount fields on the filter. **Modular extras**: `ai/intent.ts` `detectIntents(query)` runs a German keyword classifier (`SALARY` / `SPENDING` / `TAX` / `INSURANCE` / `HOUSING` / `MEDICAL` / `ID_DOCUMENT` / `CAR` / `CONTRACT`); whenever an intent fires, the matched `ai/prompt-modules.ts` `MODULES[docType].filterExamples` are appended to the few-shot block so the LLM sees a typed mapping for the shape at hand. Neutral queries fall through to the static set unchanged (prompt-cache stable). Substring match by default — short ambiguous keywords (`pass`, `lohn`) opt into strict whole-word matching via `STRICT_KEYWORDS`.
 
 ### AI: Conversational answer (`/api/ai/answer`)
 
 - `POST /api/ai/answer` runs a two-step pipeline: filter extraction → retrieval → second LLM call that reads the AI metadata of the top matches and produces a German prose answer with citations.
 - Response shape: `{question, answer_de, citations: list[DocumentSummary], filter, total}`. Hallucinated citation ids are dropped server-side (intersection with the searched docs).
 - Retrieval broadens the filter for the answer step: when any structural field (doc_type, correspondent, dates, amounts) is set, we drop the `text` constraint — verbs like "verlängern" / "kostete" land in `text` from the filter LLM but rarely appear in OCR'd content, so keeping them kills recall. `/find` keeps `text` honored.
-- The answer prompt (`aktenraum_api.ai.answer_prompt`) is **assembled per request from `ai.prompt_modules.MODULES`**: `_assembled_field_hints(candidates)` enumerates each distinct doc type present in the retrieved set, lists its `TYPE_FIELD_SCHEMA` labels and the module's `answer_hint` in the system message; `_assembled_examples(candidates, json_mode=...)` emits one module example per distinct type in the user message. `_to_json_envelope` lets the JSON `/answer` and streaming `/answer/stream` paths share the same per-type examples without duplicating strings. The static cross-doc aggregation example (Wizz-Air style) and the citation-marker rule stay always-on — they teach syntax, not domain. Module entries cover every `DocumentType` enum value (import-time guard `_assert_all_doc_types_covered`); field labels come from `TYPE_FIELD_SCHEMA` so adding a typespecific field there automatically widens the prompt.
+- The answer prompt (`src/ai/answer-prompt.ts`) is **assembled per request from `ai/prompt-modules.ts`**: `assembledFieldHints(candidates)` enumerates each distinct doc type present in the retrieved set, lists its `TYPE_FIELD_SCHEMA` labels and the module's `answer_hint` in the system message; `assembledExamples(candidates, jsonMode)` emits one module example per distinct type in the user message. `toJsonEnvelope` lets the JSON `/answer` and streaming `/answer/stream` paths share the same per-type examples without duplicating strings. The static cross-doc aggregation example (Wizz-Air style) and the citation-marker rule stay always-on — they teach syntax, not domain. Module entries cover every `DocumentType` enum value (the `Record<DocumentType, …>` type, which makes a missing type a compile error); field labels come from `TYPE_FIELD_SCHEMA` so adding a typespecific field there automatically widens the prompt.
 - Two LLM backends: the filter-extraction call uses `OLLAMA_MODEL` / `ANTHROPIC_MODEL`; the answer call optionally uses `OLLAMA_ANSWER_MODEL` / `ANTHROPIC_ANSWER_MODEL` so a deployer can pair a fast 8B for filters with a smarter 14B+ for answers (the 8B is too small to read citations reliably).
 
 ### AI: Streaming answer + RAG (`/api/ai/answer/stream`)
 
 The user-facing /ask page consumes this endpoint, NOT `/api/ai/answer`. The streaming variant adds two things:
 
-1. **SSE token-by-token streaming.** Replaces the silent ~30s wait with `meta` → repeated `chunk` → `final` (or `error`) events. Inline `[Quelle: <id>]` markers in the streamed prose are regex-extracted post-hoc and intersected with retrieved docs to populate citations. The streaming-specific prompt (`build_streaming_answer_messages`) instructs the model to use the marker format and is prose-only (NOT JSON envelope).
-2. **RAG retrieval (Phase 1).** When `QDRANT_URL` is set, every question runs through `aktenraum_api.ai.retrieval.retrieve_chunks_for_question`: embed query (bge-m3) → Qdrant search top-50 with payload filter → bge-reranker-v2-m3 cross-encoder rerank → top-5 chunks. Those chunks land under "Relevante Auszüge:" inside each candidate's prompt block, alongside the existing AI metadata fields. This is what answers questions whose information is in the document body (CV employment durations, contract clauses, table values) — pre-RAG the LLM only ever saw `ai_summary_de` + dates + amounts.
+1. **SSE token-by-token streaming.** Replaces the silent ~30s wait with `meta` → repeated `chunk` → `final` (or `error`) events. Inline `[Quelle: <id>]` markers in the streamed prose are regex-extracted post-hoc and intersected with retrieved docs to populate citations. The streaming-specific prompt (`buildStreamingAnswerMessages`) instructs the model to use the marker format and is prose-only (NOT JSON envelope).
+2. **RAG retrieval (Phase 1).** When `QDRANT_URL` is set, every question runs through `src/ai/retrieval.ts` `retrieveChunksForQuestion`: embed query (qwen3-embedding:4b) → Qdrant search top-50 with payload filter → bge-reranker-v2-m3 cross-encoder rerank → top-5 chunks. Those chunks land under "Relevante Auszüge:" inside each candidate's prompt block, alongside the existing AI metadata fields. This is what answers questions whose information is in the document body (CV employment durations, contract clauses, table values) — pre-RAG the LLM only ever saw `ai_summary_de` + dates + amounts.
 
 Resilience: any RAG stage failing degrades gracefully (embedder error → empty result, qdrant error → skip rerank, reranker error → fall through to dense-only ordering). Empty / `QDRANT_URL`-unset → falls back to the AI-metadata-only path so the endpoint keeps working.
 
-The bge-reranker-v2-m3 model is **pre-warmed in lifespan** as a background task (`aktenraum_api.main._warm_reranker`) so the first `/ask` after a fresh container is not blocked by the ~2.1 GB HF download (568M parameters, fp32 weights). The download lands in the `aktenraum-hf-cache` named volume (mounted at `/home/appuser/.cache/huggingface`, pinned via `HF_HOME` / `HUGGINGFACE_HUB_CACHE`), so it survives `docker compose up -d --build aktenraum-api`. End-to-end warm took ~80s on the dev host on first run; subsequent rebuilds are instant because the cache persists. Steady-state rerank is ~50 ms × 50 candidates ≈ 2.5s. If a request lands while the warm-up is still running the reranker's `asyncio.Lock` makes it wait on the in-flight load instead of starting a second one. **Volume permissions gotcha**: a fresh named volume mounts as root-owned; the Dockerfile pre-creates `/home/appuser/.cache/huggingface` with `appuser` ownership so Docker copies the right mode into the volume on first attach. If you ever see `reranker_prewarm_failed` with a `PermissionError`, the volume was created before the Dockerfile fix — `docker volume rm docker_aktenraum-hf-cache` and rebuild.
+The bge-reranker-v2-m3 model is **pre-warmed at startup** as a background task (`src/ai/retrieval.module.ts`) so the first `/ask` after a fresh container is not blocked by the ~2.1 GB HF download (the q8 ONNX export). The download lands in the `aktenraum-hf-cache` named volume (mounted at `/home/appuser/.cache/huggingface`, pinned via `HF_HOME` / `HUGGINGFACE_HUB_CACHE`), so it survives `docker compose up -d --build aktenraum-api`. End-to-end warm took ~80s on the dev host on first run; subsequent rebuilds are instant because the cache persists. Steady-state rerank is ~50 ms × 50 candidates ≈ 2.5s. If a request lands while the warm-up is still running the reranker's in-flight promise makes it wait on the existing load instead of starting a second one. **Volume permissions gotcha**: a fresh named volume mounts as root-owned; the Dockerfile pre-creates `/home/appuser/.cache/huggingface` with `appuser` ownership so Docker copies the right mode into the volume on first attach. If you ever see `reranker_prewarm_failed` with a `PermissionError`, the volume was created before the Dockerfile fix — `docker volume rm docker_aktenraum-hf-cache` and rebuild.
 
-**Denial suppresses citations.** When the answer LLM writes the prompt-baked "I couldn't find that" template (`_DENIAL_RE` in `router.py` — matches "in den Dokumenten nicht finden", "keine passenden Dokumente", "keines der Dokumente enthält", and three more variants, length-capped at 200 chars), the no-citations back-fill is skipped and the SPA renders the denial alone. Without this gate the back-fill rule ("if the model wrote prose but cited nothing, surface the retrieved set so the user has a source to verify against") rendered source cards beneath a "nicht gefunden" message, which looked like the AI was lying about its own search. The gate is strict — partial answers longer than 200 chars that happen to contain a denial phrase still get their citations back-filled.
+**Denial suppresses citations.** When the answer LLM writes the prompt-baked "I couldn't find that" template (`DENIAL_RE` in `ai.service.ts` — matches "in den Dokumenten nicht finden", "keine passenden Dokumente", "keines der Dokumente enthält", and three more variants, length-capped at 200 chars), the no-citations back-fill is skipped and the SPA renders the denial alone. Without this gate the back-fill rule ("if the model wrote prose but cited nothing, surface the retrieved set so the user has a source to verify against") rendered source cards beneath a "nicht gefunden" message, which looked like the AI was lying about its own search. The gate is strict — partial answers longer than 200 chars that happen to contain a denial phrase still get their citations back-filled.
 
 ### RAG: indexing pipeline (auto-tagger)
 
@@ -563,7 +571,7 @@ fetch document by id from Paperless
   ↓
 chunk content (paragraph-aware, ~500 tokens, ~50-token overlap)
   ↓
-batch-embed via Ollama bge-m3 (single round-trip per doc)
+batch-embed via Ollama (single round-trip per doc)
   ↓
 delete-by-doc-id from Qdrant (idempotent: re-index never duplicates)
   ↓
@@ -607,7 +615,7 @@ The committed YAML is keyed to the dev maintainer's local Paperless ids; buyers 
 - Returns `LibraryItem` rows with `lifecycle_tags` so the SPA can render a small badge per tag (propagated / approved / rejected / error). Falls back to AI custom-field correspondent / doc_type when the native FK is unset.
 - Money is no longer exposed at this layer — type-specific schemas carry it (Rechnung.gesamtbetrag, Mahnung.forderungsbetrag, Versicherung.jahrespraemie, etc.). The Library detail page surfaces them via `TypeSpecificFieldsSection`.
 - SPA route `/library` keeps filter state in URL search params (bookmarkable; back-button works); auto-applies form changes after a 400ms debounce; click row → `/library/$id`.
-- `/library/$id` is the per-document review: PDF iframe on the left, editable form for the 12 AI fields on the right (Save / Reset / Erneut verarbeiten / Download / Back). Backed by `GET /api/documents/{id}/detail` and `PATCH /api/documents/{id}/fields` — both reuse `aktenraum_api.inbox.service` so they work on any doc, not just pending. Edits update only the AI fields; the propagator only runs on `ai-approved`, so to also rewrite the native Paperless fields the user clicks **Erneut verarbeiten** (which restarts the full pipeline). The page closes the same `DocumentPreviewModal` Find / Ask citation cards still use for quick looks.
+- `/library/$id` is the per-document review: PDF iframe on the left, editable form for the 12 AI fields on the right (Save / Reset / Erneut verarbeiten / Download / Back). Backed by `GET /api/documents/{id}/detail` and `PATCH /api/documents/{id}/fields` — both reuse `aktenraum-api inbox.service` so they work on any doc, not just pending. Edits update only the AI fields; the propagator only runs on `ai-approved`, so to also rewrite the native Paperless fields the user clicks **Erneut verarbeiten** (which restarts the full pipeline). The page closes the same `DocumentPreviewModal` Find / Ask citation cards still use for quick looks.
 
 ### Upload + Reprocess (`/api/documents/upload`, `/api/documents/{id}/reprocess`)
 
@@ -636,12 +644,12 @@ Without `PAPERLESS_API_TOKEN` set, `/api/ai/*` and `/api/documents/*` respond 50
 ### Inbox review (`/api/inbox/*`)
 
 - `GET /api/inbox/` paginated list of `ai-pending` documents (oldest-first); `GET /api/inbox/{id}` full review payload (12 ai\_\* fields + content excerpt + tags); `PATCH /api/inbox/{id}` partial field update; `POST /api/inbox/{id}/approve` (optional patch body, then swaps `ai-pending` → `ai-approved`); `POST /api/inbox/{id}/reject`; `GET /api/inbox/{id}/preview` streams the PDF with `Content-Type: application/pdf`, `Cache-Control: private, max-age=300`. All auth-gated.
-- Lifecycle-tag swap is a single `tags=[…]` PATCH planned by `_plan_tag_swap` (pure helper). Idempotent re-approve / re-reject is a no-op.
-- **Paperless `custom_fields` PATCH is full-array replace**, not partial upsert — sending only `{ai_correspondent: …}` would wipe the other 11 fields. The gateway's `patch_document_custom_fields` reads the existing array, merges the requested updates by field id (`_merge_custom_fields`), then writes back. Same gotcha class as the silent `?name=` and `?correspondent=` filters.
-- Field-update normalisation reuses `aktenraum_core.paperless.normalisers` — date fields go strict ISO, monetary becomes `<ISO><amount>`, strings get truncated to 128 chars. Server-side at the boundary; client cannot bypass.
+- Lifecycle-tag swap is a single `tags=[…]` PATCH planned by `planTagSwap` (pure helper). Idempotent re-approve / re-reject is a no-op.
+- **Paperless `custom_fields` PATCH is full-array replace**, not partial upsert — sending only `{ai_correspondent: …}` would wipe the other 11 fields. The gateway's `patchDocumentCustomFields` reads the existing array, merges the requested updates by field id (`mergeCustomFields`), then writes back. Same gotcha class as the silent `?name=` and `?correspondent=` filters.
+- Field-update normalisation reuses the normalisers in `@aktenraum/core` — date fields go strict ISO, monetary becomes `<ISO><amount>`, strings get truncated to 128 chars. Server-side at the boundary; client cannot bypass.
 - SPA: the review queue lives at `/library?tab=review` (the `ZurPruefungTab` inside `apps/web/src/routes/Library.tsx`). The legacy `/inbox` URL is a redirect-only route (no component) that bounces to `/library?tab=review` so old bookmarks keep working — `routes/Inbox.tsx` was deleted. The list supports **multi-select bulk approve**: per-row checkboxes + a header "select all" checkbox + a sticky dark action bar that runs `useBulkApprove` (parallel POSTs against `/api/inbox/{id}/approve`) and reports `N genehmigt · M fehlgeschlagen`. **Pagination is load-more, not page-jump**: the tab uses `useInboxListInfinite` (TanStack `useInfiniteQuery`, pageSize=50) so multi-select spans loaded chunks naturally — review is a triage flow, not random-access browsing. "Mehr anzeigen" button below the table renders while `hasNextPage`; counter shows `N von M geladen`. Bulk-approve `invalidateQueries({queryKey: INBOX_KEY})` invalidates all loaded pages, triggering a sequential refetch (acceptable: refetch only fires once per bulk operation, and the refetched state is usually much smaller because most loaded docs just got approved). Per-doc detail page is `/inbox/$id` — two-pane review (PDF iframe via the proxy + editable form), keyboard shortcuts `a` Approve / `r` Reject / `j`,`k` next/prev / `Esc` back. Auto-advance to the next pending doc on action; back-out / Escape navigate directly to `/library?tab=review` (no redirect hop).
 
-The `tagger.py` per-file `E501` ruff ignore is intentional: `SYSTEM_PROMPT` is a long German-text block where line wrapping damages the prompt as content.
+`prompt.ts` disables `max-len` for the file on purpose: `SYSTEM_PROMPT` is a long German-text block where wrapping damages the prompt as content. Its exact length (14,118 chars) is asserted by a test, so an accidental edit fails CI rather than silently changing extraction behaviour on every document.
 
 ## COMMIT AND PUSH RULES
 

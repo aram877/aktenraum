@@ -3,13 +3,13 @@
 27 German document types. The auto-tagger picks one per document on
 extraction; pass 2 then extracts type-specific structured fields based
 on the choice. Both the enum and per-type fields are canonical at
-[`packages/aktenraum-core/src/aktenraum_core/models/`](../packages/aktenraum-core/src/aktenraum_core/models/) —
+[`packages/aktenraum-core/src/models/`](../packages/aktenraum-core/src/models/) —
 this doc explains *why* each type exists, the disambiguation rules
 that keep them separate, and the fields you'll see in the SPA's
 "Type-specific" section.
 
 For the prompt-side definitions and templates, see `SYSTEM_PROMPT` in
-[`services/auto-tagger/src/auto_tagger/tagger.py`](../services/auto-tagger/src/auto_tagger/tagger.py).
+[`services/auto-tagger/src/tagger.py`](../services/auto-tagger/src/tagger.py).
 
 ---
 
@@ -142,7 +142,7 @@ each one represents a real misclassification we saw in production.
 ## Type-specific (pass 2) fields
 
 Schemas live in
-[`packages/aktenraum-core/src/aktenraum_core/models/type_schema.py`](../packages/aktenraum-core/src/aktenraum_core/models/type_schema.py).
+[`packages/aktenraum-core/src/models/type_schema.py`](../packages/aktenraum-core/src/models/type_schema.py).
 Field types: `string`, `date`, `month`, `year`, `money`.
 
 ### Rechnung
@@ -252,21 +252,21 @@ Field types: `string`, `date`, `month`, `year`, `money`.
 
 If you discover a category that doesn't fit:
 
-1. Add the enum value in [`packages/aktenraum-core/src/aktenraum_core/models/extraction.py`](../packages/aktenraum-core/src/aktenraum_core/models/extraction.py)
+1. Add the enum value in [`packages/aktenraum-core/src/models/extraction.py`](../packages/aktenraum-core/src/models/extraction.py)
    `DocumentType`. The string value is what the LLM emits and what's
    stored in Paperless's `ai_document_type` custom field — keep it
    identical to the conventional German name.
 2. Add an entry to `TYPE_FIELD_SCHEMA` in
-   [`type_schema.py`](../packages/aktenraum-core/src/aktenraum_core/models/type_schema.py).
+   [`type_schema.py`](../packages/aktenraum-core/src/models/type_schema.py).
    Empty list means "no pass 2".
 3. Edit `SYSTEM_PROMPT` in
-   [`services/auto-tagger/src/auto_tagger/tagger.py`](../services/auto-tagger/src/auto_tagger/tagger.py):
+   [`services/auto-tagger/src/tagger.py`](../services/auto-tagger/src/tagger.py):
    add a one-line definition, a title template (e.g. "Foo {Bar}
    {Monat Jahr}"), and any disambiguation note that prevents
    misclassification against existing types.
 4. Add a route to the SPA's doc-type select (`InboxReview.tsx`,
    `LibraryReview.tsx`) — both files hard-code `DOC_TYPES` arrays.
-5. Run `uv run pytest` — the test suite asserts the enum and the
+5. Run `pnpm -r test` — the test suite asserts the enum and the
    schema map stay in sync.
 6. Mention the new type in this doc and in `CLAUDE.md` (the taxonomy
    section, with disambiguation rules if any).

@@ -24,7 +24,7 @@ Drop a PDF into the consume folder and aktenraum classifies it, summarises it in
 | Reprocess (clear lifecycle tags + ping auto-tagger webhook) | preview modal | `/api/documents/{id}/reprocess` |
 | Delete (two-step confirm, invalidates all caches) | preview modal + library detail | `DELETE /api/documents/{id}` |
 | Processing visibility (Nav badge, per-row pill, upload-page polling) | everywhere | `/api/documents/in-flight`, `/{id}/status`, `/task/{uuid}` |
-| RAG eval harness (recall@K + MRR over `evals/golden-questions.yaml`) | — | `python -m aktenraum_api.eval.runner` |
+| RAG eval harness (recall@K + MRR over `evals/golden-questions.yaml`) | — | `python -m aktenraum-api eval.runner` |
 | Daily restic backup (data + media + Postgres dump, 7/4/12 retention) | — | `backup` container |
 
 LLM backends: **Ollama** (local, default — `gemma4` and friends) or **Anthropic** (`claude-sonnet-4-6`).
@@ -122,9 +122,9 @@ MSYS_NO_PATHCONV=1 docker compose exec backup //usr/local/bin/entrypoint.sh
 ## Tests + CI
 
 ```bash
-uv sync                      # install Python deps for both workspace members
-uv run pytest                # 419 tests, ~50s
-uv run ruff check
+pnpm install                      # install Python deps for both workspace members
+pnpm -r test                # 419 tests, ~50s
+pnpm -r lint
 pnpm install
 pnpm --filter @aktenraum/web lint
 pnpm --filter @aktenraum/web build

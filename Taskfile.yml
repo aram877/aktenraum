@@ -20,8 +20,8 @@ vars:
   DOCKER_DIR: docker
   COMPOSE: docker compose --project-directory docker
   # Dev mode = prod compose + the dev overlay that bind-mounts source
-  # dirs and runs uvicorn/watchfiles with --reload. See
-  # docker/docker-compose.dev.yml for the override details.
+  # dirs and runs `tsx watch`. See docker/docker-compose.dev.yml for the
+  # override details.
   COMPOSE_DEV: docker compose --project-directory docker -f docker/docker-compose.yml -f docker/docker-compose.dev.yml
 
 tasks:
@@ -112,13 +112,12 @@ tasks:
       - 'echo "✓ Full rebuild done. Open http://localhost:8080"'
 
   dev:up:
-    desc: "Dev mode — bind-mount source + hot-reload Python services (no rebuild per edit). After this, .py saves reload in ~1s."
+    desc: "Dev mode — bind-mount source + hot-reload the Node services (no rebuild per edit). After this, .ts saves reload in ~1s."
     cmds:
       - "{{.COMPOSE_DEV}} up -d aktenraum-api auto-tagger"
       - |
         echo "✓ Dev mode active."
-        echo "  - aktenraum-api uses uvicorn --reload (FastAPI hot-reload on .py save)."
-        echo "  - auto-tagger uses watchfiles (worker restart on .py save)."
+        echo "  - both services run tsx watch (restart on .ts save)."
         echo "  - Tail logs:    task dev:logs"
         echo "  - Back to prod: task dev:down  (or: task up)"
 
@@ -212,9 +211,9 @@ tasks:
   paperless:bootstrap:
     desc: "Create Paperless custom fields + lifecycle tags via REST API"
     cmds:
-      # MSYS_NO_PATHCONV=1 + double-slash path prevents Git Bash from mangling
-      # /app/.venv/bin/python into a Windows path (C:/Program Files/Git/app/...).
-      - "MSYS_NO_PATHCONV=1 {{.COMPOSE}} exec -T auto-tagger //app/.venv/bin/python -m auto_tagger.bootstrap_paperless"
+      # Pure bash + curl against the Paperless REST API — no container
+      # runtime needed, and the same script the e2e harness uses.
+      - bash scripts/bootstrap-paperless.sh
 
   # ----- Frontend (SPA) -----
 
@@ -224,13 +223,13 @@ tasks:
       - pnpm install
 
   web:dev:
-    desc: "Vite dev server (hot reload, binds 0.0.0.0 → reachable from LAN at :5173)"
+    desc: "Angular dev server on :4200 (proxies /api to the nginx edge on :8080)"
     deps: [web:install]
     cmds:
       - pnpm --filter @aktenraum/web dev
 
   web:build:
-    desc: "Production build of the SPA (tsc + vite build)"
+    desc: "Production build of the Angular SPA into apps/web/dist"
     deps: [web:install]
     cmds:
       - pnpm --filter @aktenraum/web build
@@ -252,114 +251,10 @@ tasks:
     cmds:
       - "{{.COMPOSE}} up -d --build nginx"
 
-  # ----- Node.js/Angular rewrite (openspec/changes/rewrite-stack-nodejs-angular) -----
-  # No Docker service wiring yet — these run the packages directly via pnpm.
-  # Compose integration lands alongside the NestJS/worker app implementations
-  # (tasks.md 4.x / 6.x), same pattern as `web:dev` vs `web:deploy`.
-
-  node:core:build:
-    desc: "Build packages/core-ts (the TS shared library replacing aktenraum-core)"
-    deps: [web:install]
-    cmds:
-      - pnpm --filter @aktenraum/core-ts build
-
-  node:core:test:
-    desc: "Test packages/core-ts"
-    deps: [web:install]
-    cmds:
-      - pnpm --filter @aktenraum/core-ts test
-
-  node:core:lint:
-    desc: "Lint packages/core-ts"
-    deps: [web:install]
-    cmds:
-      - pnpm --filter @aktenraum/core-ts lint
-
-  node:api:dev:
-    desc: "Dev server for services/api-node (the NestJS replacement for aktenraum-api), hot reload via tsx"
-    deps: [web:install]
-    cmds:
-      - pnpm --filter @aktenraum/api-node dev
-
-  node:api:build:
-    desc: "Build services/api-node"
-    deps: [web:install]
-    cmds:
-      - pnpm --filter @aktenraum/api-node build
-
-  node:api:test:
-    desc: "Test services/api-node"
-    deps: [web:install]
-    cmds:
-      - pnpm --filter @aktenraum/api-node typecheck
-      - pnpm --filter @aktenraum/api-node test
-
-  node:api:lint:
-    desc: "Lint services/api-node"
-    deps: [web:install]
-    cmds:
-      - pnpm --filter @aktenraum/api-node lint
-
-  node:web:dev:
-    desc: "Angular dev server on :4200 (proxies /api to the nginx edge on :8080)"
-    deps: [web:install]
-    cmds:
-      - pnpm --filter @aktenraum/web-angular dev
-
-  node:web:build:
-    desc: "Build apps/web-angular"
-    deps: [web:install]
-    cmds:
-      - pnpm --filter @aktenraum/web-angular build
-
-  node:web:lint:
-    desc: "Lint apps/web-angular"
-    deps: [web:install]
-    cmds:
-      - pnpm --filter @aktenraum/web-angular lint
-
-  node:web:test:
-    desc: "Test apps/web-angular (Angular's first-party vitest runner)"
-    deps: [web:install]
-    cmds:
-      - pnpm --filter @aktenraum/web-angular test
-
-  node:worker:dev:
-    desc: "Dev server for services/worker-node (the Node replacement for auto-tagger), hot reload via tsx"
-    deps: [web:install]
-    cmds:
-      - pnpm --filter @aktenraum/worker-node dev
-
-  node:worker:build:
-    desc: "Build services/worker-node"
-    deps: [web:install]
-    cmds:
-      - pnpm --filter @aktenraum/worker-node build
-
-  node:worker:test:
-    desc: "Test services/worker-node"
-    deps: [web:install]
-    cmds:
-      - pnpm --filter @aktenraum/worker-node test
-
-  node:worker:lint:
-    desc: "Lint services/worker-node"
-    deps: [web:install]
-    cmds:
-      - pnpm --filter @aktenraum/worker-node lint
-
-  node:test:
-    desc: "Test all Node/TypeScript rewrite packages (core-ts + api-node + worker-node)"
-    deps: [node:core:test, node:api:test, node:worker:test, node:web:test]
-
-  node:lint:
-    desc: "Lint all Node/TypeScript rewrite packages (core-ts + api-node + worker-node)"
-    deps: [node:core:lint, node:api:lint, node:worker:lint, node:web:lint]
-
   # ----- Backend services -----
 
   api:rebuild:
-    desc: "Rebuild + recreate aktenraum-api after Python/code changes"
+    desc: "Rebuild + recreate aktenraum-api after code changes"
     cmds:
       - "{{.COMPOSE}} up -d --build aktenraum-api"
 
@@ -369,7 +264,7 @@ tasks:
       - "{{.COMPOSE}} logs -f --tail=200 aktenraum-api"
 
   tagger:rebuild:
-    desc: "Rebuild + recreate auto-tagger after Python/code changes"
+    desc: "Rebuild + recreate auto-tagger after code changes"
     cmds:
       - "{{.COMPOSE}} up -d --build auto-tagger"
 
@@ -391,39 +286,53 @@ tasks:
   # ----- Tests + lint -----
 
   test:
-    desc: "Run the full test suite (pytest + SPA typecheck/build + Node rewrite packages)"
-    deps: [test:py, test:web, node:test]
-
-  test:py:
-    desc: "Python tests (pytest at the workspace root)"
-    cmds:
-      - uv run pytest
-
-  test:web:
-    desc: "SPA typecheck + production build (there's no Vitest suite yet)"
+    desc: "Run the full test suite across every workspace package"
     deps: [web:install]
     cmds:
-      - pnpm --filter @aktenraum/web build
+      - pnpm -r test
+
+  test:web:
+    desc: "Angular unit tests (first-party vitest runner)"
+    deps: [web:install]
+    cmds:
+      - pnpm --filter @aktenraum/web test
+
+  test:api:
+    desc: "aktenraum-api tests (typecheck + vitest)"
+    deps: [web:install]
+    cmds:
+      - pnpm --filter @aktenraum/api typecheck
+      - pnpm --filter @aktenraum/api test
+
+  test:worker:
+    desc: "auto-tagger tests"
+    deps: [web:install]
+    cmds:
+      - pnpm --filter @aktenraum/worker test
+
+  test:core:
+    desc: "aktenraum-core tests"
+    deps: [web:install]
+    cmds:
+      - pnpm --filter @aktenraum/core test
+
+  build:all:
+    desc: "Build every workspace package (tsc + Angular)"
+    deps: [web:install]
+    cmds:
+      - pnpm -r build
 
   lint:
-    desc: "Lint Python, SPA, and Node rewrite packages"
-    deps: [lint:py, lint:web, node:lint]
-
-  lint:py:
-    desc: "ruff check"
+    desc: "ESLint across every workspace package"
+    deps: [web:install]
     cmds:
-      - uv run ruff check
+      - pnpm -r lint
 
   lint:web:
-    desc: "ESLint"
+    desc: "ESLint on the Angular SPA"
     deps: [web:install]
     cmds:
       - pnpm --filter @aktenraum/web lint
-
-  format:
-    desc: "ruff format (Python)"
-    cmds:
-      - uv run ruff format
 
   # ----- One-shot ops -----
 
@@ -467,7 +376,7 @@ tasks:
   e2e:logs:
     desc: "Tail the e2e worker logs"
     cmds:
-      - docker compose -f docker/docker-compose.e2e.yml logs -f worker-node
+      - docker compose -f docker/docker-compose.e2e.yml logs -f auto-tagger
 
   rag:reembed:
     desc: "Re-embed the whole corpus after an embedding-model/dimension change (drops the Qdrant collection, then backfills)"
@@ -477,21 +386,7 @@ tasks:
       # QDRANT_URL + the canonical collection name; no host curl/port needed).
       # Idempotent: a missing collection is a no-op. The backfill recreates it
       # at the model's current DENSE_DIM before indexing.
-      - |
-        MSYS_NO_PATHCONV=1 {{.COMPOSE}} exec -T auto-tagger //app/.venv/bin/python -c "
-        import os
-        from qdrant_client import QdrantClient
-        from aktenraum_core.rag.vector_store import DEFAULT_COLLECTION
-        url = os.environ.get('QDRANT_URL')
-        if not url:
-            raise SystemExit('QDRANT_URL is not set in the container — RAG is disabled; nothing to re-embed.')
-        c = QdrantClient(url=url)
-        if c.collection_exists(DEFAULT_COLLECTION):
-            c.delete_collection(DEFAULT_COLLECTION)
-            print(f'Dropped Qdrant collection {DEFAULT_COLLECTION!r}.')
-        else:
-            print(f'Collection {DEFAULT_COLLECTION!r} did not exist — nothing to drop.')
-        "
+      - "MSYS_NO_PATHCONV=1 {{.COMPOSE}} exec -T auto-tagger node dist/drop-collection.js"
       - echo "Re-embedding every document (this can take a while on a large corpus)..."
       - bash scripts/backfill-rag-index.sh --force
       - echo "Done. Verify with — task rag:eval — or check the dim — curl -s http://localhost:6333/collections/aktenraum_chunks"

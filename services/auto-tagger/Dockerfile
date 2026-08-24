@@ -1,34 +1,44 @@
-FROM python:3.13-slim AS base
+# Debian, not Alpine: the worker imports @aktenraum/core, which pulls
+# onnxruntime-node transitively. Its prebuilt native binding is glibc-linked
+# (`ld-linux-aarch64.so.1`) and dies at require() time on a musl base.
+FROM node:22-slim AS builder
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+RUN corepack enable
 
-# Install uv
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+WORKDIR /repo
 
-WORKDIR /app
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
+COPY packages/aktenraum-core/package.json packages/aktenraum-core/package.json
+COPY services/auto-tagger/package.json services/auto-tagger/package.json
 
-# Copy workspace manifests first so the dependency layer caches across source changes.
-# uv requires every workspace member's pyproject.toml to be present for the
-# install plan to resolve, even members the auto-tagger doesn't import — so we
-# copy aktenraum-api's manifest too without copying its source.
-COPY pyproject.toml uv.lock ./
-COPY packages/aktenraum-core/pyproject.toml packages/aktenraum-core/pyproject.toml
-COPY services/auto-tagger/pyproject.toml services/auto-tagger/pyproject.toml
-COPY services/aktenraum-api/pyproject.toml services/aktenraum-api/pyproject.toml
+RUN pnpm install --frozen-lockfile=false --filter @aktenraum/core... --filter @aktenraum/worker...
 
-# Install dependencies (workspace members not yet copied; uv installs deps only).
-RUN uv sync --frozen --no-dev --no-install-workspace
+COPY packages/aktenraum-core/ packages/aktenraum-core/
+COPY services/auto-tagger/ services/auto-tagger/
 
-# Copy workspace member sources.
-COPY packages/aktenraum-core/src/ packages/aktenraum-core/src/
-COPY services/auto-tagger/src/ services/auto-tagger/src/
+RUN pnpm --filter @aktenraum/core build \
+    && pnpm --filter @aktenraum/worker build \
+    && pnpm prune --prod
 
-# Install the workspace itself.
-RUN uv sync --frozen --no-dev
+FROM node:22-slim AS runtime
 
-# Non-root user — chown before switching so the venv is accessible.
-RUN useradd --create-home --shell /bin/bash appuser && chown -R appuser:appuser /app
+RUN groupadd --system appuser && useradd --system --gid appuser --create-home appuser
+
+WORKDIR /repo
+
+COPY --from=builder --chown=appuser:appuser /repo/node_modules /repo/node_modules
+COPY --from=builder --chown=appuser:appuser /repo/package.json /repo/package.json
+COPY --from=builder --chown=appuser:appuser /repo/packages/aktenraum-core/package.json /repo/packages/aktenraum-core/package.json
+COPY --from=builder --chown=appuser:appuser /repo/packages/aktenraum-core/dist /repo/packages/aktenraum-core/dist
+COPY --from=builder --chown=appuser:appuser /repo/packages/aktenraum-core/node_modules /repo/packages/aktenraum-core/node_modules
+COPY --from=builder --chown=appuser:appuser /repo/services/auto-tagger/package.json /repo/services/auto-tagger/package.json
+COPY --from=builder --chown=appuser:appuser /repo/services/auto-tagger/dist /repo/services/auto-tagger/dist
+COPY --from=builder --chown=appuser:appuser /repo/services/auto-tagger/node_modules /repo/services/auto-tagger/node_modules
+
 USER appuser
 
-ENTRYPOINT ["/app/.venv/bin/auto-tagger"]
+WORKDIR /repo/services/auto-tagger
+
+EXPOSE 8001
+
+CMD ["node", "dist/main.js"]

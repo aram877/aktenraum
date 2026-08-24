@@ -143,11 +143,11 @@ single rebuild picks up both `services/auto-tagger/src/` and
 ### Python (workspace root)
 
 ```bash
-uv sync                              # install deps for both workspace members
-task test:py                         # full suite (~50s, 420+ tests)
-uv run pytest services/auto-tagger   # auto-tagger only
-uv run pytest -k webhook             # tests matching "webhook"
-task lint:py                         # ruff check
+pnpm install                              # install deps for both workspace members
+task test                         # full suite (~50s, 420+ tests)
+pnpm -r test services/auto-tagger   # auto-tagger only
+pnpm -r test -k webhook             # tests matching "webhook"
+task lint                         # ruff check
 task format                          # ruff format
 ```
 
@@ -169,7 +169,7 @@ covers types and compile-time correctness.
 
 GitHub Actions runs two jobs on every push and PR
 (`.github/workflows/ci.yml`):
-- **python** — `uv sync && uv run ruff check && uv run pytest`
+- **python** — `pnpm install && pnpm -r lint && pnpm -r test`
 - **web** — `pnpm install --frozen-lockfile && pnpm lint && pnpm build`
 
 ---
@@ -372,7 +372,7 @@ From the repo's `CLAUDE.md`:
 > - NEVER EVER commit anything before running tests locally.
 > - NEVER EVER commit after fixing a bug without me first confirming that the bug is fixed.
 
-Tests in this repo means `uv run pytest` AND (when SPA touched)
+Tests in this repo means `pnpm -r test` AND (when SPA touched)
 `pnpm --filter @aktenraum/web build`. CI runs both anyway, but local
 tests catch the obvious before the round-trip.
 

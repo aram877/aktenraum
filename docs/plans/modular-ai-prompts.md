@@ -148,10 +148,10 @@ shape examples remain hardcoded.
 
 | File | Action |
 |---|---|
-| `services/aktenraum-api/src/aktenraum_api/ai/intent.py` | Create |
-| `services/aktenraum-api/src/aktenraum_api/ai/prompt_modules.py` | Create |
-| `services/aktenraum-api/src/aktenraum_api/ai/prompt.py` | Extend (intent injection) |
-| `services/aktenraum-api/src/aktenraum_api/ai/answer_prompt.py` | Refactor (dynamic assembly) |
+| `services/aktenraum-api/src/ai/intent.py` | Create |
+| `services/aktenraum-api/src/ai/prompt_modules.py` | Create |
+| `services/aktenraum-api/src/ai/prompt.py` | Extend (intent injection) |
+| `services/aktenraum-api/src/ai/answer_prompt.py` | Refactor (dynamic assembly) |
 | `services/aktenraum-api/tests/test_ai_intent.py` | Create |
 | `services/aktenraum-api/tests/test_ai_prompt_modules.py` | Create |
 | `services/aktenraum-api/tests/test_ai_prompt.py` | Extend (intent-driven few-shot assertions) |

@@ -18,8 +18,8 @@ From the bottom of CLAUDE.md:
 This is non-negotiable. Before any commit:
 
 ```bash
-uv run ruff check
-uv run pytest
+pnpm -r lint
+pnpm -r test
 ```
 
 If you touched the SPA, also:
@@ -172,7 +172,7 @@ gh pr create --title "Concise title under 70 chars" --body "$(cat <<'EOF'
 - bullet 2
 
 ## Test plan
-- [ ] uv run pytest
+- [ ] pnpm -r test
 - [ ] manual verify: <specific user flow>
 EOF
 )"
@@ -184,8 +184,8 @@ Return the PR URL when done.
 
 ## The pre-commit checklist (copy-paste in your head before every commit)
 
-1. ☐ `uv run ruff check` — green
-2. ☐ `uv run pytest` — green (count tests so the session doc has the new total)
+1. ☐ `pnpm -r lint` — green
+2. ☐ `pnpm -r test` — green (count tests so the session doc has the new total)
 3. ☐ SPA-touched? `pnpm --filter @aktenraum/web build` — green
 4. ☐ Bug fix? User confirmed it works on real data, OR explicit "push anyway"?
 5. ☐ Session doc updated for today?

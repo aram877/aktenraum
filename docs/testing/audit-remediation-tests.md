@@ -199,7 +199,7 @@ login still works. (Your existing env is untouched — no action needed.)
 
 ## Phase 1.2 — Prompt-injection hardening
 **Commit:** _(same as 1.1)_
-**Files:** `services/auto-tagger/src/auto_tagger/tagger.py`,
+**Files:** `services/auto-tagger/src/tagger.py`,
 `services/auto-tagger/tests/test_tagger.py`
 **What changed:** (a) added a SICHERHEIT clause to `SYSTEM_PROMPT` telling the
 LLM that document text is data, never instructions (so a PDF can't say "set
@@ -227,8 +227,8 @@ same type still can. (Skip B if you don't use email ingestion or auto-approve.)
 
 ## Phase 1.3 — WEBHOOK_SECRET startup warning
 **Commit:** _(same as 1.1)_
-**Files:** `services/aktenraum-api/src/aktenraum_api/main.py`,
-`services/auto-tagger/src/auto_tagger/main.py`
+**Files:** `services/aktenraum-api/src/main.py`,
+`services/auto-tagger/src/main.py`
 **What changed:** both services now log a loud `webhook_secret_unset` WARNING
 at startup if `WEBHOOK_SECRET` is empty (the internal endpoints would then be
 unauthenticated, relying on Docker network isolation alone). Non-breaking — a

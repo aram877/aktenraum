@@ -116,7 +116,7 @@ Loaded only by the `auto-tagger` service.
 `/settings → Auto-Genehmigung` in the SPA. The auto-tagger fetches them
 over HTTP (`GET /api/settings/active-auto-approve-rules`, secret-gated
 via `WEBHOOK_SECRET`) with a 60-second TTL cache in
-[`services/auto-tagger/src/auto_tagger/auto_approve_config.py`](../services/auto-tagger/src/auto_tagger/auto_approve_config.py).
+[`services/auto-tagger/src/auto_approve_config.py`](../services/auto-tagger/src/auto_approve_config.py).
 The legacy `AUTO_APPROVE_CONFIDENCE` env var is still read **once** by
 the Alembic migration as the seed `min_confidence` for all 27 rows on a
 fresh install; afterwards the table is the source of truth.

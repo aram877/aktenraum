@@ -1,10 +1,19 @@
-import { logger, PaperlessClient } from "@aktenraum/core-ts";
+import {
+  createBackend,
+  logger,
+  OllamaEmbedder,
+  PaperlessClient,
+  QdrantVectorStore,
+} from "@aktenraum/core-ts";
 
 import { AutoApproveConfig } from "./auto-approve-config.js";
 import { loadSettings } from "./config.js";
 import { runInterval, runQueueConsumer } from "./loops.js";
 import { ProcessingState } from "./processing-state.js";
 import { AsyncQueue } from "./queue.js";
+import { lifecycleTagsOn, processDocument } from "./extract.js";
+import { indexDocument } from "./indexer.js";
+import { processApprovedDocument } from "./propagate.js";
 import { createWebhookServer } from "./webhook.js";
 
 export async function bootstrap(): Promise<void> {
@@ -22,6 +31,12 @@ export async function bootstrap(): Promise<void> {
     settings.AKTENRAUM_API_URL,
     settings.WEBHOOK_SECRET,
   );
+  const backend = createBackend(settings.LLM_BACKEND, {
+    anthropicApiKey: settings.ANTHROPIC_API_KEY,
+    anthropicModel: settings.ANTHROPIC_MODEL,
+    ollamaBaseUrl: settings.OLLAMA_BASE_URL,
+    ollamaModel: settings.OLLAMA_MODEL,
+  });
 
   const controller = new AbortController();
   const shutdown = (signal: string): void => {
@@ -44,8 +59,18 @@ export async function bootstrap(): Promise<void> {
       processingState,
       signal: controller.signal,
       handle: async (docId) => {
-        logger.info("extraction_dequeued", { doc_id: docId });
-        await autoApprove.getRules();
+        const doc = await paperless.getDocument(docId);
+        const lifecycleOnDoc = await lifecycleTagsOn(paperless, doc);
+        if (lifecycleOnDoc.length > 0) {
+          logger.info("skip_already_processed", { doc_id: docId, tags: lifecycleOnDoc });
+          return;
+        }
+        await processDocument(doc, {
+          paperless,
+          backend,
+          settings,
+          getRules: () => autoApprove.getRules(),
+        });
       },
     }),
   );
@@ -72,13 +97,35 @@ export async function bootstrap(): Promise<void> {
         processingState,
         signal: controller.signal,
         handle: async (docId) => {
-          logger.info("propagation_dequeued", { doc_id: docId });
+          const doc = await paperless.getDocument(docId);
+          await processApprovedDocument(doc, paperless, { indexingQueue });
+        },
+      }),
+    );
+
+    loops.push(
+      runInterval({
+        name: "propagation-poller",
+        intervalMs: settings.POLL_INTERVAL_SECONDS * 1000,
+        signal: controller.signal,
+        tick: async () => {
+          const docs = await paperless.getDocumentsWithTag("ai-approved", settings.BATCH_SIZE);
+          for (const doc of docs) propagationQueue.push(doc.id);
+          if (docs.length > 0) {
+            logger.info("propagation_poller_enqueued", { count: docs.length });
+          }
         },
       }),
     );
   }
 
   if (settings.QDRANT_URL) {
+    const vectorStore = new QdrantVectorStore(settings.QDRANT_URL);
+    await vectorStore.ensureCollection().catch((error: unknown) => {
+      logger.warn("qdrant_ensure_collection_failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
     loops.push(
       runQueueConsumer({
         name: "indexer",
@@ -87,7 +134,11 @@ export async function bootstrap(): Promise<void> {
         processingState,
         signal: controller.signal,
         handle: async (docId) => {
-          logger.info("indexer_dequeued", { doc_id: docId });
+          await indexDocument(docId, {
+            paperless,
+            vectorStore,
+            embedder: new OllamaEmbedder(settings.OLLAMA_BASE_URL, settings.EMBEDDING_MODEL),
+          });
         },
       }),
     );

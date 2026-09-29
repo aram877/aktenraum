@@ -99,7 +99,7 @@ tasks:
         echo "✓ Data wiped. Run: task setup   to start fresh."
 
   build:fe:
-    desc: "Rebuild the frontend — bakes the SPA into the nginx image and restarts it"
+    desc: "Rebuild the frontend — bakes the SPA into the nginx image and restarts it (AKTENRAUM_WEB_APP=nuxt picks the Nuxt SPA)"
     cmds:
       - "{{.COMPOSE}} up -d --build nginx"
       - 'echo "✓ Frontend rebuilt. Open http://localhost:8080"'
@@ -207,6 +207,12 @@ tasks:
     deps: [install]
     cmds:
       - "{{.PNPM}} --filter @aktenraum/web dev"
+
+  web-nuxt:dev:
+    desc: "Nuxt dev server on :4300 (proxies /api to the nginx edge on :8080)"
+    deps: [install]
+    cmds:
+      - "{{.PNPM}} --filter @aktenraum/web-nuxt dev"
 
   # ----- Tests + lint -----
 

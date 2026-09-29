@@ -38,5 +38,8 @@ jobs:
       - name: Typecheck tests
         run: pnpm --filter @aktenraum/api typecheck
 
+      - name: Typecheck Nuxt SPA
+        run: pnpm --filter @aktenraum/web-nuxt typecheck
+
       - name: Test
         run: pnpm -r test

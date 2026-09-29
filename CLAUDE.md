@@ -67,6 +67,7 @@ The root `Taskfile.yml` ([Taskfile.dev](https://taskfile.dev), `brew install go-
 | `task build:fe` / `task build:be` | rebuild only the SPA-in-nginx image / only the two Node services |
 | `task dev:up` / `task dev:down` | hot-reload mode: bind-mounts `src/` and runs `tsx watch`, so a `.ts` save reloads in ~1s with no rebuild. `dev:down` restores the prod entrypoints |
 | `task web:dev` | Angular dev server on `:4200`, proxying `/api` to the nginx edge on `:8080` |
+| `task web-nuxt:dev` | Nuxt dev server on `:4300` (same `/api` proxy). `AKTENRAUM_WEB_APP=nuxt task build:fe` bakes the Nuxt SPA into the nginx image instead of Angular |
 | `task install` | `pnpm install` across the workspace |
 | `task test` / `task lint` | vitest and eslint across all four packages. One package: `pnpm --filter @aktenraum/api test` |
 | `task e2e:worker` / `task e2e:down` | end-to-end test of the worker against a **throwaway** Paperless/Postgres/Qdrant stack (`docker/docker-compose.e2e.yml`, project `aktenraum-e2e`, ports 8100/8101/8102/6433). Never runs against the live stack — the driver refuses live-stack ports outright |
@@ -216,7 +217,8 @@ docker compose exec paperless curl -sS -H "Content-Type: application/json" \
 │       │   └── loops.ts/main.ts # orchestration + graceful shutdown
 │       └── Dockerfile           # node:22-slim, non-root
 ├── apps/
-│   └── web/                     # @aktenraum/web — Angular 22, zoneless, Tailwind v4
+│   ├── web/                     # @aktenraum/web — Angular 22, zoneless, Tailwind v4
+│   └── web-nuxt/                # @aktenraum/web-nuxt — Nuxt 4 SPA port (ssr: false), in parallel until cutover
 │       └── src/app/
 │           ├── core/            # ApiClient + one query service per area
 │           ├── shared/          # nav, processing badge
@@ -391,7 +393,7 @@ openspec instructions <id> --change "<name>"  # get writing instructions per art
 ```
 
 Artifacts: `proposal.md` → `design.md` + `specs/` → `tasks.md` → implement.
-Completed changes: `aktenraum-foundation`, `backup-timer`, `extract-aktenraum-core`, `rewrite-stack-nodejs-angular`. Nothing in flight.
+Completed changes: `aktenraum-foundation`, `backup-timer`, `extract-aktenraum-core`, `rewrite-stack-nodejs-angular`. In flight: `migrate-web-to-nuxt` (learning-motivated Angular → Nuxt 4 port; groups 1–5 done, parity gate + cutover pending).
 
 **Distribution direction (binding)**: aktenraum is being built for sale as a Tauri desktop app wrapping the Docker Compose stack — not as a Docker tarball. See `docs/adr/002-distribution-desktop-app.md` for the constraints this places on every change (no committed secrets, configurable data dir, idempotent first-run, model auto-pull, etc.) and `docs/plans/desktop-app.md` for the phased roadmap. **Phase 0 — self-bootstrapping compose — is the unblocker; nothing Tauri-specific lands until Phase 0 is done.** **Currently deferred per [ADR-005](docs/adr/005-test-phase-access-via-tailscale.md): during the testing phase the maintainer validates the product via Tailscale-mediated remote access (`docs/runbooks/tailscale-remote-access.md`); Phase 0 resumes when the milestones listed in ADR-005 are met.**
 
@@ -443,6 +445,8 @@ Use `/opsx:apply` skill to implement tasks from an approved change.
 | **A stale tag cache hides freshly-propagated tags for up to 5 minutes** (Python API only)     | `PaperlessGateway.list_tags()` caches name→id for 300s, but the propagator that *creates* suggested tags runs in the **auto-tagger — a different process** — so the API's map predates them and the projection silently drops every tag id it cannot resolve. Symptom: approve a document, then its new tags are missing from the Library row until the TTL lapses. Fixed in the Node port (`listTagsCovering` does a one-shot invalidate-and-refetch); **still present in the Python API**, which is slated for deletion at rewrite task 4.15. Note the entity-cache row above claims the gateway "auto-refreshes on unknown-field warnings" — that is true for custom **fields** and never was for **tags**. |
 | **Changing the embedding model/dimension requires a full re-index** — `ensure_collection()` only CREATES when missing, so it keeps a stale-dim Qdrant collection and new upserts/queries fail silently | Run `task rag:reembed`: it drops the `aktenraum_chunks` collection (from inside the auto-tagger container, no host curl) and runs `backfill --force`, which recreates it at the current `@aktenraum/core rag.DENSE_DIM` and re-embeds every document. Paperless docs are untouched — only the vector index is rebuilt; RAG/Ask is degraded until the backfill finishes. Also pull the new model first (`ollama pull <model>`) and set `EMBEDDING_MODEL` identically in both env files. |
 | **Never run the Node worker against the live Paperless while the Python `auto-tagger` is up** | Both claim work by writing lifecycle tags, so they race: a document can be extracted twice, propagated twice (two correspondents/tags created), and indexed twice into Qdrant. Use the isolated stack (`task e2e:worker`) for any Node-worker testing. The cutover is deliberately atomic — stop one, start the other (rewrite task 6.10). |
+| **nginx sends no security headers on the SPA document** | `location = /index.html` has its own `add_header Cache-Control`, and nginx drops every inherited server-level `add_header` in a location that declares any. So `index.html` ships without CSP, `X-Frame-Options`, `nosniff` or `Referrer-Policy` — for both SPAs. Found 2026-09-29, not yet fixed: repeat the security headers inside that location (or move them to an `include` snippet). |
+| **Nuxt's generated `index.html` breaks `script-src 'self'`** (Nuxt SPA only) | `nuxt generate` emits an inline import map and an inline `window.__NUXT__` config script; Nuxt's built-in error pages inject a modulepreload polyfill via `useHead`. Fixes in `apps/web-nuxt`: `experimental.entryImportMap: false`, `modules/external-inline-scripts.ts` (moves inline scripts into hashed `/_nuxt/boot.*.js` at prerender time) and a custom `app/error.vue`. Also: only `/` is prerendered (`prerender:routes` hook) — per-route `index.html` folders make nginx 301 `/login` → `/login/` and drop the port. |
 | **The Node API creates its own schema; `0000_certain_guardian.sql` does NOT** | That file is drizzle-kit *introspection* output with its whole body commented out — a drift oracle, not a runnable migration. The runnable copy is `services/api-node/src/db/schema.sql`, applied transactionally by `applySchema()` before `NestFactory.create`. Symptom when it is missing or unshipped: `api_start_failed … Failed query: select "id" from "users"` at boot on a fresh database. `tsc` does not copy `.sql`, so the Dockerfile must copy it into `dist/db/` — if you add a table, add it to `schema.ts` AND `schema.sql` (`apply-schema.test.ts` fails otherwise). The file also seeds `alembic_version='0006'` when empty so a Python API redeployed during the rollback window doesn't replay migrations onto existing tables. |
 
 ---
@@ -509,7 +513,8 @@ Test counts and what they cover:
 | `@aktenraum/core` | 170 | pure functions — normalisers, chunker, models, the Paperless client against a fake fetch |
 | `@aktenraum/api` | 179 | real Nest app over **pg-mem** + a stateful fake Paperless, driven with supertest |
 | `@aktenraum/worker` | 105 | routing matrix, queue semantics, prompt assembly, synthesizers, propagation, indexing |
-| `@aktenraum/web` | 79 | Angular's first-party `@angular/build:unit-test` builder on vitest |
+| `@aktenraum/web` | 87 | Angular's first-party `@angular/build:unit-test` builder on vitest |
+| `@aktenraum/web-nuxt` | 140 | vitest + `@nuxt/test-utils` (`environment: "nuxt"`, `mountSuspended`, `mockNuxtImport`) |
 
 After a code change: `task build:be` / `task build:be` / `task build:fe`, or `task build` for all three. Every Dockerfile's build context is the repo root, so an edit in `packages/aktenraum-core/src/` is picked up by rebuilding either service.
 

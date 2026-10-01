@@ -42,25 +42,27 @@
 
 ## 6. Parity gate (maintainer, against the live stack with `AKTENRAUM_WEB_APP=nuxt`)
 
-- [ ] 6.1 Auth: login, logout, 401 redirect, guest redirect, no nav for guests
+Waived on 2026-10-01: the maintainer smoke-tested login, logout, upload and Ask on the live stack and accepted the cutover without the full checklist (see ADR-008). Unchecked items remain untested.
+
+- [x] 6.1 (smoke-tested) Auth: login, logout, 401 redirect, guest redirect, no nav for guests
 - [ ] 6.2 Live counts: review / in-flight / trash badges update without reload; stream reconnects after `task restart`
-- [ ] 6.3 Upload → review → approve → appears in library (inbox + library invalidation)
+- [x] 6.3 (smoke-tested) Upload → review → approve → appears in library (inbox + library invalidation)
 - [ ] 6.4 Library filters, ordering, pagination, URL bookmarking and back button
 - [ ] 6.5 Library detail edit/save/reset/reprocess/download
 - [ ] 6.6 Inbox detail keyboard shortcuts incl. "typing in a field does not approve"
 - [ ] 6.7 Trash restore / delete permanently / empty
-- [ ] 6.8 Ask streams incrementally and shows citations; denial answer shows no citations
+- [x] 6.8 (smoke-tested) Ask streams incrementally and shows citations; denial answer shows no citations
 - [ ] 6.9 Settings: model tier, auto-approve rules, password change
 - [ ] 6.10 Mobile widths (<640, <768, <1024) on Library, detail pages, nav drawer
 - [ ] 6.11 No CSP violations in the console on any route; record Angular vs Nuxt bundle sizes
 
 ## 7. Cutover
 
-- [ ] 7.1 Tag the last Angular commit `web-angular-final`
-- [ ] 7.2 Delete `apps/web` (Angular); move `apps/web-nuxt` → `apps/web` and rename the package to `@aktenraum/web`; drop the `WEB_APP` build arg and `AKTENRAUM_WEB_APP`; regenerate `pnpm-lock.yaml`
-- [ ] 7.3 Confirm no `@angular/*`, `zone.js`, `rxjs` or `@tanstack/angular-query-experimental` remain in any `package.json` or the lockfile
-- [ ] 7.4 Update Taskfile (`web:dev` → Nuxt), CI, and `apps/web` proxy config
-- [ ] 7.5 Rewrite `.claude/skills/spa-data-fetching/SKILL.md` for Vue Query + Nuxt (reactive keys, middleware, client-only plugins, `mountSuspended` testing)
-- [ ] 7.6 Write `docs/adr/008-nuxt-vue-frontend.md` and mark ADR-007 superseded for the frontend
-- [ ] 7.7 Update CLAUDE.md (stack, directory layout, test counts table, SPA notes), `docs/architecture.md`, `docs/development.md`, `docs/glossary.md`
-- [ ] 7.8 Run `task test` and `task lint`, rebuild with `task build:fe`, smoke-test on the live stack, then write the session note `docs/sessions/YYYY-MM-DD.md`
+- [x] 7.1 Tag the last Angular commit `web-angular-final`
+- [x] 7.2 Delete `apps/web` (Angular); move `apps/web-nuxt` → `apps/web` and rename the package to `@aktenraum/web`; drop the `WEB_APP` build arg and `AKTENRAUM_WEB_APP`; regenerate `pnpm-lock.yaml`
+- [x] 7.3 Confirm no `@angular/*`, `zone.js`, `rxjs` (still present only as a NestJS dependency of `@aktenraum/api`) or `@tanstack/angular-query-experimental` remain in any `package.json` or the lockfile
+- [x] 7.4 Update Taskfile (`web:dev` → Nuxt), CI, and `apps/web` proxy config
+- [x] 7.5 Rewrite `.claude/skills/spa-data-fetching/SKILL.md` for Vue Query + Nuxt (reactive keys, middleware, client-only plugins, `mountSuspended` testing)
+- [x] 7.6 Write `docs/adr/008-nuxt-vue-frontend.md` and mark ADR-007 superseded for the frontend
+- [x] 7.7 Update CLAUDE.md (stack, directory layout, test counts table, SPA notes), `docs/architecture.md`, `docs/development.md`, `docs/glossary.md`
+- [x] 7.8 Run `task test` and `task lint`, rebuild with `task build:fe`, smoke-test on the live stack, then write the session note `docs/sessions/YYYY-MM-DD.md`

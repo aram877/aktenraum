@@ -62,7 +62,7 @@ Detailed walkthroughs:
 ## Repository layout
 
 ```
-apps/web/                  React 19 + Vite + TanStack Router/Query + Tailwind v4 SPA
+apps/web/                  Nuxt 4 SPA (ssr: false) + Vue 3 + TanStack Vue Query + Tailwind v4
 packages/aktenraum-core/   Shared Python lib (models, LLM backends, paperless client, RAG)
 services/
   auto-tagger/             Extraction worker + propagator + webhook + indexer

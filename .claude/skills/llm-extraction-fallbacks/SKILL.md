@@ -118,7 +118,7 @@ Negative examples (`Verbiete: …`) help too — small models otherwise produce 
 5. **Bootstrap existing installs** — manually call the bootstrap script on running paperless; the gateway's TTL cache will pick up the new field within 5 min (or call `gateway._custom_field_ids_cache = None` to force).
 6. **If optional-with-default → add a synthesizer.** Follow the pattern above. Add unit tests.
 7. **Add to the `InboxDetail` schema** in `services/aktenraum-api/src/inbox/schemas.py` if the SPA should see / edit it.
-8. **Add to the SPA form** in `apps/web/src/routes/InboxReview.tsx` and `LibraryReview.tsx`.
+8. **Add to the SPA form** in `apps/web/app/components/DocumentFieldsForm.vue` (shared by `pages/inbox/[id].vue` and `pages/library/[id].vue`) and the form model in `apps/web/app/utils/review-form.ts`.
 
 Skip step 6 only if empty is genuinely correct (the `suggested_tags` decision).
 

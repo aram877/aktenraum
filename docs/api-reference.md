@@ -10,9 +10,9 @@ cookie travels automatically. Endpoints marked **🔒** require a valid
 cookie; unauthenticated calls return 401.
 
 OpenAPI is available at `/api/openapi.json` (and Swagger UI at
-`/api/docs` when not running in production mode). The SPA's TypeScript
-types are regenerated from this with `pnpm --filter @aktenraum/web
-generate:api-types`. **Treat this doc as a map; the OpenAPI schema is
+`/api/docs` when not running in production mode). The SPA has no codegen
+step: its TypeScript interfaces live in `apps/web/app/{composables,utils}/*.ts`
+and are kept in step with the API by hand. **Treat this doc as a map; the OpenAPI schema is
 the source of truth for shape.**
 
 ---

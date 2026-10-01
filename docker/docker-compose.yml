@@ -186,8 +186,6 @@ services:
     build:
       context: ..
       dockerfile: docker/nginx/Dockerfile
-      args:
-        WEB_APP: ${AKTENRAUM_WEB_APP:-angular}
     restart: unless-stopped
     depends_on:
       - aktenraum-api

@@ -307,40 +307,41 @@ Paperless via its own migration runner, aktenraum-api via
 
 ## SPA routes
 
-The SPA lives at `apps/web/` (Vite + React 19 + TanStack Router/Query +
-Tailwind v4). Every route except `/login` requires a valid auth cookie;
-unauthenticated requests redirect to `/login`.
+The SPA lives at `apps/web/` (Nuxt 4 in SPA mode, `ssr: false`, Vue 3 +
+TanStack Vue Query + Tailwind v4; see [ADR-008](adr/008-nuxt-vue-frontend.md)).
+`nuxt generate` writes static files that nginx serves; there is no Node
+runtime at the edge. Routes come from the files under `apps/web/app/pages/`.
+Every route except `/login` and `/health` opts into the `auth` route
+middleware, which redirects unauthenticated visitors to `/login`.
 
-| Route | Component | Purpose |
+| Route | Page | Purpose |
 |---|---|---|
-| `/` | `Home` | Landing page with quick links |
-| `/login` | `Login` | Username/password → httpOnly JWT cookie |
-| `/ask` | `Ask` | Conversational Q&A with SSE-streamed German answers + citations |
-| `/find` | `Find` | Structured search — closed-enum filter (chips editable) |
-| `/library` | `Library` | Filterable list. `?tab=review` shows pending; default shows archive |
-| `/library/$id` | `LibraryReview` | Two-pane review/edit on any non-pending doc |
-| `/upload` | `Upload` | Drag-and-drop, per-file progress, lifecycle polling |
-| `/scan` | `Scan` | Mobile camera capture + client-side PDF composition via `pdf-lib` |
-| `/trash` | `Trash` | Papierkorb — restore / Endgültig löschen / Empty trash |
-| `/settings` | `Settings` | LLM model picker, per-type Auto-Genehmigung rules, password change |
-| `/inbox` | (redirect) | Legacy — redirects to `/library?tab=review` |
-| `/inbox/$id` | `InboxReview` | Two-pane review on a pending doc (keyboard shortcuts) |
+| `/` | `index.vue` | Landing page with quick links |
+| `/login` | `login.vue` | Username/password → httpOnly JWT cookie (`guest` middleware, bare layout) |
+| `/health` | `health.vue` | API health check (no auth, bare layout) |
+| `/ask` | `ask.vue` | Conversational Q&A with SSE-streamed German answers + citations |
+| `/library` | `library/index.vue` | Filterable list. `?tab=review` shows pending; default shows archive |
+| `/library/[id]` | `library/[id].vue` | Two-pane review/edit on any non-pending doc |
+| `/upload` | `upload.vue` | Drag-and-drop, per-file progress, lifecycle polling |
+| `/trash` | `trash.vue` | Papierkorb — restore / Endgültig löschen / Empty trash |
+| `/settings` | `settings.vue` | LLM model picker, per-type Auto-Genehmigung rules, password change |
+| `/inbox/[id]` | `inbox/[id].vue` | Two-pane review on a pending doc (keyboard shortcuts) |
+| anything else | `[...slug].vue` | Not-found page |
 
 The Review tab inside `/library?tab=review` supports multi-select bulk
-approve via a sticky action bar and uses TanStack `useInfiniteQuery`
+approve via a sticky action bar and uses Vue Query's `useInfiniteQuery`
 (pageSize=50) instead of page-jump pagination so selections span
 already-loaded chunks naturally.
 
-A global Nav ([`apps/web/src/components/Nav.tsx`](../apps/web/src/components/Nav.tsx))
+A global Nav ([`apps/web/app/components/AppNav.vue`](../apps/web/app/components/AppNav.vue))
 shows an "N in Bearbeitung" pill (auto-tagger backlog), an inbox count
 badge, and a Papierkorb badge. They are driven by a single
 `GET /api/events/counts` SSE stream so changes show up within ~3s of
 backend state without per-badge polling.
 
 The SPA is mobile-responsive: below `md:` (768px) the Nav collapses to a
-hamburger drawer, the Library table swaps to a card list, detail pages
-get a "PDF / Bearbeiten" tab toggle, and `DocumentPreviewModal` goes
-full-screen.
+hamburger drawer, the Library table swaps to a card list, and detail pages
+get a "PDF / Bearbeiten" tab toggle.
 
 ---
 
@@ -430,7 +431,7 @@ and rendered by the SPA's `TypeSpecificFieldsSection`.
 ## Code layout
 
 ```
-apps/web/                  Vite + React 19 + TanStack Router/Query + Tailwind v4 SPA
+apps/web/                  Nuxt 4 SPA (ssr: false) + Vue 3 + TanStack Vue Query + Tailwind v4
 packages/aktenraum-core/   Shared Python lib (models, LLM backends, paperless client, RAG)
 services/
   auto-tagger/             Extraction worker + propagator + webhook + indexer
@@ -449,6 +450,6 @@ openspec/                  OpenSpec change proposals
 The Python side is a single uv workspace; `pyproject.toml` at the root
 links `packages/aktenraum-core` and `services/auto-tagger` +
 `services/aktenraum-api`. One `uv.lock`, one `.venv`. The web side is a
-pnpm workspace; `pnpm --filter @aktenraum/web <task>` operates on the SPA.
+pnpm workspace; `pnpm --filter @aktenraum/web <task>` operates on the Nuxt SPA.
 
 For the day-to-day development workflow see [development.md](development.md).

@@ -74,7 +74,8 @@ Rules:
   parse becomes a 422 with the same body shape FastAPI produced, so the SPA's
   error handling did not have to change during the migration.
 - **Return the response type explicitly.** There is no OpenAPI codegen step in
-  the Angular SPA any more; the shared shapes are the contract.
+  the Nuxt SPA; its hand-written interfaces in `apps/web/app/{composables,utils}/*.ts`
+  mirror these shapes, so a shape change must be made on both sides.
 
 ---
 

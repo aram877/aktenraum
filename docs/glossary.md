@@ -51,11 +51,11 @@ Plain-language definitions for every acronym, framework, and piece of jargon tha
 - **httpx** — async HTTP client library. Used by `aktenraum-api` and `aktenraum-core` to talk to Paperless / Qdrant / Ollama / Anthropic.
 - **structlog** — structured-log library (logs as key=value JSON instead of strings). Every log line in the project goes through it.
 - **pytest / ruff** — Python test runner / linter. `task test` runs pytest, `task lint` runs ruff.
-- **React 19** — the UI library for the SPA.
+- **Vue 3** — the UI library for the SPA. Components are single-file `.vue` files using `<script setup lang="ts">` and the Composition API (`ref`, `computed`, `watch`).
+- **Nuxt 4** — the framework around Vue: file-based routing, layouts, route middleware, plugins and auto-imports. We run it with `ssr: false` (pure client-side SPA) and `nuxt generate` writes static files that nginx serves. Config in `apps/web/nuxt.config.ts`. See ADR-008.
 - **TypeScript** — typed JavaScript. The SPA is 100% TypeScript.
-- **Vite** — the SPA's build tool + dev server. `task web:dev` runs it.
-- **TanStack Router** — React routing library with type-safe URL params. Routes defined in `apps/web/src/router.tsx`.
-- **TanStack Query** — server-state cache for React. Every `useQuery(...)` / `useMutation(...)` you see in the SPA is from here.
+- **Vite** — the build tool + dev server Nuxt uses under the hood. `task web:dev` runs `nuxt dev` on `:4300`.
+- **TanStack Vue Query (`@tanstack/vue-query`)** — server-state cache for Vue. Every `useQuery(...)` / `useMutation(...)` you see in the SPA is from here. The `QueryClient` is created in `apps/web/app/plugins/vue-query.client.ts`.
 - **Tailwind CSS v4** — utility-first CSS framework. Every `className="px-3 py-2 …"` you see is Tailwind.
 - **ESLint** — the JS/TS linter. `task lint` runs it.
 
@@ -94,7 +94,7 @@ Plain-language definitions for every acronym, framework, and piece of jargon tha
 
 ## Web & networking
 
-- **SPA** — Single-Page Application. Our React frontend at `apps/web/`. The browser loads `index.html` once; React handles all subsequent navigation client-side.
+- **SPA** — Single-Page Application. Our Nuxt/Vue frontend at `apps/web/`. The browser loads `index.html` once; Vue Router (inside Nuxt) handles all subsequent navigation client-side.
 - **nginx** — the web server that sits at the edge. Serves the SPA's static assets, and reverse-proxies `/api/*` to aktenraum-api.
 - **reverse proxy** — a web server that forwards requests to another server. nginx → aktenraum-api is a reverse proxy.
 - **same-origin / cross-site / same-site** — browser security concepts. `same-origin` = exact same scheme+host+port; `same-site` = same registrable domain; `cross-site` = anything else. Matters for CSRF defence.
@@ -104,7 +104,7 @@ Plain-language definitions for every acronym, framework, and piece of jargon tha
 - **MIME / content-type** — the label that says "this byte stream is a PDF" (`application/pdf`) or "JSON" (`application/json`). The browser puts it in the `Content-Type` header.
 - **CORS** — Cross-Origin Resource Sharing. Browser policy that decides whether JS on `attacker.com` can read responses from `our-api.com`. We don't enable CORS — the SPA and API are same-origin via nginx, so it's not needed.
 - **CSRF / Cross-Site Request Forgery** — attack class where a malicious page makes the victim's logged-in browser do something on our site (e.g. delete a doc) by tricking it into sending an authenticated request. Defended in two layers: `SameSite=Lax` on the auth cookie + `Sec-Fetch-Site` middleware (see ADR-003).
-- **XSS** — Cross-Site Scripting. Attacker-controlled JS running inside our SPA. Defended by React's automatic escaping + the strict Content-Security-Policy on the nginx response.
+- **XSS** — Cross-Site Scripting. Attacker-controlled JS running inside our SPA. Defended by Vue's automatic template escaping + the strict Content-Security-Policy on the nginx response.
 - **SSE / Server-Sent Events** — one-way streaming protocol where the server pushes events to the browser over a long-lived HTTP connection. Our `/api/ai/answer/stream` uses SSE: `event: meta` → repeated `event: chunk` → `event: final` (or `event: error`). The SPA reads it with `fetch` + a `ReadableStream`. Not to be confused with **SIGTERM** (a process signal) — they sound similar but are unrelated.
 - **stream / streaming response** — any HTTP response delivered in pieces over time instead of all at once. SSE is one form; PDF preview/download is another (we stream the file bytes through aktenraum-api so the Paperless token stays server-side).
 - **WebSocket** — bi-directional streaming protocol. We don't use it (SSE is enough for our case).
@@ -187,16 +187,18 @@ Plain-language definitions for every acronym, framework, and piece of jargon tha
 
 ## Frontend specifics
 
-- **route** — a URL pattern + the component that renders it. `apps/web/src/router.tsx` lists them all (`/library`, `/inbox/$id`, `/ask`, …).
-- **lazy route / code splitting** — loading a route's JS bundle only when the user navigates there, not on initial page load. Saves bandwidth + first-paint time. We do it with `React.lazy(() => import(...))` per route.
-- **Suspense** — React component that renders a fallback while a lazy-loaded child is still downloading. Our `RouteSuspense` wraps every lazy route with a "Lade…" fallback.
-- **hook** — a React function starting with `use…` that hooks into render state. `useState`, `useEffect`, `useMutation` (TanStack Query).
+- **route / page** — a URL pattern + the component that renders it. Nuxt derives routes from the files under `apps/web/app/pages/` (`library/index.vue` → `/library`, `inbox/[id].vue` → `/inbox/:id`, `[...slug].vue` → catch-all 404).
+- **lazy route / code splitting** — loading a route's JS bundle only when the user navigates there, not on initial page load. Saves bandwidth + first-paint time. Nuxt splits every page into its own chunk automatically.
+- **composable** — a Vue function starting with `use…` that bundles reactive state and logic for reuse. Ours live in `apps/web/app/composables/` (`useApi`, `useLibrary`, `useInbox`, `useAnswerStream`, …) and are auto-imported by Nuxt.
+- **route middleware** — a Nuxt function that runs before navigating to a page. Our named `auth` and `guest` middleware (`apps/web/app/middleware/`) redirect to `/login` or away from it; pages opt in with `definePageMeta({ middleware: 'auth' })`.
+- **plugin (Nuxt)** — code that runs once when the app starts. A `.client.ts` suffix means browser-only. `vue-query.client.ts` installs the query client; `live-counts.client.ts` opens the live-counts SSE stream once a user is signed in.
+- **layout** — a wrapper component around pages. `default.vue` renders the nav; `bare.vue` (login, health) does not.
 - **mutation / query (TanStack Query)** — `useQuery` = read; `useMutation` = write. Both manage loading/error state and cache invalidation.
 - **query key** — array that uniquely identifies a cached query result. `["library", "list", filters, page]`.
 - **invalidate** — mark a cached query stale so the next render refetches. `qc.invalidateQueries({queryKey: ["library"]})`.
 - **stale time / refetch interval** — how long a query is considered fresh / how often to auto-refetch in the background. Tuned per query.
 - **AbortController** — browser API for cancelling an in-flight `fetch`. Used in our SSE consumer so navigating away mid-stream stops billing tokens.
-- **TanStack Router search params** — URL query string typed via a `validateSearch` function. Our `/library?tab=review&date_from=…` is fully type-safe end-to-end.
+- **search params / route query** — the URL query string, read with `useRoute().query`. Library filters live there (`/library?tab=review&date_from=…`) so views are bookmarkable and the back button works; the reactive query key follows it.
 
 ---
 
@@ -206,7 +208,7 @@ Plain-language definitions for every acronym, framework, and piece of jargon tha
 - **branch** — a named line of git history. `main` is the trunk.
 - **PR / Pull Request** — proposing a branch be merged into `main`, with review + CI.
 - **CI / Continuous Integration** — automation that runs tests + lint on every push. Our CI is `.github/workflows/ci.yml` (uv + pytest + ruff + pnpm build).
-- **hot reload / HMR** — when the dev server reapplies your code change without a full page refresh. Vite gives us HMR for the SPA via `task web:dev`. The Python services don't have HMR yet (see next-session pick-up in the previous session note).
+- **hot reload / HMR** — when the dev server reapplies your code change without a full page refresh. Nuxt (via Vite) gives us HMR for the SPA via `task web:dev`. The Python services don't have HMR yet (see next-session pick-up in the previous session note).
 - **backfill** — a one-time script that fills in data that the live pipeline didn't produce yet. `scripts/backfill-rag-index.sh` indexes the existing corpus into Qdrant.
 - **eval harness** — script that scores the system against a curated set of expected answers. `evals/golden-questions.yaml` is the input; `python -m aktenraum-api eval.runner` runs it and reports recall@K and MRR.
 - **recall@K** — fraction of questions where the expected doc id is in the top K retrieved. Higher is better.

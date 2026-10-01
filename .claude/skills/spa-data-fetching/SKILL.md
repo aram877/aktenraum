@@ -1,162 +1,303 @@
 ---
 name: spa-data-fetching
-description: Use when working on apps/web (Angular) — adding queries, mutations, new routes, or sharing server state across components. Documents the @tanstack/angular-query-experimental conventions for this codebase (query-key shape, invalidation rules, staleTime conventions, the signal-input → computed-queryKey pattern), the zoneless change-detection consequences, lazy routes, and the SSE consumer pattern. Triggers when editing apps/web/src/app/core/*.ts (query services), apps/web/src/app/**/*.ts (route components), apps/web/src/app/app.routes.ts, or when investigating "data is stale / why does this refetch / why doesn't this update".
+description: Use when working on apps/web (Nuxt 4 SPA, ssr false) — adding queries, mutations, pages, middleware or plugins, or sharing server state across components. Documents the @tanstack/vue-query conventions for this codebase (query-key shape, reactive keys via getter/MaybeRefOrGetter, invalidation rules, staleTime values), the useApi-over-$fetch layer and error helpers, auth/guest named middleware, client-only plugins, default vs bare layouts, the live-counts EventSource and the Ask SSE parser, useShortcuts, URL-driven library filters, and the vitest + @nuxt/test-utils testing rules. Triggers when editing apps/web/app/composables/*.ts, apps/web/app/pages/**, apps/web/app/plugins/*.ts, apps/web/app/middleware/*.ts, apps/web/app/layouts/*.vue, apps/web/app/utils/*.ts, apps/web/nuxt.config.ts, or when investigating "data is stale / why does this refetch / why doesn't this update".
 ---
 
-# SPA data-fetching patterns (Angular)
+# SPA data-fetching patterns (Nuxt)
 
-`apps/web` is Angular 22, **zoneless**, with TanStack Query via
-`@tanstack/angular-query-experimental`. Server state lives in query services
-under `src/app/core/`; components consume them and never call `fetch`
-themselves.
+`apps/web` (`@aktenraum/web`) is Nuxt 4 with `ssr: false`, built by
+`nuxt generate` into static files that nginx serves. Server state lives in
+`@tanstack/vue-query`; there is no Pinia and no Nitro server code. Rationale:
+`openspec/changes/migrate-web-to-nuxt/design.md` (D3–D9).
+
+Everything under `app/composables/` and `app/utils/` is auto-imported;
+`.nuxt/imports.d.ts` shows where a name resolves from.
 
 ---
 
 ## Layer split
 
 ```
-src/app/core/api.ts        ← ApiClient: the ONLY place fetch() is called
-src/app/core/library.ts    ← LibraryService: query/mutation factories for /api/library
-src/app/core/inbox.ts      ← InboxService
-src/app/library/…          ← route components: presentation + user intent
+app/composables/useApi.ts      <- the ONLY wrapper around $fetch (baseURL /api, credentials)
+app/composables/useLibrary.ts  <- query/mutation composables per area (useInbox, useTrash, ...)
+app/utils/*.ts                 <- pure helpers: errors, sse, library, keyboard, ...
+app/pages/**.vue               <- presentation + user intent; call composables, never $fetch
 ```
 
-`ApiClient` centralises `credentials: "include"`, the JSON error unwrapping
-(`{detail}` → thrown `Error`), and the 401 → login redirect. A component that
-calls `fetch` directly has bypassed all three; don't.
+`useApi()` returns `{ get, post, patch, put, upload }` built on
+`$fetch.create({ baseURL: "/api", credentials: "include" })`, so paths are
+written **without** the `/api` prefix (`api.get("/library/tags")`). `upload`
+sends a `FormData` body; there is no byte progress, the upload page uses a
+phase machine instead (`useUploadTracker`).
+
+Exceptions that deliberately bypass `useApi`:
+
+- `useAnswerStream` uses raw `fetch` because it needs `resp.body.getReader()`.
+- `pages/health.vue` uses Nuxt `useFetch("/api/health", { key: "health" })`
+  as the one intentional learning example. Do not spread `useFetch` further;
+  it has no mutation/invalidation model.
+
+### Errors
+
+`$fetch` throws a `FetchError`. Never read it by hand; use `utils/errors.ts`:
+
+- `detailFrom(error, fallback)` — the `{detail}` string (or the first
+  `detail[].msg`), `"Server nicht erreichbar."` when there is no status,
+  otherwise `"<status> <statusMessage>"`.
+- `statusOf(error)` — the HTTP status or `null`.
 
 ---
 
 ## Query keys
 
-Keys are arrays, most-general segment first, and are **exported constants**
-so an invalidation site can never typo one:
+Keys are arrays, area segment first. Shared prefixes are exported constants:
 
 ```ts
-export const LIBRARY_KEY = ["library"] as const;
+export const ME_KEY = ["me"] as const;
 export const INBOX_KEY = ["inbox"] as const;
+export const TRASH_KEY = ["trash"] as const;
+export const LIVE_COUNTS_KEY = ["live", "counts"] as const;
+export const LLM_KEY = ["settings", "llm"] as const;          // also ANSWER_LLM_KEY, AVAILABLE_MODELS_KEY, AUTO_APPROVE_KEY
+export const DOCUMENT_DETAIL_KEY = "document-detail";         // used as [DOCUMENT_DETAIL_KEY, id]
 
-// parameterised:
-queryKey: [...LIBRARY_KEY, queryString]
-queryKey: [...INBOX_KEY, "detail", docId]
+queryKey: [...INBOX_KEY, "detail", id]
+queryKey: [...INBOX_KEY, "list-infinite", pageSize, ordering]
+queryKey: ["library", query]                                   // query object, not a string
 ```
 
-Invalidating `["library"]` invalidates every parameterised child. That is the
-whole point of the prefix shape — after a mutation you invalidate the area,
-not each variant you can think of.
+`["library"]`, `["library-tags"]` and `["in-flight"]` are still literals in
+`useLibrary.ts` / `useDocuments.ts`. Invalidating `["library"]` hits every
+`["library", …]` child, which is the point of the prefix shape. Note
+`["library-tags"]` is a separate root and is NOT invalidated by `["library"]`.
 
 ---
 
-## Reactive keys with signals
+## Reactive keys
 
-This is the pattern that differs most from the React original. A query whose
-key depends on component state takes a **function** so the signal is read
-inside the reactive context:
+A query whose key depends on reactive state passes a **getter of options** to
+`useQuery`, and takes its inputs as `MaybeRefOrGetter`, unwrapped with
+`toValue` inside the getter:
 
 ```ts
-readonly documents = injectQuery(() => ({
-  queryKey: [...LIBRARY_KEY, this.queryString()],
-  queryFn: () => this.api.get<LibraryList>(`/api/library/?${this.queryString()}`),
-  staleTime: 30_000,
-}));
-```
-
-Writing `queryKey: [...LIBRARY_KEY, this.queryString()]` outside the arrow
-would snapshot the value once and the query would never refetch when filters
-change — the classic symptom being "the URL updates but the table doesn't".
-
----
-
-## staleTime conventions
-
-| Data                          | staleTime | Why                                                        |
-| ----------------------------- | --------- | ---------------------------------------------------------- |
-| Library / inbox lists         | 30 s      | changes when the worker propagates; 30 s matches its poll   |
-| Document detail               | 30 s      | same                                                        |
-| Tag facets, correspondents    | 5 min     | slow-moving reference data                                  |
-| Settings, auto-approve rules  | 5 min     | only this user changes them                                 |
-| In-flight count, trash count  | 0 + 30 s `refetchInterval` | these ARE the live indicators      |
-
-Anything user-editable gets invalidated on mutation success rather than a
-short staleTime. Polling is for state **someone else** changes — i.e. the
-worker.
-
----
-
-## Mutations
-
-```ts
-readonly approve = injectMutation(() => ({
-  mutationFn: (docId: number) => this.api.post(`/api/inbox/${docId}/approve`, {}),
-  onSuccess: () => {
-    this.queryClient.invalidateQueries({ queryKey: INBOX_KEY });
-    this.queryClient.invalidateQueries({ queryKey: LIBRARY_KEY });
-  },
-}));
-```
-
-**Approve and reject must invalidate BOTH keys.** The document leaves the
-inbox and appears in the library; invalidating only the inbox leaves a stale
-library row that still shows `ai-pending` until its staleTime lapses.
-
----
-
-## Routes
-
-Every route is lazy:
-
-```ts
-{
-  path: "library",
-  loadComponent: () => import("./library/library").then((m) => m.Library),
+export function useLibrary(query: MaybeRefOrGetter<LibraryQuery>) {
+  const api = useApi();
+  return useQuery(() => ({
+    queryKey: ["library", toValue(query)],
+    queryFn: () => api.get<LibraryList>(`/library/?${toQueryString({ ...toValue(query) })}`),
+    staleTime: 15_000,
+  }));
 }
 ```
 
-Guarded routes use `canActivate: [authGuard]`. The build enforces per-route
-chunking — check the bundle output after adding a route; a route that lands in
-the initial chunk means something eagerly imported it.
+Callers pass a `computed`, a ref or a getter (`() => detail.isSuccess.value`).
+Passing a plain value (`useLibrary(query.value)`) snapshots it once and the
+query never refetches — symptom: "the URL updates but the table doesn't".
+`enabled` follows the same rule (`enabled: toValue(id) !== null`).
+
+Composables that need no reactive input (`useTagFacet`, settings queries,
+`useInboxListInfinite`) pass a plain options object.
 
 ---
 
-## SSE (the Ask page)
+## staleTime values
 
-`/api/ai/answer/stream` is a **POST**, so `EventSource` cannot be used — it
-only does GET. The consumer uses `fetch` + a `ReadableStream` reader and parses
-the `event:`/`data:` frames by hand. Events are `meta` → repeated `chunk` →
-`final` (or `error`).
+Global defaults (`plugins/vue-query.client.ts`): `staleTime: 30_000`,
+`retry: 1`, `refetchOnWindowFocus: false`.
 
-Two things to preserve when touching it:
+| Data                                         | staleTime | Extra                                  |
+| -------------------------------------------- | --------- | -------------------------------------- |
+| `me`                                         | 60 s      | `retry` < 2; 401 resolves to `null`    |
+| Library list                                 | 15 s      |                                        |
+| Trash list                                   | 15 s      |                                        |
+| Inbox detail / list, document detail         | 30 s      |                                        |
+| Inbox infinite list (review tab)             | 30 s      | `refetchOnWindowFocus: true`           |
+| LLM / answer-LLM settings, auto-approve rules| 30 s      |                                        |
+| Available models                             | 10 s      |                                        |
+| Tag facet (`library-tags`)                   | 5 min     |                                        |
+| In-flight count                              | 15 s      | `refetchInterval: 30_000`              |
+| Live counts                                  | Infinity  | `enabled: false`, filled by SSE        |
 
-- **Append to a signal, don't rebuild the string.** The answer grows token by
-  token; rebuilding on every chunk is what made the React version janky.
-- **Always close the reader in a `finally`.** An abandoned reader keeps the
-  connection open and the server's LLM call running.
+Pick from this table, do not invent new values. User-editable data is
+invalidated or `setQueryData`'d on mutation success; polling is only for state
+someone else (the worker) changes.
 
 ---
 
-## Zoneless consequences
+## Mutations and invalidation
 
-The app runs without zone.js. Two practical rules:
+```ts
+export function useApprove(id: MaybeRefOrGetter<number | null>) {
+  const api = inboxApi(useApi());
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body?: InboxFieldUpdate) => api.approve(toValue(id) as number, body),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: INBOX_KEY });
+      void queryClient.invalidateQueries({ queryKey: ["library"] });
+    },
+  });
+}
+```
 
-- **Never call `fixture.whenStable()` in tests to wait for a query.** There is
-  no zone to stabilise against and it races the signal update. Use
-  `expect.poll(...)` or `vi.waitFor(...)`.
-- **Anything that mutates state outside Angular's knowledge must go through a
-  signal.** Direct property assignment on a component won't schedule change
-  detection.
+Rules the code follows:
 
-(`zone.js` is present as a devDependency only because Angular's test builder
-resolves `zone.js/testing` at bootstrap. The application itself stays zoneless
-— do not add `provideZoneChangeDetection`.)
+- **Approve, reject and bulk approve invalidate BOTH `inbox` and `library`.**
+  The doc leaves the review queue and appears in the archive. Bulk approve
+  does it in `onSettled` so partial failures still refresh.
+- Reprocess invalidates `library`, `inbox` and `[DOCUMENT_DETAIL_KEY, id]`.
+- Field PATCH writes the response into `[DOCUMENT_DETAIL_KEY, id]` with
+  `setQueryData`, then invalidates `library`.
+- Restore / delete forever / empty trash invalidate `trash` and `library`.
+- Settings mutations `setQueryData` their own key from the response (no refetch).
+- Login sets `ME_KEY` to the user; logout (`onSettled`) and change-password set
+  it to `null`, which also stops the live-counts stream.
+
+Fire-and-forget invalidation uses `void queryClient.invalidateQueries(...)`.
+
+---
+
+## Routing, middleware, layouts
+
+Pages are file-based under `app/pages/` (`library/index.vue`,
+`library/[id].vue`, `inbox/[id].vue`, `[...slug].vue` for 404). Nuxt splits
+each page into its own chunk; nothing to configure.
+
+Auth is **named** middleware, opted into per page:
+
+```ts
+definePageMeta({ middleware: "auth" });                    // every user-data page
+definePageMeta({ layout: "bare", middleware: "guest" });   // login
+definePageMeta({ layout: "bare" });                        // health
+```
+
+- `middleware/auth.ts` does `$queryClient.fetchQuery({ ...meQuery(useApi()), retry: false })`
+  and `navigateTo("/login")` on `null`. Because it goes through the cache, a
+  fresh `me` (60 s) is not refetched on every navigation. A non-401 error is
+  rethrown, so an outage is never mistaken for a logout.
+- `middleware/guest.ts` sends an authenticated user to `/` and swallows errors.
+- A new page touching user data MUST declare `middleware: "auth"`; nothing is
+  global.
+- `layouts/default.vue` renders `<AppNav />`; `layouts/bare.vue` has no nav.
+  Unauthenticated pages use `bare` so visitors never see the nav.
+
+---
+
+## Plugins (client-only)
+
+Both plugins are `*.client.ts` (SPA, never on a server):
+
+- `plugins/vue-query.client.ts` (`name: "vue-query"`) creates the
+  `QueryClient`, installs `VueQueryPlugin` and provides it as
+  `useNuxtApp().$queryClient`. Use `$queryClient` outside components
+  (middleware, plugins); use `useQueryClient()` inside composables.
+- `plugins/live-counts.client.ts` (`dependsOn: ["vue-query"]`) subscribes a
+  `QueryObserver` on `ME_KEY` (`enabled: false`, it only watches) and calls
+  `stream.start()` when a user is present, `stream.stop()` when `me` is null.
+
+---
+
+## Live counts (EventSource)
+
+`createLiveCountsStream(queryClient)` in `composables/useLiveCounts.ts` owns
+one credentialed `EventSource("/api/events/counts")`. Each message is
+`setQueryData(LIVE_COUNTS_KEY, …)`; on error it closes and reconnects after
+`LIVE_RECONNECT_DELAY_MS` (5 s), with at most one pending retry. `start` is
+idempotent; `stop` clears the timer and closes the source.
+
+Consumers read it with `useLiveCounts()` (`enabled: false`,
+`staleTime: Infinity`, queryFn returns `null`). `AppNav` prefers live values
+and falls back to the polled queries (`useInFlightCount`, `useTrashList`,
+`useInboxList({ pageSize: 1 })`, all gated on `authenticated`), so the badges
+still work if the stream is down.
+
+---
+
+## Ask SSE (`/api/ai/answer/stream`)
+
+The endpoint is a **POST**, so `EventSource` cannot be used. `useAnswerStream`
+calls `fetch` with `credentials: "include"` and an `AbortController`, then
+hands `resp.body` to `readSseStream` in `utils/sse.ts`, which splits on
+`\n\n` and calls the pure `dispatchSseRecord(record, handlers)`. Events:
+`meta` → repeated `chunk` (`{text}`) → `final` (`{answer_de, citations}`) or
+`error` (`{detail}`). A non-OK response goes through `extractErrorDetail`.
+
+When touching it:
+
+- `onChunk` appends to the `answer` ref (`answer.value += delta`); `onFinal`
+  replaces it with the authoritative `answer_de`.
+- `ask()` aborts any previous controller; `onBeforeUnmount` aborts too, so a
+  navigated-away page never keeps the server's LLM call running. An abort is
+  not reported as an error.
+- Keep `dispatchSseRecord` / `extractErrorDetail` pure; they are unit-tested
+  without the Nuxt environment.
+
+---
+
+## Keyboard shortcuts
+
+```ts
+useShortcuts(
+  () => ({ a: () => void onApprove(), r: () => void onReject(), j: next, k: prev, Escape: back }),
+  () => detail.isSuccess.value,
+);
+```
+
+Bindings are a getter (re-read on each keydown, so they see current state);
+`enabled` is `MaybeRefOrGetter<boolean>`. The listener is added in
+`onMounted` and removed in `onBeforeUnmount`. `shouldHandle` (`utils/keyboard.ts`)
+ignores keys while an input/textarea/select/contenteditable is focused or a
+meta/ctrl/alt modifier is held.
+
+---
+
+## URL-driven library filters
+
+`pages/library/index.vue` keeps all filter state in `route.query`:
+
+- `filters` is a `computed` over `route.query` using `firstParam` /
+  `allParams` (`utils/library.ts`); `query` is a `computed<LibraryQuery>`
+  passed straight to `useLibrary(query)`. The URL is the single source of truth.
+- Changes go through `navigateTo({ path: "/library", query: cleanLibraryQuery({...}) })`,
+  which drops empty values, `page=1` and the default ordering (`-created`) so
+  URLs stay short and bookmarkable. Any filter change resets `page` to 1.
+- Free text is copied into a local ref and pushed to the URL after a 400 ms
+  debounce; the timer is cleared in `onBeforeUnmount`.
+- `?tab=review` switches to `components/library/ReviewTab.vue`
+  (`useInboxListInfinite`, load-more pagination).
+
+---
+
+## Testing
+
+`vitest.config.ts` uses `defineVitestConfig` with `environment: "nuxt"` and
+happy-dom. Run with `pnpm --filter @aktenraum/web test`.
+
+- `tests/unit/` — pure helpers (`errors`, `sse`, `library`, `review-form`, …);
+  import from `~/utils/...` explicitly.
+- `tests/nuxt/` — pages, components, middleware and composables, rendered with
+  `mountSuspended` from `@nuxt/test-utils/runtime` (auto-imports, router and
+  the vue-query plugin are live).
+- Mock the HTTP layer with `mockNuxtImport("useApi", () => () => ({ get, post, patch: vi.fn(), put: vi.fn(), upload: vi.fn() }))`,
+  with the `vi.fn`s created in `vi.hoisted`. `mockNuxtImport("navigateTo", …)`
+  for middleware tests. `registerEndpoint` only for the `useFetch` health page
+  (pair with `clearNuxtData("health")`).
+- Build fetch errors with `tests/fetch-error.ts` `fetchError(status, data, statusMessage)`.
+- Reset shared cache in `beforeEach`: `useNuxtApp().$queryClient.clear()`.
+- Wait with `vi.waitFor(...)` or `flushPromises()`. Use `vi.useFakeTimers()`
+  for polling/back-off (upload tracker, live-counts reconnect); stub
+  `EventSource` with `vi.stubGlobal`.
+- Composables with lifecycle hooks (`useShortcuts`) are tested through a small
+  `defineComponent` harness mounted with `@vue/test-utils` `mount`.
 
 ---
 
 ## Checklist for new data
 
-1. ☐ Fetch goes through `ApiClient`, never a bare `fetch`
-2. ☐ Query key is an exported constant array with the area prefix first
-3. ☐ Key that depends on state is computed **inside** the `injectQuery` arrow
-4. ☐ `staleTime` chosen from the table above, not invented
-5. ☐ Mutation invalidates every area its write affects
-6. ☐ New route is lazy and, if it touches user data, guarded
-7. ☐ Test waits with `expect.poll`/`vi.waitFor`, not `whenStable`
+1. HTTP goes through `useApi()` (path without `/api`); errors through `detailFrom`/`statusOf`
+2. Query key starts with the area segment; shared prefixes are exported constants
+3. Reactive inputs are `MaybeRefOrGetter`, read with `toValue` inside `useQuery(() => ({...}))`
+4. `staleTime` taken from the table above
+5. Mutation invalidates (or `setQueryData`s) every area its write affects
+6. New page declares `middleware: "auth"` if it shows user data; `layout: "bare"` if unauthenticated
+7. Anything browser-only that runs at startup is a `*.client.ts` plugin
+8. Test mocks `useApi` via `mockNuxtImport`, clears `$queryClient`, waits with `vi.waitFor`

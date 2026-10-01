@@ -31,7 +31,7 @@ shortcuts:
 |---|---|
 | `task setup` | first-time setup orchestration |
 | `task start` / `task stop` / `task status` | compose lifecycle |
-| `task web:dev` | Angular dev server on `:4200`, proxying `/api` to `:8080` |
+| `task web:dev` | Nuxt dev server on `:4300`, proxying `/api` to `:8080` |
 | `task build:fe` | bake SPA into the nginx image |
 | `task build:be` | rebuild + recreate both Node services |
 | `task dev:up` / `task dev:down` | hot-reload both Node services via `tsx watch` |
@@ -109,12 +109,12 @@ A typical dev session:
 
 ```bash
 task start                           # backend stack
-task web:dev                         # Angular dev server on :4200
+task web:dev                         # Nuxt dev server on :4300
 ```
 
-Open <http://localhost:4200> for the hot-reloaded SPA against the running
+Open <http://localhost:4300> for the hot-reloaded SPA against the running
 compose stack; it proxies `/api` to the nginx edge on `:8080` (see
-`apps/web/proxy.conf.json`). The production SPA at `:8080` is unaffected.
+`nitro.devProxy` in `apps/web/nuxt.config.ts`). The production SPA at `:8080` is unaffected.
 
 For the backend, `task dev:up` bind-mounts `src/` into both Node services
 and runs `tsx watch`, so a `.ts` save restarts the process in about a
@@ -149,7 +149,7 @@ single rebuild picks up both `services/auto-tagger/src/` and
 
 ```bash
 task install                        # pnpm install across the workspace
-task test                           # every package (~90s, 533 tests)
+task test                           # every package (~90s, 594 tests)
 task lint                           # eslint across every package
 ```
 
@@ -166,7 +166,7 @@ pnpm --filter @aktenraum/api typecheck               # tsc over the test files t
 | `@aktenraum/core` | 170 | pure functions — normalisers, chunker, models, the Paperless client over a fake fetch |
 | `@aktenraum/api` | 179 | a real Nest app over **pg-mem** plus a stateful fake Paperless, driven with supertest |
 | `@aktenraum/worker` | 105 | routing matrix, queue semantics, prompt assembly, synthesizers, propagation, indexing |
-| `@aktenraum/web` | 82 | Angular's first-party `@angular/build:unit-test` builder on vitest |
+| `@aktenraum/web` | 140 | vitest + `@nuxt/test-utils` (`environment: "nuxt"`, `mountSuspended`, `mockNuxtImport`) |
 
 None of these need the stack running. For the pipeline end to end —
 webhook, extraction, routing, propagation, dedup, Qdrant indexing —

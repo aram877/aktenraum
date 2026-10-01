@@ -26,7 +26,8 @@ If you touched the SPA, also:
 
 ```bash
 pnpm --filter @aktenraum/web lint
-pnpm --filter @aktenraum/web build
+pnpm --filter @aktenraum/web typecheck   # nuxt typecheck (vue-tsc)
+pnpm --filter @aktenraum/web build       # nuxt generate
 ```
 
 CI runs the same checks (`.github/workflows/ci.yml`), but if you commit broken code, CI is the wrong place to find out — you've already polluted `main`'s history with a fix-up commit. Run locally first.
@@ -186,7 +187,7 @@ Return the PR URL when done.
 
 1. ☐ `pnpm -r lint` — green
 2. ☐ `pnpm -r test` — green (count tests so the session doc has the new total)
-3. ☐ SPA-touched? `pnpm --filter @aktenraum/web build` — green
+3. ☐ SPA-touched? `pnpm --filter @aktenraum/web typecheck` and `build` (Nuxt) — green
 4. ☐ Bug fix? User confirmed it works on real data, OR explicit "push anyway"?
 5. ☐ Session doc updated for today?
 6. ☐ ADR written if this is a binding architectural decision?

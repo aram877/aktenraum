@@ -208,19 +208,18 @@ different model for full extractions.
 
 ---
 
-## SPA dev server (`apps/web/.env*` or shell)
+## SPA dev server (`apps/web/nuxt.config.ts`)
 
-Two knobs honoured by [`apps/web/vite.config.ts`](../apps/web/vite.config.ts) at
-`pnpm dev` / `task web:dev` time. Production builds ignore them.
+The Nuxt dev server reads no env vars. Its settings are fixed in code and
+apply only to `pnpm dev` / `task web:dev`; production builds
+(`nuxt generate`, baked into the nginx image by `task build:fe`) ignore them.
 
-| Var | Default | Purpose |
+| Setting | Where | Value |
 |---|---|---|
-| `VITE_API_PROXY_TARGET` | `http://localhost:8080` | Where Vite proxies `/api/*`. Must match where nginx is published (the compose default is `:8080`, overridable via `AKTENRAUM_WEB_PORT` in `docker/.env`). |
-| `VITE_HOST` | `0.0.0.0` | Vite bind address. The default exposes the dev server on the LAN so a second device can hit `http://<dev-machine-ip>:5173` with hot reload. Set to `127.0.0.1` if you want to limit it to the dev machine. |
+| `/api` proxy target | `nitro.devProxy` in `apps/web/nuxt.config.ts` | `http://localhost:8080/api` — must match where nginx is published (the compose default is `:8080`, overridable via `AKTENRAUM_WEB_PORT` in `docker/.env`). Edit the target if you change that port. |
+| Bind address + port | `dev` script in `apps/web/package.json` | `--host 0.0.0.0 --port 4300` — the dev server is reachable on the LAN at `http://<dev-machine-ip>:4300`. |
 
-Vite is also configured to accept any `Host` header (`allowedHosts: true`) so LAN hostnames / IPs don't 403 the way they would on a stock Vite 5+ setup.
-
-To override either, drop a line like `VITE_API_PROXY_TARGET=http://localhost:9000` into `apps/web/.env.local` (gitignored) or export it in the shell before `task web:dev`.
+The nginx image always builds this SPA; there is no build-time switch to pick a frontend.
 
 ---
 

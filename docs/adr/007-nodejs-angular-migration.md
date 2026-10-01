@@ -1,6 +1,8 @@
 # ADR-007 — Migrate the whole stack from Python/React to Node.js/Angular
 
-- **Status**: Accepted
+- **Status**: Accepted — frontend part superseded by
+  [ADR-008](008-nuxt-vue-frontend.md) (the Angular SPA was replaced by a Nuxt 4
+  / Vue SPA on 2026-10-01). The backend decisions in this ADR stand.
 - **Date**: 2026-08-24
 - **Deciders**: maintainer
 - **Supersedes in part**: [ADR-004](004-two-python-services.md) (the two-service

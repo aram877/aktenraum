@@ -57,6 +57,9 @@ export interface RerankCandidate {
  * ordering signal only — comparing scores across different reranker models
  * is meaningless.
  */
+export const RERANK_BATCH_SIZE = 8;
+export const RERANK_MAX_TOKENS = 512;
+
 export interface RerankResult {
   readonly id: string;
   readonly score: number;
@@ -79,7 +82,7 @@ export interface Reranker {
 interface TokenizerLike {
   (
     queries: string[],
-    options: { text_pair: string[]; padding: boolean; truncation: boolean },
+    options: { text_pair: string[]; padding: boolean; truncation: boolean; max_length?: number },
   ): Promise<unknown> | unknown;
 }
 
@@ -159,16 +162,21 @@ export class LocalReranker implements Reranker {
     if (candidates.length === 0) return [];
     const { tokenizer, classifier } = await this.ensureLoaded();
 
-    const inputs = await tokenizer(
-      candidates.map(() => query),
-      {
-        text_pair: candidates.map((c) => c.text),
-        padding: true,
-        truncation: true,
-      },
-    );
-    const { logits } = await classifier(inputs);
-    const scores = Array.from(logits.data);
+    const scores: number[] = [];
+    for (let start = 0; start < candidates.length; start += RERANK_BATCH_SIZE) {
+      const batch = candidates.slice(start, start + RERANK_BATCH_SIZE);
+      const inputs = await tokenizer(
+        batch.map(() => query),
+        {
+          text_pair: batch.map((c) => c.text),
+          padding: true,
+          truncation: true,
+          max_length: RERANK_MAX_TOKENS,
+        },
+      );
+      const { logits } = await classifier(inputs);
+      scores.push(...Array.from(logits.data).slice(0, batch.length));
+    }
 
     const ranked: RerankResult[] = candidates.map((c, i) =>
       Object.freeze({ id: c.id, score: Number(scores[i]) }),

@@ -77,6 +77,10 @@ export class FakeGateway {
     params: Record<string, unknown>,
   ): Promise<Record<string, unknown>> => {
     let results = [...this.docs.values()];
+    const docType = params.document_type__id;
+    if (docType !== undefined) {
+      results = results.filter((d) => d.document_type === Number(docType));
+    }
     const only = params.tags__id;
     if (only !== undefined) {
       results = results.filter((d) => ((d.tags as number[]) ?? []).includes(Number(only)));

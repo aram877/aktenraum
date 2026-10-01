@@ -142,14 +142,23 @@ export function broadenForAnswer(filter: SearchFilter): SearchFilter {
   return next;
 }
 
-export function docToSummary(doc: PaperlessDocument): DocumentSummary {
+function invertNameMap(byName: Record<string, number>): Map<number, string> {
+  return new Map(Object.entries(byName).map(([name, id]) => [id, name]));
+}
+
+export function docToSummary(
+  doc: PaperlessDocument,
+  names: { correspondentById?: Map<number, string>; documentTypeById?: Map<number, string> } = {},
+): DocumentSummary {
+  const nameOf = (map: Map<number, string> | undefined, id: unknown): string | null =>
+    typeof id === "number" ? (map?.get(id) ?? null) : null;
   return {
     id: doc.id,
     title: (typeof doc.title === "string" && doc.title) || `Dokument #${doc.id}`,
     original_file_name:
       typeof doc.original_file_name === "string" ? doc.original_file_name : null,
-    correspondent: null,
-    document_type: null,
+    correspondent: nameOf(names.correspondentById, doc.correspondent),
+    document_type: nameOf(names.documentTypeById, doc.document_type),
     created: parseDateField(doc.created_date ?? doc.created),
     lifecycle_tags: [],
     tags: [],
@@ -240,12 +249,31 @@ export class AiService {
     return [summaries, totalNative];
   }
 
+  async vectorFilterFor(filter: SearchFilter): Promise<SearchFilter> {
+    const broadened = broadenForAnswer(filter);
+    let correspondent: string | null = null;
+    if (broadened.correspondent) {
+      const wanted = broadened.correspondent.trim().toLowerCase();
+      const known = Object.keys(await this.gateway().listCorrespondents());
+      correspondent = known.find((name) => name.toLowerCase() === wanted) ?? null;
+    }
+    return { ...broadened, tags: [], correspondent };
+  }
+
   async retrieveChunks(question: string, filter: SearchFilter): Promise<RetrievedChunk[]> {
     if (this.retrievalDeps === null) return [];
-    return retrieveChunksForQuestion(question, {
+    const vectorFilter = await this.vectorFilterFor(filter);
+    const chunks = await retrieveChunksForQuestion(question, {
       deps: this.retrievalDeps,
-      structuralFilter: filter,
+      structuralFilter: vectorFilter,
     });
+    const constrained = vectorFilter.document_type !== null || vectorFilter.correspondent !== null;
+    if (chunks.length > 0 || !constrained) return chunks;
+    logger.info("rag_retrieve_unfiltered_fallback", {
+      document_type: vectorFilter.document_type,
+      correspondent: vectorFilter.correspondent,
+    });
+    return retrieveChunksForQuestion(question, { deps: this.retrievalDeps, structuralFilter: null });
   }
 
   async enrichWithAiFields(results: DocumentSummary[]): Promise<AnswerCandidate[]> {
@@ -322,23 +350,39 @@ export class AiService {
     structural: DocumentSummary[],
     ragChunks: RetrievedChunk[],
   ): Promise<DocumentSummary[]> {
-    const promptResults = structural.slice(0, ANSWER_CONTEXT_SIZE);
-    if (ragChunks.length === 0) return promptResults;
-
     const gateway = this.gateway();
-    const structuralIds = new Set(promptResults.map((row) => row.id));
-    let remaining = ANSWER_CONTEXT_SIZE - promptResults.length;
+    const structuralById = new Map(structural.map((row) => [row.id, row]));
+    const promptResults: DocumentSummary[] = [];
+    const included = new Set<number>();
+    let names: Parameters<typeof docToSummary>[1] | null = null;
+    const loadNames = async (): Promise<Parameters<typeof docToSummary>[1]> => {
+      names ??= {
+        correspondentById: invertNameMap(await gateway.listCorrespondents()),
+        documentTypeById: invertNameMap(await gateway.listDocumentTypes()),
+      };
+      return names;
+    };
     for (const docId of rankedUniqueDocIds(ragChunks)) {
-      if (remaining <= 0) break;
-      if (structuralIds.has(docId)) continue;
+      if (promptResults.length >= ANSWER_CONTEXT_SIZE) break;
+      const known = structuralById.get(docId);
+      if (known !== undefined) {
+        promptResults.push(known);
+        included.add(docId);
+        continue;
+      }
       try {
         const doc = await gateway.getDocument(docId);
-        promptResults.push(docToSummary(doc));
-        structuralIds.add(docId);
-        remaining -= 1;
+        promptResults.push(docToSummary(doc, await loadNames()));
+        included.add(docId);
       } catch {
         logger.warn("rag_doc_summary_fetch_failed", { doc_id: docId });
       }
+    }
+    for (const row of structural) {
+      if (promptResults.length >= ANSWER_CONTEXT_SIZE) break;
+      if (included.has(row.id)) continue;
+      promptResults.push(row);
+      included.add(row.id);
     }
     return promptResults;
   }

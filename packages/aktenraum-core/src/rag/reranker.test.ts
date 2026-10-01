@@ -170,3 +170,28 @@ describe("LocalReranker.rerank — output shape", () => {
     expect(out.every((r) => typeof r.score === "number")).toBe(true);
   });
 });
+
+describe("LocalReranker.rerank — bounded memory", () => {
+  it("scores candidates in small batches with a token cap and keeps scores aligned", async () => {
+    const batches: { size: number; maxLength: number | undefined }[] = [];
+    const tokenizer = async (
+      queries: string[],
+      options: { text_pair: string[]; max_length?: number },
+    ): Promise<unknown> => {
+      batches.push({ size: queries.length, maxLength: options.max_length });
+      return { textPairs: options.text_pair };
+    };
+    const classifier = async (inputs: unknown): Promise<{ logits: { data: number[] } }> => {
+      const { textPairs } = inputs as { textPairs: string[] };
+      return { logits: { data: textPairs.map((t) => Number(t)) } };
+    };
+    const reranker = new LocalReranker(undefined, { tokenizer, classifier });
+    const texts = Array.from({ length: 20 }, (_, i) => String(i));
+
+    const out = await reranker.rerank("q", candidates(texts), { topK: 3 });
+
+    expect(batches.map((b) => b.size)).toEqual([8, 8, 4]);
+    expect(batches.every((b) => b.maxLength === 512)).toBe(true);
+    expect(out.map((r) => r.id)).toEqual(["19", "18", "17"]);
+  });
+});

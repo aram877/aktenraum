@@ -21,7 +21,6 @@ import {
   type AnswerResponse,
   type AskRequest,
   type AskResponse,
-  type DocumentSummary,
   type SearchFilter,
 } from "./ai.schemas.js";
 import {
@@ -122,19 +121,20 @@ export class AiController {
       total,
     });
 
-    if (results.length === 0) {
+    const ragChunks = await this.aiService.retrieveChunks(body.question, searchFilter);
+    if (results.length === 0 && ragChunks.length === 0) {
       sse(response, "chunk", { text: NO_MATCH_DE });
       sse(response, "final", { answer_de: NO_MATCH_DE, citations: [], total: 0 });
       return;
     }
 
-    const ragChunks = await this.aiService.retrieveChunks(body.question, searchFilter);
     const promptResults = await this.aiService.promotePromptResults(results, ragChunks);
     const candidates = await this.aiService.enrichWithAiFields(promptResults);
     const chunksByDoc = groupChunksByDoc(ragChunks);
     const answerMessages = buildStreamingAnswerMessages(body.question, {
       candidates,
       chunksByDoc,
+      totalMatches: total,
     });
 
     let fullText = "";
@@ -161,17 +161,9 @@ export class AiController {
     }
 
     const citedIds = extractInlineCitations(fullText);
-    const citationPool: DocumentSummary[] = [...results];
-    const structuralIds = new Set(results.map((row) => row.id));
-    for (const doc of promptResults) {
-      if (!structuralIds.has(doc.id)) citationPool.push(doc);
-    }
-    let citations = resolveCitations(citedIds, citationPool);
+    let citations = resolveCitations(citedIds, promptResults);
     if (citations.length === 0 && !isDenialAnswer(answerText)) {
-      citations =
-        promptResults.length > 0
-          ? promptResults.slice(0, ANSWER_CONTEXT_SIZE)
-          : results.slice(0, ANSWER_CONTEXT_SIZE);
+      citations = promptResults;
     }
 
     sse(response, "final", { answer_de: answerText, citations, total });

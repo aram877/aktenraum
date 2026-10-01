@@ -88,4 +88,17 @@ describe("ask page", () => {
     const wrapper = await submit("Frage");
     await vi.waitFor(() => expect(wrapper.find('[data-testid="ask-error"]').text()).toBe("Nicht angemeldet"));
   });
+
+  it("stops streaming and reports an error when the stream ends without a final event", async () => {
+    const stream = controlledStream();
+    fetchMock.mockResolvedValue(new Response(stream.body, { status: 200 }));
+    const wrapper = await submit("Frage");
+    stream.push('event: chunk\ndata: {"text":"Halbe Antw"}\n\n');
+    stream.close();
+    await vi.waitFor(() =>
+      expect(wrapper.find('[data-testid="ask-error"]').text()).toContain("Verbindung wurde unterbrochen"),
+    );
+    expect(wrapper.find('[data-testid="ask-stop"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="ask-submit"]').exists()).toBe(true);
+  });
 });

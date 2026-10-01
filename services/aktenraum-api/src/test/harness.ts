@@ -12,7 +12,11 @@ import { DB, DB_POOL, type Database } from "../db/db.module.js";
 import * as schema from "../db/schema.js";
 import { PAPERLESS_GATEWAY } from "../paperless/paperless.module.js";
 import type { PaperlessGateway } from "../paperless/paperless.gateway.js";
+import type { LLMBackend } from "@aktenraum/core";
+
+import { LlmBackendProvider, type BackendRole } from "../ai/llm-backend.provider.js";
 import { RETRIEVAL_DEPS } from "../ai/retrieval.module.js";
+import type { RetrievalDeps } from "../ai/retrieval.js";
 import { VECTOR_STORE } from "../rag/rag.module.js";
 
 const SCHEMA_SQL = `
@@ -97,6 +101,8 @@ export interface Harness {
 export async function createHarness(options: {
   gateway?: Partial<PaperlessGateway> | null;
   env?: Record<string, string>;
+  llm?: Partial<Record<BackendRole, LLMBackend>>;
+  retrieval?: RetrievalDeps | null;
 } = {}): Promise<Harness> {
   const settings = loadSettings({ ...TEST_ENV, ...options.env });
 
@@ -111,7 +117,7 @@ export async function createHarness(options: {
   const pool = withArrayRowModeSupport(new pgAdapter.Pool());
   const db = drizzle(pool as never, { schema }) as Database;
 
-  const builder = Test.createTestingModule({ imports: [AppModule] })
+  let builder = Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(SETTINGS)
     .useValue(settings)
     .overrideProvider(DB)
@@ -121,9 +127,19 @@ export async function createHarness(options: {
     .overrideProvider(VECTOR_STORE)
     .useValue(null)
     .overrideProvider(RETRIEVAL_DEPS)
-    .useValue(null)
+    .useValue(options.retrieval ?? null)
     .overrideProvider(PAPERLESS_GATEWAY)
     .useValue(options.gateway === undefined ? null : options.gateway);
+  const llm = options.llm;
+  if (llm !== undefined) {
+    builder = builder.overrideProvider(LlmBackendProvider).useValue({
+      build: async (role: BackendRole) => {
+        const backend = llm[role];
+        if (backend === undefined) throw new Error(`no fake LLM for role ${role}`);
+        return backend;
+      },
+    });
+  }
 
   const moduleRef: TestingModule = await builder.compile();
   const app = moduleRef.createNestApplication();

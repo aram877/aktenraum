@@ -1,3 +1,6 @@
+const STREAM_CUT_DE =
+  "Die Verbindung wurde unterbrochen, bevor die Antwort vollständig war. Bitte erneut fragen.";
+
 export function useAnswerStream() {
   const answer = ref("");
   const meta = ref<StreamMeta | null>(null);
@@ -41,6 +44,7 @@ export function useAnswerStream() {
         return;
       }
       await readSseStream(resp.body, handlers);
+      if (streaming.value && !signal.aborted) handlers.onError?.(STREAM_CUT_DE);
     } catch (error: unknown) {
       if (signal.aborted) return;
       handlers.onError?.(error instanceof Error ? error.message : String(error));

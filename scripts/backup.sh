@@ -16,7 +16,15 @@ set -euo pipefail
 #   B2_ACCOUNT_KEY        — Backblaze B2 application key
 # =============================================================================
 
-BASE="${HOME}/aktenraum"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BASE="${AKTENRAUM_DATA_DIR:-}"
+if [ -z "${BASE}" ] && [ -f "${REPO_ROOT}/docker/.env" ]; then
+  BASE="$(grep '^AKTENRAUM_DATA_DIR=' "${REPO_ROOT}/docker/.env" | tail -1 | cut -d= -f2-)"
+fi
+if [ -z "${BASE}" ]; then
+  echo "ERROR: AKTENRAUM_DATA_DIR is not set. Put an absolute path in docker/.env first." >&2
+  exit 1
+fi
 LOCAL_REPO="${BASE}/backup/restic-repo"
 DBUSER="${PAPERLESS_DBUSER:-paperless}"
 COMPOSE_DIR="$(cd "$(dirname "$0")/../docker" && pwd)"

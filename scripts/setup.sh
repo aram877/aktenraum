@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE="${HOME}/aktenraum"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ENV_FILE="${REPO_ROOT}/docker/.env"
+BASE="${AKTENRAUM_DATA_DIR:-}"
+if [ -z "${BASE}" ] && [ -f "${ENV_FILE}" ]; then
+  BASE="$(grep '^AKTENRAUM_DATA_DIR=' "${ENV_FILE}" | tail -1 | cut -d= -f2-)"
+fi
+if [ -z "${BASE}" ]; then
+  echo "ERROR: AKTENRAUM_DATA_DIR is not set. Put an absolute path in docker/.env first." >&2
+  exit 1
+fi
 
 echo "Creating aktenraum host directories under ${BASE}..."
 
@@ -11,6 +20,7 @@ dirs=(
   data
   export
   pgdata
+  qdrant
   backup/restic-repo
 )
 

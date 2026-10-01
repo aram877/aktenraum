@@ -53,7 +53,7 @@ fi
 
 echo "  Got token: ${NEW_TOKEN:0:8}… (truncated)"
 
-# ---- write token into both env files (safe: uses temp file, no sed -i risk) --
+# ---- write token into docker/.env (safe: uses temp file, no sed -i risk) -----
 
 write_token() {
     local file="$1"
@@ -73,8 +73,7 @@ write_token() {
     echo "  Updated ${file}"
 }
 
-write_token "${DOCKER_DIR}/auto-tagger.env"
-write_token "${DOCKER_DIR}/aktenraum-api.env"
+write_token "${DOCKER_DIR}/.env"
 
 # ---- restart affected services -----------------------------------------------
 

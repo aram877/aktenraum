@@ -13,7 +13,7 @@
 #   PAPERLESS_API_TOKEN=<token> \
 #     ./scripts/migrate-ai-summary-to-longtext.sh
 #
-# Or just run from the repo root with docker/auto-tagger.env in place — the
+# Or just run from the repo root with docker/.env in place — the
 # script reads the token from there as a fallback.
 
 set -euo pipefail
@@ -21,12 +21,12 @@ set -euo pipefail
 BASE_URL="${PAPERLESS_BASE_URL:-http://localhost:8000}"
 TOKEN="${PAPERLESS_API_TOKEN:-}"
 
-if [[ -z "$TOKEN" && -f docker/auto-tagger.env ]]; then
-  TOKEN="$(grep '^PAPERLESS_API_TOKEN=' docker/auto-tagger.env | cut -d= -f2-)"
+if [[ -z "$TOKEN" && -f docker/.env ]]; then
+  TOKEN="$(grep '^PAPERLESS_API_TOKEN=' docker/.env | cut -d= -f2-)"
 fi
 
 if [[ -z "$TOKEN" ]]; then
-  echo "ERROR: PAPERLESS_API_TOKEN is not set and could not be read from docker/auto-tagger.env" >&2
+  echo "ERROR: PAPERLESS_API_TOKEN is not set and could not be read from docker/.env" >&2
   exit 1
 fi
 

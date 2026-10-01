@@ -81,30 +81,19 @@ openspec/                  OpenSpec change proposals
 
 ## Getting started
 
-See the **[First-time setup runbook](docs/runbooks/first-time-setup.md)** for the full step-by-step.
-
-Quick version (using the [`task` runner](https://taskfile.dev) — `brew install go-task`):
+**New machine:** install Docker Desktop, [Ollama](https://ollama.com), Git (Git Bash on Windows) and the [`task` runner](https://taskfile.dev), then:
 
 ```bash
-git clone <this-repo>
+git clone <this-repo> aktenraum
 cd aktenraum
-task setup                       # host dirs + secrets + stack + Paperless token/fields + backup init + first snapshot
+task setup        # or, without task: bash scripts/first-run.sh
 ```
 
-Or without `task`:
+`task setup` asks only for the data folder and does the rest (secrets, Ollama models, build, Paperless token + fields, first backup + restore check), then prints the login. It is safe to re-run. Step-by-step details: [`QUICKSTART.md`](QUICKSTART.md).
 
-```bash
-bash scripts/setup.sh                # create ~/aktenraum/ host dirs
-bash scripts/bootstrap-secrets.sh    # create docker/.env from .env.example + generate secrets
-cd docker && docker compose up -d
-```
+**Machine that already runs aktenraum:** after `git pull`, follow [`docs/runbooks/upgrade-existing-install.md`](docs/runbooks/upgrade-existing-install.md).
 
-Either way, first copy `docker/.env.example` to `docker/.env` and set `AKTENRAUM_DATA_DIR` to an absolute path (e.g. `/Users/you/aktenraum` or `D:/aktenraum`) — compose refuses to start without it, and `bootstrap-secrets.sh` keeps an existing `docker/.env`. All services read that one file.
-
-`task --list` enumerates every shortcut: `task start`, `task web:dev`,
-`task build`, `task test`, `task logs SVC=auto-tagger`, etc.
-
-Without `task`, after the first boot mint a Paperless API token (`bash scripts/fix-token.sh`) and run `bash scripts/bootstrap-paperless.sh` to create the AI custom fields and lifecycle tags. The SPA is at <http://localhost:8080> (override the port via `AKTENRAUM_WEB_PORT` in `docker/.env`).
+`task --list` enumerates every shortcut: `task start`, `task login`, `task web:dev`, `task build`, `task test`, `task logs SVC=auto-tagger`, etc. The SPA is at <http://localhost:8080> (override the port via `AKTENRAUM_WEB_PORT` in `docker/.env`).
 
 For an existing corpus, run `bash scripts/backfill-rag-index.sh` to index everything into Qdrant so `/ask` can answer body-text questions.
 

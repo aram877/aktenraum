@@ -12,7 +12,7 @@ fi
 now="$(date +%s)"
 report=""
 for tag in filesystem postgres postgres-aktenraum; do
-  latest="$(restic snapshots --tag "${tag}" --latest 1 --json 2>&1)" || {
+  latest="$(restic snapshots --no-lock --tag "${tag}" --latest 1 --json 2>&1)" || {
     echo "cannot open restic repository: ${latest}"
     exit 1
   }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# fix-token.sh — Mint a fresh Paperless API token and write it into both
-# env files. Run this whenever you see 401 errors from auto-tagger or
+# fix-token.sh — Mint a fresh Paperless API token and write it into
+# docker/.env. Run this whenever you see 401 errors from auto-tagger or
 # aktenraum-api, or after any postgres recreation.
 #
 # Usage: bash scripts/fix-token.sh
@@ -27,8 +27,8 @@ until docker compose --project-directory "${DOCKER_DIR}" exec -T paperless \
     curl -sf http://localhost:8000/api/ > /dev/null 2>&1; do
     sleep 3
     attempts=$((attempts + 1))
-    if [ $attempts -ge 20 ]; then
-        echo "ERROR: Paperless did not come up after 60s. Is the stack running?" >&2
+    if [ $attempts -ge 100 ]; then
+        echo "ERROR: Paperless did not come up after 5 minutes. Is the stack running?" >&2
         echo "  Run: task start" >&2
         exit 1
     fi
@@ -78,7 +78,7 @@ write_token "${DOCKER_DIR}/.env"
 # ---- restart affected services -----------------------------------------------
 
 echo "→ Restarting auto-tagger and aktenraum-api..."
-docker compose --project-directory "${DOCKER_DIR}" up -d auto-tagger aktenraum-api
+docker compose --project-directory "${DOCKER_DIR}" up -d --no-deps auto-tagger aktenraum-api
 echo "  Done."
 echo ""
 echo "✓ Token rotation complete. 401 errors should stop within a few seconds."

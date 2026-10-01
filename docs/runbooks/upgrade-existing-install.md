@@ -69,7 +69,9 @@ done
 
 Qdrant runs as uid 1000 since 2026-10-01. Folders created by the old (root)
 Qdrant are not writable for it, and Qdrant then crashes with
-`Can't init WAL … Permission denied`. This is harmless to repeat:
+`Can't init WAL … Permission denied`. Compose now runs this automatically on
+every start (the one-shot `qdrant-init` service); running it by hand here is
+harmless and covers hosts that haven't pulled that change yet:
 
 ```bash
 DATA_DIR="$(grep '^AKTENRAUM_DATA_DIR=' docker/.env | tail -1 | cut -d= -f2-)"

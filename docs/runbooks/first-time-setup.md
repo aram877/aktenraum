@@ -23,7 +23,7 @@ task setup
 
 This runs `scripts/setup.sh` (host dirs) → `scripts/bootstrap-secrets.sh` (fills secrets in `docker/.env`, prints the generated admin/SPA/restic passwords once) → `docker compose up -d` → `scripts/fix-token.sh` (mints the Paperless API token into `docker/.env` and recreates both Node services) → `scripts/bootstrap-paperless.sh` inside the paperless container → `restic init` in the backup container → a first snapshot.
 
-`scripts/setup.sh` exits unless `AKTENRAUM_DATA_DIR` is set, so on a fresh clone first run `bash scripts/bootstrap-secrets.sh` (creates `docker/.env`), set `AKTENRAUM_DATA_DIR` in it, then run `task setup`. The bootstrap-secrets step inside `task setup` is then a no-op apart from any still-empty values.
+`task setup` runs `scripts/first-run.sh`: it creates `docker/.env`, asks for `AKTENRAUM_DATA_DIR` (Enter accepts the suggested folder), pulls the Ollama models and finishes with a verified first backup and the login. Nothing has to be prepared by hand.
 
 The remaining sections walk through every step in detail; do them only if `task setup` doesn't fit your setup or you want the raw commands.
 

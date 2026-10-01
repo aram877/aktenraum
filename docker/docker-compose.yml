@@ -94,6 +94,21 @@ services:
     networks:
       - internal
 
+  qdrant-init:
+    image: alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+    command: ["chown", "-R", "1000:1000", "/qdrant/storage"]
+    restart: "no"
+    volumes:
+      - ${AKTENRAUM_DATA_DIR:?must be set to an absolute path in docker/.env (see .env.example) - unset/empty risks silent data loss}/qdrant:/qdrant/storage
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_READ_SEARCH
+    network_mode: none
+
   qdrant:
     # Vector store for the RAG indexing + retrieval pipeline (RAG Phase 1).
     # REST API on 6333 (used by the Python client we wired in 1.3); gRPC on
@@ -104,6 +119,9 @@ services:
     # if 6333 is already in use locally.
     image: qdrant/qdrant:v1.17.1-unprivileged@sha256:9ccb41c57d4297b082bfadeeb985359234c0497e6456a11b824a63a0e7a9cf65
     restart: unless-stopped
+    depends_on:
+      qdrant-init:
+        condition: service_completed_successfully
     environment:
       QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:?QDRANT_API_KEY is required - run scripts/bootstrap-secrets.sh}
     security_opt:

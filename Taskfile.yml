@@ -69,24 +69,15 @@ tasks:
       - "{{.PNPM}} install"
 
   setup:
-    desc: "First-time setup — secrets, stack, Paperless token + fields, backup repo, first snapshot"
+    desc: "First-time setup on a new machine — one command, asks only for the data folder"
+    interactive: true
     cmds:
-      - bash scripts/setup.sh
-      - bash scripts/bootstrap-secrets.sh
-      - "{{.COMPOSE}} up -d"
-      - bash scripts/fix-token.sh
-      - |
-        TOKEN=$(grep '^PAPERLESS_API_TOKEN=' docker/.env | cut -d= -f2-)
-        docker cp scripts/bootstrap-paperless.sh docker-paperless-1:/tmp/bootstrap-paperless.sh
-        {{.COMPOSE}} exec -T -e PAPERLESS_API_TOKEN="$TOKEN" paperless bash /tmp/bootstrap-paperless.sh
-      - |
-        {{.COMPOSE}} exec -T backup sh -c \
-          'restic -r /repo snapshots > /dev/null 2>&1 || restic -r /repo init'
-      - MSYS_NO_PATHCONV=1 {{.COMPOSE}} exec backup //usr/local/bin/entrypoint.sh
-      - |
-        echo ""
-        echo "✓ aktenraum is ready: http://localhost:8080"
-        echo "  Your login password was printed above by bootstrap-secrets. Write it down — it is not shown again."
+      - bash scripts/first-run.sh
+
+  login:
+    desc: "Show the aktenraum login from docker/.env"
+    cmds:
+      - grep -E '^BOOTSTRAP_(USERNAME|PASSWORD)=' docker/.env
 
   recover:
     desc: "Fix 401 / 'API rejected' errors after a database wipe — re-mints the Paperless token"

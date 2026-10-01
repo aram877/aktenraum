@@ -54,22 +54,40 @@ Then open **http://localhost:8080** in your browser.
 
 ---
 
-## First-time setup (run once, ever)
+## New machine: install aktenraum (run once, ever)
 
-Copy `docker/.env.example` to `docker/.env` and set `AKTENRAUM_DATA_DIR` to an absolute path (e.g. `D:/aktenraum` or `/Users/you/aktenraum`). Then:
+**1. Install these four programs** (once per computer):
+
+| Program | Where to get it |
+|---|---|
+| Docker Desktop | https://www.docker.com/products/docker-desktop/ — start it after installing |
+| Ollama (the local AI) | https://ollama.com — start it after installing |
+| Git (on Windows this includes **Git Bash**) | https://git-scm.com |
+| Task | macOS: `brew install go-task` · Windows: `winget install Task.Task` |
+
+**2. Open a terminal** (on Windows: **Git Bash**) and run:
 
 ```
+git clone <your aktenraum repository URL> aktenraum
+cd aktenraum
 task setup
 ```
 
-This does everything automatically:
-1. Creates the data folders and generates all passwords and secrets in `docker/.env`
-2. Starts all 10 services
-3. Mints the Paperless API token and creates the AI custom fields and tags in Paperless
-4. Initialises the backup system
-5. Takes the first backup
+That's all. `task setup` asks one question — which folder to keep your documents
+in (press Enter for the suggested one) — and then does everything else by
+itself: passwords, downloading the AI models, building and starting all
+services, connecting Paperless, the first backup and a restore test. It takes
+10–30 minutes the first time, mostly downloads.
 
-Your login password is printed at the end — **write it down**, it won't be shown again.
+At the end it prints your **web address, username and password**. Lost them?
+`task login` shows them again.
+
+If it stops with a ✗ message, it tells you what is missing (usually Docker or
+Ollama not running). Fix that and run `task setup` again — it is safe to repeat
+and keeps everything it already did.
+
+**Already running aktenraum and pulled new code?** Don't run setup — follow
+`docs/runbooks/upgrade-existing-install.md` (or ask Claude Code to follow it).
 
 ---
 
@@ -131,6 +149,8 @@ The rest of the tasks are for development: rebuilding code, running tests, debug
 | Stop aktenraum | `task stop` |
 | Is it running? | `task status` |
 | First-time setup | `task setup` |
+| Show my login | `task login` |
+| Update after `git pull` | follow `docs/runbooks/upgrade-existing-install.md` |
 | Fix 401 / API errors | `task recover` |
 | Make a manual backup | `docker compose --project-directory docker exec backup /usr/local/bin/entrypoint.sh` (Git Bash: `MSYS_NO_PATHCONV=1` and `//usr/local/bin/entrypoint.sh`) |
 | List backup history | `docker compose --project-directory docker exec -e RESTIC_REPOSITORY=/repo backup restic snapshots --tag aktenraum` |

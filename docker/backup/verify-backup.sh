@@ -29,7 +29,7 @@ log "Repository: ${RESTIC_REPOSITORY}"
 
 # 1. Repository integrity --------------------------------------------------
 log "restic check (structure + 5% data sample)..."
-restic check --read-data-subset=5% || fail "restic check reported repository errors"
+restic check --retry-lock 2m --read-data-subset=5% || fail "restic check reported repository errors"
 
 # 2. Filesystem restorability ---------------------------------------------
 log "Restoring filesystem snapshot (${SNAPSHOT}) to staging..."
@@ -38,7 +38,10 @@ restic dump --tag filesystem "${SNAPSHOT}" aktenraum-files.tar 2>/dev/null \
     | tar -x -C "${STAGING}/fs" \
     || fail "filesystem restore failed (no aktenraum-files.tar under tag filesystem?)"
 originals="$(find "${STAGING}/fs/media/documents/originals" -type f 2>/dev/null | wc -l | tr -d ' ')"
-[ "${originals}" -gt 0 ] || fail "filesystem restore contains 0 original documents"
+live="$(find /backup/media/documents/originals -type f 2>/dev/null | wc -l | tr -d ' ')"
+if [ "${live}" -gt 0 ] && [ "${originals}" -eq 0 ]; then
+    fail "filesystem restore contains 0 original documents but ${live} exist"
+fi
 fs_files="$(find "${STAGING}/fs" -type f | wc -l | tr -d ' ')"
 log "Filesystem restore OK: ${fs_files} files, ${originals} original documents."
 

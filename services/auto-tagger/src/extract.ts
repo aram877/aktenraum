@@ -9,6 +9,7 @@ import { DocumentExtractionSchema, LIFECYCLE_TAGS } from "@aktenraum/core";
 
 import type { Settings } from "./config.js";
 import { isTransientLlmError, type TransientFailureTracker } from "./transient.js";
+import { runTypeFieldsPass, type SaveTypeFields } from "./type-fields.js";
 import { routeLifecycleTags, UNTRUSTED_SOURCE_TAGS, type RuleSet } from "./routing.js";
 import {
   extractReferenceNumbersFromText,
@@ -125,6 +126,7 @@ export interface ExtractDeps {
   settings: Settings;
   getRules: () => Promise<RuleSet>;
   transientFailures?: TransientFailureTracker;
+  saveTypeFields?: SaveTypeFields;
 }
 
 export async function processDocument(
@@ -233,21 +235,40 @@ export async function processDocument(
       reason,
     });
   } catch (error: unknown) {
-    logger.error("paperless_write_failed", {
-      doc_id: docId,
-      error: error instanceof Error ? error.message : String(error),
+    await recordWriteFailure(paperless, docId, error);
+    return;
+  }
+
+  if (deps.saveTypeFields) {
+    await runTypeFieldsPass({
+      docId,
+      docType: finalExtraction.document_type,
+      text,
+      backend,
+      save: deps.saveTypeFields,
     });
-    try {
-      await paperless.setErrorMessage(
-        docId,
-        formatError("Paperless-Schreibvorgang fehlgeschlagen", error),
-      );
-      await paperless.addTagToDocument(docId, "ai-error");
-    } catch (tagError: unknown) {
-      logger.error("paperless_tag_failed", {
-        doc_id: docId,
-        error: tagError instanceof Error ? tagError.message : String(tagError),
-      });
-    }
+  }
+}
+
+async function recordWriteFailure(
+  paperless: PaperlessClient,
+  docId: number,
+  error: unknown,
+): Promise<void> {
+  logger.error("paperless_write_failed", {
+    doc_id: docId,
+    error: error instanceof Error ? error.message : String(error),
+  });
+  try {
+    await paperless.setErrorMessage(
+      docId,
+      formatError("Paperless-Schreibvorgang fehlgeschlagen", error),
+    );
+    await paperless.addTagToDocument(docId, "ai-error");
+  } catch (tagError: unknown) {
+    logger.error("paperless_tag_failed", {
+      doc_id: docId,
+      error: tagError instanceof Error ? tagError.message : String(tagError),
+    });
   }
 }

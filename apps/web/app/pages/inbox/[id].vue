@@ -13,6 +13,7 @@ const approve = useApprove(id);
 const reject = useReject(id);
 
 const mobilePane = ref<"pdf" | "form">("form");
+const starred = computed(() => hasTag(detail.data.value?.tags, "wichtig"));
 const { form, patch } = useHydratedForm(detail.data);
 
 const anyPending = computed(() => approve.isPending.value || reject.isPending.value);
@@ -81,7 +82,8 @@ useShortcuts(
           ← Zur Liste
         </button>
         <span class="truncate text-sm font-medium text-ink">{{ detail.data.value?.title ?? "…" }}</span>
-        <span class="ml-auto hidden text-[11px] text-ink-subtle md:inline">
+        <StarToggle v-if="id !== null && detail.data.value" :doc-id="id" :starred="starred" class="ml-auto shrink-0" />
+        <span class="hidden text-[11px] text-ink-subtle md:inline">
           <kbd>a</kbd> genehmigen · <kbd>r</kbd> ablehnen · <kbd>j</kbd>/<kbd>k</kbd> blättern · <kbd>Esc</kbd> zurück
         </span>
       </div>
@@ -89,7 +91,7 @@ useShortcuts(
 
     <PaneToggle v-model="mobilePane" />
 
-    <p v-if="errorText" class="mx-4 mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+    <p v-if="errorText" role="alert" class="mx-4 mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
       {{ errorText }}
     </p>
 
@@ -135,6 +137,13 @@ useShortcuts(
             {{ reject.isPending.value ? "lehne ab…" : "Ablehnen" }}
           </button>
         </div>
+
+        <TypeFieldsSection
+          v-if="id !== null"
+          :doc-id="id"
+          :document-type="detail.data.value.ai_document_type"
+          :values="detail.data.value.type_fields"
+        />
       </section>
     </div>
   </div>

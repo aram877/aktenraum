@@ -22,6 +22,7 @@ import {
 import { processApprovedDocument } from "./propagate.js";
 import type { RuleSet } from "./routing.js";
 import { isTransientLlmError, TransientFailureTracker } from "./transient.js";
+import { apiTypeFieldsSaver } from "./type-fields.js";
 
 class FakePaperless {
   readonly docs = new Map<number, PaperlessDocument>();
@@ -398,5 +399,88 @@ describe("ActiveModelConfig", () => {
     expect(await config.getModel(0)).toBe("db-model");
     up = false;
     expect(await config.getModel(120)).toBe("db-model");
+  });
+});
+
+describe("type-specific pass", () => {
+  function twoPassBackend(typeFields: Record<string, unknown> | Error) {
+    const calls: unknown[] = [];
+    return {
+      calls,
+      backend: backend(async (messages) => {
+        calls.push(messages);
+        if (calls.length === 1) return EXTRACTION as never;
+        if (typeFields instanceof Error) throw typeFields;
+        return typeFields as never;
+      }),
+    };
+  }
+
+  it("saves the non-empty type fields after routing", async () => {
+    const paperless = new FakePaperless();
+    paperless.addDoc({ id: 1 });
+    const { backend: llm } = twoPassBackend({ gesamtbetrag: "21,42 EUR", iban: null, rechnungsnummer: "R-1" });
+    const save = vi.fn(async () => undefined);
+
+    await processDocument(await paperless.getDocument(1), {
+      paperless: paperless.asClient(),
+      backend: llm,
+      settings: settings(),
+      getRules: async () => RULES,
+      saveTypeFields: save,
+    });
+
+    expect(save).toHaveBeenCalledWith(1, "Rechnung", { gesamtbetrag: "21,42 EUR", rechnungsnummer: "R-1" });
+    expect(paperless.tagsOf(1)).toEqual(["ai-pending"]);
+  });
+
+  it("is non-fatal when the second LLM call fails", async () => {
+    const paperless = new FakePaperless();
+    paperless.addDoc({ id: 1 });
+    const { backend: llm } = twoPassBackend(new Error("boom"));
+    const save = vi.fn(async () => undefined);
+
+    await processDocument(await paperless.getDocument(1), {
+      paperless: paperless.asClient(),
+      backend: llm,
+      settings: settings(),
+      getRules: async () => RULES,
+      saveTypeFields: save,
+    });
+
+    expect(save).not.toHaveBeenCalled();
+    expect(paperless.tagsOf(1)).toEqual(["ai-pending"]);
+  });
+
+  it("skips Sonstiges, which has no type fields", async () => {
+    const paperless = new FakePaperless();
+    paperless.addDoc({ id: 1 });
+    const calls: unknown[] = [];
+    const llm = backend(async () => {
+      calls.push(1);
+      return { ...EXTRACTION, document_type: "Sonstiges" } as never;
+    });
+
+    await processDocument(await paperless.getDocument(1), {
+      paperless: paperless.asClient(),
+      backend: llm,
+      settings: settings(),
+      getRules: async () => RULES,
+      saveTypeFields: vi.fn(async () => undefined),
+    });
+
+    expect(calls).toHaveLength(1);
+  });
+
+  it("PATCHes the api with the shared secret", async () => {
+    const fetchFn = vi.fn(async () => new Response("{}", { status: 200 }));
+    await apiTypeFieldsSaver("http://api:8002/", "s3cret", fetchFn as unknown as typeof fetch)(7, "Rechnung", {
+      gesamtbetrag: "EUR1.00",
+    });
+    const [url, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("http://api:8002/api/documents/7/type-fields");
+    expect(init.method).toBe("PATCH");
+    expect((init.headers as Record<string, string>)["X-Aktenraum-Secret"]).toBe("s3cret");
+    expect(JSON.parse(String(init.body))).toEqual({ document_type: "Rechnung", fields: { gesamtbetrag: "EUR1.00" } });
   });
 });

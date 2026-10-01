@@ -4,6 +4,7 @@ export interface ApiClient {
   patch<T>(path: string, body: unknown): Promise<T>;
   put<T>(path: string, body: unknown): Promise<T>;
   upload<T>(path: string, form: FormData): Promise<T>;
+  del<T>(path: string): Promise<T>;
 }
 
 export function useApi(): ApiClient {
@@ -14,5 +15,6 @@ export function useApi(): ApiClient {
     patch: (path, body) => request(path, { method: "PATCH", body: body as Record<string, unknown> }),
     put: (path, body) => request(path, { method: "PUT", body: body as Record<string, unknown> }),
     upload: (path, form) => request(path, { method: "POST", body: form }),
+    del: (path) => request(path, { method: "DELETE" }),
   };
 }

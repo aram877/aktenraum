@@ -10,18 +10,25 @@ const id = computed(() => {
 const detail = useDocumentDetail(id);
 const fieldsPatch = useDocumentFieldsPatch(id);
 const reprocess = useReprocess();
+const deleteDoc = useDeleteDocument();
 
 const mobilePane = ref<"pdf" | "form">("form");
 const savedAt = ref<number | null>(null);
 const confirmingReprocess = ref(false);
+const confirmingDelete = ref(false);
 
 const { form, patch, dirty, reset } = useHydratedForm(detail.data, () => {
   confirmingReprocess.value = false;
+  confirmingDelete.value = false;
 });
+
+const starred = computed(() => hasTag(detail.data.value?.tags, "wichtig"));
+const duplicate = computed(() => hasTag(detail.data.value?.tags, "ai-duplicate"));
 
 const errorText = computed(() => {
   if (fieldsPatch.isError.value) return detailFrom(fieldsPatch.error.value, "Speichern fehlgeschlagen.");
   if (reprocess.isError.value) return detailFrom(reprocess.error.value, "Erneut verarbeiten fehlgeschlagen.");
+  if (deleteDoc.isError.value) return detailFrom(deleteDoc.error.value, "Löschen fehlgeschlagen.");
   return null;
 });
 
@@ -52,6 +59,20 @@ async function onReprocess(): Promise<void> {
     confirmingReprocess.value = false;
   }
 }
+
+async function onDelete(): Promise<void> {
+  if (id.value === null) return;
+  if (!confirmingDelete.value) {
+    confirmingDelete.value = true;
+    return;
+  }
+  try {
+    await deleteDoc.mutateAsync(id.value);
+    await navigateTo("/library");
+  } catch {
+    confirmingDelete.value = false;
+  }
+}
 </script>
 
 <template>
@@ -65,18 +86,22 @@ async function onReprocess(): Promise<void> {
           ← Bibliothek
         </NuxtLink>
         <span class="truncate text-sm font-medium text-ink">{{ detail.data.value?.title ?? "…" }}</span>
-        <a
-          :href="`/api/documents/${id}/download`"
-          class="ml-auto rounded-lg border border-hairline px-3 py-1.5 text-xs font-medium text-ink hover:bg-canvas"
-        >
-          Herunterladen
-        </a>
+        <div class="ml-auto flex shrink-0 items-center gap-2">
+          <StarToggle v-if="id !== null && detail.data.value" :doc-id="id" :starred="starred" />
+          <a
+            v-if="id !== null"
+            :href="`/api/documents/${id}/download`"
+            class="rounded-lg border border-hairline px-3 py-1.5 text-xs font-medium text-ink hover:bg-canvas"
+          >
+            Herunterladen
+          </a>
+        </div>
       </div>
     </div>
 
     <PaneToggle v-model="mobilePane" />
 
-    <p v-if="errorText" class="mx-4 mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+    <p v-if="errorText" role="alert" class="mx-4 mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
       {{ errorText }}
     </p>
     <p
@@ -103,6 +128,7 @@ async function onReprocess(): Promise<void> {
       </section>
 
       <section class="flex flex-col gap-3 lg:block" :class="{ hidden: mobilePane !== 'form' }">
+        <DuplicatePanel v-if="duplicate && id !== null" :doc-id="id" class="mb-3" />
         <DocumentFieldsForm
           v-model="form"
           :confidence="detail.data.value.ai_confidence"
@@ -138,7 +164,24 @@ async function onReprocess(): Promise<void> {
           >
             {{ reprocess.isPending.value ? "starte…" : confirmingReprocess ? "Wirklich? Erneut klicken" : "Erneut verarbeiten" }}
           </button>
+          <button
+            type="button"
+            :disabled="deleteDoc.isPending.value"
+            data-testid="delete"
+            class="rounded-lg border px-4 py-2 text-sm font-medium disabled:opacity-50"
+            :class="confirmingDelete ? 'border-red-400 bg-red-50 text-red-700' : 'border-hairline text-red-700 hover:bg-red-50'"
+            @click="onDelete"
+          >
+            {{ deleteDoc.isPending.value ? "lösche…" : confirmingDelete ? "In den Papierkorb? Erneut klicken" : "Löschen" }}
+          </button>
         </div>
+
+        <TypeFieldsSection
+          v-if="id !== null"
+          :doc-id="id"
+          :document-type="detail.data.value.ai_document_type"
+          :values="detail.data.value.type_fields"
+        />
       </section>
     </div>
   </div>

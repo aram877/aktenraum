@@ -21,6 +21,7 @@ import {
 } from "./indexer.js";
 import { processApprovedDocument } from "./propagate.js";
 import { TransientFailureTracker } from "./transient.js";
+import { apiTypeFieldsSaver } from "./type-fields.js";
 import { createWebhookServer } from "./webhook.js";
 
 export async function bootstrap(): Promise<void> {
@@ -36,6 +37,9 @@ export async function bootstrap(): Promise<void> {
   const ragEnabled = Boolean(settings.QDRANT_URL);
   const indexingQueue = ragEnabled ? new AsyncQueue<IndexJob>() : null;
   const transientFailures = new TransientFailureTracker();
+  const saveTypeFields = settings.AKTENRAUM_API_URL
+    ? apiTypeFieldsSaver(settings.AKTENRAUM_API_URL, settings.WEBHOOK_SECRET)
+    : undefined;
   const autoApprove = new AutoApproveConfig(
     settings.AKTENRAUM_API_URL,
     settings.WEBHOOK_SECRET,
@@ -90,6 +94,7 @@ export async function bootstrap(): Promise<void> {
           settings,
           getRules: () => autoApprove.getRules(),
           transientFailures,
+          saveTypeFields,
         });
       },
     }),

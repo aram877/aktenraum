@@ -10,6 +10,8 @@ export const TAGS: Record<string, number> = {
   "ai-auto-approved": 6,
   wichtig: 7,
   Versicherung: 8,
+  "ai-duplicate": 20,
+  "ai-duplicate-dismissed": 21,
 };
 
 export const CUSTOM_FIELDS: Record<string, number> = {

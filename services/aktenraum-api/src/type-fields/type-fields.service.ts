@@ -128,10 +128,14 @@ export class TypeFieldsService {
     const fieldTypeByName = new Map(schemaFields.map((f) => [f.name, f.fieldType]));
 
     const normalised: Record<string, string> = {};
+    const cleared = new Set<string>();
     for (const [name, value] of Object.entries(rawFields)) {
-      if (value === null || value === undefined) continue;
-      const cleaned = normaliseValue(value, fieldTypeByName.get(name) ?? "string");
-      if (cleaned !== null) normalised[name] = cleaned;
+      const cleaned =
+        value === null || value === undefined
+          ? null
+          : normaliseValue(value, fieldTypeByName.get(name) ?? "string");
+      if (cleaned === null) cleared.add(name);
+      else normalised[name] = cleaned;
     }
 
     const existing = await this.get(docId);
@@ -150,6 +154,7 @@ export class TypeFieldsService {
         Object.entries(merged).filter(([name]) => fieldTypeByName.has(name)),
       );
     }
+    for (const name of cleared) delete merged[name];
     Object.assign(merged, normalised);
     const documentType = resolvedType || existing.documentType;
 

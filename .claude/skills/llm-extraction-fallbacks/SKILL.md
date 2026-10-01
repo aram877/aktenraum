@@ -127,7 +127,10 @@ Skip step 6 only if empty is genuinely correct (the `suggested_tags` decision).
 ## How to verify a fix on a real doc
 
 ```bash
-task reprocess ID=<doc_id>
+TOKEN=$(grep '^PAPERLESS_API_TOKEN=' docker/.env | cut -d= -f2-)
+curl -s -X PATCH "http://localhost:8000/api/documents/<doc_id>/" \
+  -H "Authorization: Token $TOKEN" -H "Content-Type: application/json" \
+  -d '{"tags": []}'
 task logs SVC=auto-tagger | grep -E "synthesized|harvested"
 ```
 

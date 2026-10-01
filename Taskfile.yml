@@ -1,146 +1,36 @@
-# aktenraum task runner — https://taskfile.dev
-#
-# Install:
-#   macOS    : brew install go-task
-#   Linux    : sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b ~/.local/bin
-#   Windows  : winget install Task.Task
-#
-# List tasks:
-#   task --list
-#
-# Pass vars on the CLI:
-#   task logs SVC=auto-tagger
-#   task reprocess ID=27
-
 version: "3"
 
 silent: true
 
 vars:
-  DOCKER_DIR: docker
-  # pnpm is normally installed via corepack, which does NOT put a `pnpm`
-  # shim on PATH under every Node version manager (fnm, for one). Resolve
-  # it once rather than failing every JS task with "executable not found".
   PNPM:
     sh: command -v pnpm >/dev/null 2>&1 && echo pnpm || echo 'corepack pnpm'
   COMPOSE: docker compose --project-directory docker
-  # Dev mode = prod compose + the dev overlay that bind-mounts source
-  # dirs and runs `tsx watch`. See docker/docker-compose.dev.yml for the
-  # override details.
-  COMPOSE_DEV: docker compose --project-directory docker -f docker/docker-compose.yml -f docker/docker-compose.dev.yml
 
 tasks:
   default:
-    desc: "List available tasks"
     cmds:
       - task --list
 
-  # ----- Simple everyday commands -----
-  #
-  # These are the only commands you need for normal use.
-
   start:
-    desc: "START aktenraum — picks up exactly where you left off"
+    desc: "Start the stack — picks up where you left off and applies docker/.env changes"
     cmds:
       - "{{.COMPOSE}} up -d"
-      - |
-        echo ""
-        echo "✓ aktenraum is starting up."
-        echo "  Give it ~30 seconds, then open: http://localhost:8080"
-        echo "  Check status with: task status"
+      - 'echo "✓ aktenraum is starting. Give it ~30s, then open http://localhost:8080"'
 
   stop:
-    desc: "STOP aktenraum — all your data is safe (nothing is deleted)"
+    desc: "Stop the stack — your data is kept"
     cmds:
       - "{{.COMPOSE}} down"
-      - |
-        echo ""
-        echo "✓ aktenraum stopped. Your documents are safe at D:/aktenraum."
-        echo "  Run: task start   to bring it back up."
+      - 'echo "✓ aktenraum stopped. Run task start to bring it back."'
 
   status:
     desc: "Show which services are running and whether they are healthy"
     cmds:
       - "{{.COMPOSE}} ps"
 
-  recover:
-    desc: "Fix 401 / 'API rejected' errors after a database wipe — re-mints the Paperless token"
-    cmds:
-      - bash scripts/fix-token.sh
-
-  destroy:
-    desc: "DANGER — wipe ALL data (documents, database, backups) and start completely fresh"
-    cmds:
-      - |
-        echo ""
-        echo "╔══════════════════════════════════════════════════════════════╗"
-        echo "║  WARNING: This will permanently delete all your documents,  ║"
-        echo "║  the database, and all backups in D:/aktenraum.             ║"
-        echo "║  There is NO undo.                                           ║"
-        echo "╚══════════════════════════════════════════════════════════════╝"
-        echo ""
-        printf 'Type DELETE to confirm, or press Enter to cancel: '
-        read confirm
-        if [ "$confirm" != "DELETE" ]; then
-          echo "Cancelled."
-          exit 0
-        fi
-        echo "Stopping stack..."
-        {{.COMPOSE}} down
-        DATA_DIR=$(grep '^AKTENRAUM_DATA_DIR=' docker/.env 2>/dev/null | cut -d= -f2- || echo "")
-        if [ -z "$DATA_DIR" ]; then
-          echo "ERROR: AKTENRAUM_DATA_DIR not found in docker/.env." >&2
-          echo "Delete your data folder manually, then run: task setup" >&2
-          exit 1
-        fi
-        echo "Deleting $DATA_DIR ..."
-        rm -rf "$DATA_DIR"
-        echo ""
-        echo "✓ Data wiped. Run: task setup   to start fresh."
-
-  build:fe:
-    desc: "Rebuild the frontend — bakes the SPA into the nginx image and restarts it"
-    cmds:
-      - "{{.COMPOSE}} up -d --build nginx"
-      - 'echo "✓ Frontend rebuilt. Open http://localhost:8080"'
-
-  build:be:
-    desc: "Rebuild the backend — recompiles and restarts auto-tagger + aktenraum-api"
-    cmds:
-      - "{{.COMPOSE}} up -d --build auto-tagger aktenraum-api"
-      - 'echo "✓ Backend rebuilt."'
-
-  build:
-    desc: "Rebuild everything — frontend (nginx/SPA) + backend (auto-tagger + aktenraum-api)"
-    cmds:
-      - "{{.COMPOSE}} up -d --build nginx auto-tagger aktenraum-api"
-      - 'echo "✓ Full rebuild done. Open http://localhost:8080"'
-
-  dev:up:
-    desc: "Dev mode — bind-mount source + hot-reload the Node services (no rebuild per edit). After this, .ts saves reload in ~1s."
-    cmds:
-      - "{{.COMPOSE_DEV}} up -d aktenraum-api auto-tagger"
-      - |
-        echo "✓ Dev mode active."
-        echo "  - both services run tsx watch (restart on .ts save)."
-        echo "  - Tail logs:    task logs SVC=aktenraum-api"
-        echo "  - Back to prod: task dev:down"
-
-  dev:down:
-    desc: "Drop dev-mode overrides and bring services back up under the prod entrypoints"
-    cmds:
-      - "{{.COMPOSE}} up -d aktenraum-api auto-tagger"
-      - 'echo "✓ Prod-style services restored. (SPA / other services untouched.)"'
-
-  # ----- Stack lifecycle (lower-level) -----
-
-  restart:
-    desc: "Restart every service (does NOT re-read env files; use up/recreate for that)"
-    cmds:
-      - "{{.COMPOSE}} restart"
-
   logs:
-    desc: "Tail logs. SVC=<service> for a single service; omit for all."
+    desc: "Tail logs. SVC=<service> for one service, omit for all"
     cmds:
       - |
         if [ -n "{{.SVC}}" ]; then
@@ -149,19 +39,37 @@ tasks:
           {{.COMPOSE}} logs -f --tail=100
         fi
 
-  recreate:
-    desc: "Recreate a service so it picks up env-file changes. SVC=<service> required."
+  build:
+    desc: "Rebuild and restart the SPA (nginx) and both Node services after a code change"
     cmds:
-      - |
-        if [ -z "{{.SVC}}" ]; then
-          echo 'Usage: task recreate SVC=<service>' >&2; exit 1
-        fi
-        {{.COMPOSE}} up -d {{.SVC}}
+      - "{{.COMPOSE}} up -d --build nginx auto-tagger aktenraum-api"
+      - 'echo "✓ Rebuilt. Open http://localhost:8080"'
 
-  # ----- First-time setup -----
+  web:dev:
+    desc: "Nuxt dev server on :4300 (proxies /api to the running stack on :8080)"
+    deps: [install]
+    cmds:
+      - "{{.PNPM}} --filter @aktenraum/web dev"
+
+  test:
+    desc: "Run every package's tests"
+    deps: [install]
+    cmds:
+      - "{{.PNPM}} -r test"
+
+  lint:
+    desc: "Run ESLint in every package"
+    deps: [install]
+    cmds:
+      - "{{.PNPM}} -r lint"
+
+  install:
+    internal: true
+    cmds:
+      - "{{.PNPM}} install"
 
   setup:
-    desc: "First-time setup — generates secrets, starts stack, wires everything up automatically"
+    desc: "First-time setup — secrets, stack, Paperless token + fields, backup repo, first snapshot"
     cmds:
       - bash scripts/setup.sh
       - bash scripts/bootstrap-secrets.sh
@@ -170,184 +78,54 @@ tasks:
       - |
         TOKEN=$(grep '^PAPERLESS_API_TOKEN=' docker/.env | cut -d= -f2-)
         docker cp scripts/bootstrap-paperless.sh docker-paperless-1:/tmp/bootstrap-paperless.sh
-        docker compose --project-directory docker exec -T \
-          -e PAPERLESS_API_TOKEN="$TOKEN" \
-          paperless bash /tmp/bootstrap-paperless.sh
+        {{.COMPOSE}} exec -T -e PAPERLESS_API_TOKEN="$TOKEN" paperless bash /tmp/bootstrap-paperless.sh
       - |
         {{.COMPOSE}} exec -T backup sh -c \
           'restic -r /repo snapshots > /dev/null 2>&1 || restic -r /repo init'
       - MSYS_NO_PATHCONV=1 {{.COMPOSE}} exec backup //usr/local/bin/entrypoint.sh
       - |
         echo ""
-        echo "╔══════════════════════════════════════════════════════════════╗"
-        echo "║  ✓ aktenraum is ready!                                      ║"
-        echo "║                                                              ║"
-        echo "║  Open: http://localhost:8080                                 ║"
-        echo "║                                                              ║"
-        echo "║  Your login password was printed above by bootstrap-secrets. ║"
-        echo "║  Write it down — it is not shown again.                      ║"
-        echo "╚══════════════════════════════════════════════════════════════╝"
+        echo "✓ aktenraum is ready: http://localhost:8080"
+        echo "  Your login password was printed above by bootstrap-secrets. Write it down — it is not shown again."
 
-  paperless:bootstrap:
-    desc: "Create Paperless custom fields + lifecycle tags via REST API"
+  recover:
+    desc: "Fix 401 / 'API rejected' errors after a database wipe — re-mints the Paperless token"
     cmds:
-      # Pure bash + curl against the Paperless REST API — no container
-      # runtime needed, and the same script the e2e harness uses.
-      - bash scripts/bootstrap-paperless.sh
+      - bash scripts/fix-token.sh
 
-  # ----- Development -----
-
-  install:
-    desc: "Install workspace dependencies (pnpm)"
-    cmds:
-      - "{{.PNPM}} install"
-
-  web:dev:
-    desc: "Nuxt dev server on :4300 (proxies /api to the nginx edge on :8080)"
-    deps: [install]
-    cmds:
-      - "{{.PNPM}} --filter @aktenraum/web dev"
-
-  # ----- Tests + lint -----
-
-  test:
-    desc: "Run the full test suite across every workspace package"
-    deps: [install]
-    cmds:
-      - "{{.PNPM}} -r test"
-
-  lint:
-    desc: "ESLint across every workspace package"
-    deps: [install]
-    cmds:
-      - "{{.PNPM}} -r lint"
-
-  # ----- One-shot ops -----
-
-  reprocess:
-    desc: "Clear lifecycle tags on a single doc so the auto-tagger re-extracts it. ID=<doc-id> required."
-    cmds:
-      - |
-        if [ -z "{{.ID}}" ]; then
-          echo 'Usage: task reprocess ID=<doc-id>' >&2; exit 1
-        fi
-        TOKEN=$(grep '^PAPERLESS_API_TOKEN=' docker/.env | cut -d= -f2-)
-        if [ -z "$TOKEN" ]; then
-          echo 'PAPERLESS_API_TOKEN missing from docker/.env' >&2; exit 1
-        fi
-        curl -sS -X PATCH "http://localhost:8000/api/documents/{{.ID}}/" \
-          -H "Authorization: Token $TOKEN" \
-          -H "Content-Type: application/json" \
-          -d '{"tags": []}' -o /dev/null -w "PATCH status: %{http_code}\n"
-        echo "Cleared lifecycle tags on doc {{.ID}}. Poller picks up within 30s — task logs SVC=auto-tagger to watch."
-
-  rag:backfill:
-    desc: "Index every existing document into Qdrant for RAG (idempotent)"
-    cmds:
-      - bash scripts/backfill-rag-index.sh
-
-  rag:eval:
-    desc: "Run the RAG eval harness against evals/golden-questions.yaml"
-    cmds:
-      - bash scripts/run-rag-eval.sh
-
-  e2e:worker:
-    desc: "End-to-end test of the Node worker against a THROWAWAY Paperless stack (never the live one)"
-    cmds:
-      - bash scripts/e2e-worker.sh
-
-  e2e:down:
-    desc: "Tear down the e2e stack and delete its volumes"
-    cmds:
-      - bash scripts/e2e-worker.sh --down
-
-  rag:reembed:
-    desc: "Re-embed the whole corpus after an embedding-model/dimension change (drops the Qdrant collection, then backfills)"
-    prompt: "This deletes the Qdrant vector index and re-embeds every document from scratch. Your documents in Paperless are untouched — only the search index is rebuilt. RAG/Ask is degraded until the backfill finishes. Continue?"
-    cmds:
-      # Drop the collection inside the auto-tagger container (uses the live
-      # QDRANT_URL + the canonical collection name; no host curl/port needed).
-      # Idempotent: a missing collection is a no-op. The backfill recreates it
-      # at the model's current DENSE_DIM before indexing.
-      - "MSYS_NO_PATHCONV=1 {{.COMPOSE}} exec -T auto-tagger node dist/drop-collection.js"
-      - echo "Re-embedding every document (this can take a while on a large corpus)..."
-      - bash scripts/backfill-rag-index.sh --force
-      - echo "Done. Verify with — task rag:eval — or check the dim — curl -s http://localhost:6333/collections/aktenraum_chunks"
-
-  backup:run:
-    desc: "Trigger a manual backup snapshot"
-    cmds:
-      - MSYS_NO_PATHCONV=1 {{.COMPOSE}} exec backup //usr/local/bin/entrypoint.sh
-
-  backup:snapshots:
-    desc: "List restic snapshots"
-    cmds:
-      - MSYS_NO_PATHCONV=1 {{.COMPOSE}} exec -e RESTIC_REPOSITORY=/repo backup restic snapshots --tag aktenraum
-
-  backup:check:
-    desc: "Verify restic repo integrity (structure + 5% data sample)"
-    cmds:
-      - MSYS_NO_PATHCONV=1 {{.COMPOSE}} exec -e RESTIC_REPOSITORY=/repo backup restic check --read-data-subset=5%
-
-  backup:verify:
-    desc: "Non-destructive DR rehearsal: restic check + filesystem restore to staging + validate both DB dumps"
-    cmds:
-      - MSYS_NO_PATHCONV=1 {{.COMPOSE}} exec -e RESTIC_REPOSITORY=/repo backup //usr/local/bin/verify-backup.sh
-
-  # ----- Tailscale remote access (see docs/runbooks/tailscale-remote-access.md) -----
-
-  tailscale:serve:
-    desc: "Expose aktenraum on the tailnet over HTTPS (proxies https://<host>.<tailnet>.ts.net → local SPA port). Persists across reboots via --bg. Requires Tailscale installed + tailscale up."
-    cmds:
-      - tailscale serve --bg --https=443 http://localhost:${AKTENRAUM_WEB_PORT:-8080}
-
-  tailscale:status:
-    desc: "Show the current tailscale serve mappings (sanity check after tailscale:serve)."
-    cmds:
-      - tailscale serve status
-
-  # ----- DB / Qdrant inspection -----
-
-  db:
-    desc: "Open a psql shell. DB=aktenraum (default) | paperless"
+  destroy:
+    desc: "DANGER — delete ALL data (documents, databases, backups) in AKTENRAUM_DATA_DIR"
     interactive: true
     cmds:
       - |
-        DB="{{.DB}}"
-        if [ -z "$DB" ]; then DB=aktenraum; fi
-        {{.COMPOSE}} exec postgres psql -U paperless -d "$DB"
-
-  db:query:
-    desc: 'Run a one-shot query against a DB. DB=aktenraum|paperless SQL="..."'
-    cmds:
-      - |
-        if [ -z "{{.SQL}}" ]; then
-          echo 'Usage: task db:query DB=aktenraum SQL="SELECT 1"' >&2; exit 1
+        DATA_DIR=$(grep '^AKTENRAUM_DATA_DIR=' docker/.env 2>/dev/null | cut -d= -f2- || true)
+        if [ -z "$DATA_DIR" ]; then
+          echo "ERROR: AKTENRAUM_DATA_DIR not found in docker/.env. Delete your data folder manually, then run task setup." >&2
+          exit 1
         fi
-        DB="{{.DB}}"
-        if [ -z "$DB" ]; then DB=aktenraum; fi
-        {{.COMPOSE}} exec postgres psql -U paperless -d "$DB" -c "{{.SQL}}"
-
-  qdrant:info:
-    desc: "Print the aktenraum_chunks collection info (vector dims) + exact point count"
-    cmds:
-      - |
-        URL="http://localhost:${AKTENRAUM_QDRANT_PORT:-6333}"
-        curl -sS "$URL/collections/aktenraum_chunks" | python3 -m json.tool
-        curl -sS -X POST "$URL/collections/aktenraum_chunks/points/count" \
-          -H "Content-Type: application/json" -d '{"exact": true}' \
-          | python3 -m json.tool
-        echo "Dashboard: $URL/dashboard"
-
-  qdrant:chunks:
-    desc: "Show the indexed chunks for one document. ID=<doc-id> required."
-    cmds:
-      - |
-        if [ -z "{{.ID}}" ]; then
-          echo 'Usage: task qdrant:chunks ID=<doc-id>' >&2; exit 1
+        echo ""
+        echo "WARNING: this permanently deletes every document, both databases and all backups in:"
+        echo "  $DATA_DIR"
+        echo "There is NO undo."
+        printf 'Type DELETE to confirm, or press Enter to cancel: '
+        read confirm
+        if [ "$confirm" != "DELETE" ]; then
+          echo "Cancelled."
+          exit 0
         fi
-        URL="http://localhost:${AKTENRAUM_QDRANT_PORT:-6333}"
-        curl -sS -X POST "$URL/collections/aktenraum_chunks/points/scroll" \
-          -H "Content-Type: application/json" \
-          -d '{"filter":{"must":[{"key":"doc_id","match":{"value":{{.ID}}}}]},"limit":20,"with_payload":true}' \
-          | python3 -c "import sys,json; r=json.load(sys.stdin); [print(p['payload']['chunk_index'],'·',(p['payload']['text'] or '')[:200].replace(chr(10),' ')) for p in r['result']['points']]"
+        {{.COMPOSE}} down
+        rm -rf "$DATA_DIR"
+        echo "✓ Data wiped. Run task setup to start fresh."
+
+  rag:reembed:
+    desc: "Rebuild the search index after changing the embedding model (Paperless documents are untouched)"
+    prompt: "This deletes the Qdrant vector index and re-embeds every document. Ask is degraded until it finishes. Continue?"
+    cmds:
+      - "MSYS_NO_PATHCONV=1 {{.COMPOSE}} exec -T auto-tagger node dist/drop-collection.js"
+      - echo "Re-embedding every document (this can take a while)..."
+      - bash scripts/backfill-rag-index.sh --force
+
+  backup:verify:
+    desc: "Check the backups can actually be restored (non-destructive: restic check + test restore + both DB dumps)"
+    cmds:
+      - MSYS_NO_PATHCONV=1 {{.COMPOSE}} exec -e RESTIC_REPOSITORY=/repo backup //usr/local/bin/verify-backup.sh

@@ -60,7 +60,6 @@ The host is the machine that will run the compose stack 24/7 and proxy aktenraum
      tailscale serve --bg --https=443 http://localhost:8080
      ```
    - If you've overridden `AKTENRAUM_WEB_PORT` in `docker/.env`, substitute that port (e.g., `http://localhost:9090`).
-   - Once the change ships, the equivalent shortcut is `task tailscale:serve` from Git Bash, which reads `AKTENRAUM_WEB_PORT` automatically.
    - **`--bg` is critical.** It installs the proxy as a persistent service that survives reboots and terminal closes. Without it the proxy dies as soon as you close the shell.
 10. **Verify the mapping**:
     ```

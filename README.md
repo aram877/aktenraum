@@ -101,7 +101,7 @@ cd docker && docker compose up -d
 ```
 
 `task --list` enumerates every shortcut: `task start`, `task web:dev`,
-`task build:be`, `task test`, `task logs SVC=auto-tagger`, etc.
+`task build`, `task test`, `task logs SVC=auto-tagger`, etc.
 
 After the first boot, mint a Paperless API token and run `bash scripts/bootstrap-paperless.sh` to create the AI custom fields and lifecycle tags. The SPA is at <http://localhost:8080> (override the port via `AKTENRAUM_WEB_PORT` in `docker/.env`).
 

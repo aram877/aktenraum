@@ -238,7 +238,7 @@ export class PaperlessClient {
 
     if (missingWithValue.length > 0) {
       // Loud, single-line warning. The cure is one command:
-      // `task paperless:bootstrap` (or `bash scripts/bootstrap-paperless.sh`)
+      // `bash scripts/bootstrap-paperless.sh` (also run by `task setup`)
       // — the script is idempotent and adds any missing custom fields.
       logger.warn("paperless_unknown_custom_fields_skipped", {
         doc_id: docId,

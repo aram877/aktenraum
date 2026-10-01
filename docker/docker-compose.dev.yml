@@ -1,6 +1,6 @@
 # Dev overlay — applied on top of docker-compose.yml via:
 #   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
-# (or `task dev:up` for the friendly form).
+# (`docker compose up -d aktenraum-api auto-tagger` restores the prod form).
 #
 # What this changes vs prod:
 #   - both Node services get the repo bind-mounted and run `tsx watch`

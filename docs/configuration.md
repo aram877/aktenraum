@@ -212,7 +212,7 @@ different model for full extractions.
 
 The Nuxt dev server reads no env vars. Its settings are fixed in code and
 apply only to `pnpm dev` / `task web:dev`; production builds
-(`nuxt generate`, baked into the nginx image by `task build:fe`) ignore them.
+(`nuxt generate`, baked into the nginx image by `task build`) ignore them.
 
 | Setting | Where | Value |
 |---|---|---|

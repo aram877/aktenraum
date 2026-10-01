@@ -94,7 +94,7 @@ Then re-upload your documents via the Upload page in the app. Documents aren't s
 To restore from a backup snapshot:
 
 ```
-task backup:snapshots     ← see what snapshots exist
+docker compose --project-directory docker exec -e RESTIC_REPOSITORY=/repo backup restic snapshots --tag aktenraum
 ```
 
 Then follow `docs/runbooks/restore.md`.
@@ -128,9 +128,8 @@ The rest of the tasks are for development: rebuilding code, running tests, debug
 | Is it running? | `task status` |
 | First-time setup | `task setup` |
 | Fix 401 / API errors | `task recover` |
-| Make a manual backup | `task backup:run` |
-| List backup history | `task backup:snapshots` |
+| Make a manual backup | `docker compose --project-directory docker exec backup /usr/local/bin/entrypoint.sh` (Git Bash: `MSYS_NO_PATHCONV=1` and `//usr/local/bin/entrypoint.sh`) |
+| List backup history | `docker compose --project-directory docker exec -e RESTIC_REPOSITORY=/repo backup restic snapshots --tag aktenraum` |
+| Check a backup really restores | `task backup:verify` |
 | Rebuild after code changes | `task build` |
-| Rebuild frontend only | `task build:fe` |
-| Rebuild backend only | `task build:be` |
 | Wipe everything | `task destroy` |

@@ -155,7 +155,7 @@ Several auxiliary markers live alongside the lifecycle tag, not instead:
 | LLM is down / times out | doc gets tagged `ai-error`, error message stored on the doc | Click "Erneut verarbeiten" — the auto-tagger picks it up again. |
 | OCR fails or returns empty text | doc gets tagged `ai-error` | The PDF is probably an image with no text. Re-scan with OCR-friendly settings. |
 | You approve, but writing native fields fails (Paperless rejected the value) | doc gets tagged `ai-propagation-error`, error stored | Fix the offending field on the doc, click "Erneut verarbeiten". |
-| Qdrant is down | indexing of new docs pauses; existing answers still work but only with metadata, no paragraph search | Restart the qdrant container; run `task rag:backfill` if you skipped indexing for a while. |
+| Qdrant is down | indexing of new docs pauses; existing answers still work but only with metadata, no paragraph search | Restart the qdrant container; run `bash scripts/backfill-rag-index.sh` if you skipped indexing for a while. |
 | auto-tagger container crashes | docs queue up in Paperless tagged with nothing | On restart, the poller scans and picks them all up within 30s. No work lost. |
 | You quit Docker Desktop mid-extraction | the in-flight extraction is cancelled; the doc stays with no AI tags | On next start, the poller finds it and re-extracts. The propagator's PATCH is *shielded* against cancellation so it never leaves a doc half-propagated. |
 

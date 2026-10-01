@@ -32,16 +32,12 @@ shortcuts:
 | `task setup` | first-time setup orchestration |
 | `task start` / `task stop` / `task status` | compose lifecycle |
 | `task web:dev` | Nuxt dev server on `:4300`, proxying `/api` to `:8080` |
-| `task build:fe` | bake SPA into the nginx image |
-| `task build:be` | rebuild + recreate both Node services |
-| `task dev:up` / `task dev:down` | hot-reload both Node services via `tsx watch` |
-| `task recreate SVC=auto-tagger` | recreate a service after env change |
+| `task build` | rebuild SPA (nginx) + both Node services |
 | `task logs SVC=auto-tagger` | tail one service |
 | `task test` / `task lint` | vitest + eslint across all four packages |
-| `task reprocess ID=27` | clear lifecycle tags so a doc re-extracts |
-| `task rag:backfill` / `task rag:eval` | RAG ops |
-| `task backup:run` / `task backup:verify` | manual snapshot / DR rehearsal |
-| `task e2e:worker` | full pipeline against a throwaway stack |
+| `task rag:reembed` | drop + re-embed the Qdrant index |
+| `task backup:verify` | DR rehearsal |
+| `task setup` / `task recover` / `task destroy` | first-time setup / re-mint token / wipe everything |
 
 If you don't have `task` installed, every recipe below also lists the
 raw command.
@@ -116,10 +112,14 @@ Open <http://localhost:4300> for the hot-reloaded SPA against the running
 compose stack; it proxies `/api` to the nginx edge on `:8080` (see
 `nitro.devProxy` in `apps/web/nuxt.config.ts`). The production SPA at `:8080` is unaffected.
 
-For the backend, `task dev:up` bind-mounts `src/` into both Node services
+For the backend, the dev overlay bind-mounts `src/` into both Node services
 and runs `tsx watch`, so a `.ts` save restarts the process in about a
-second with no image rebuild. `task dev:down` restores the prod
-entrypoints.
+second with no image rebuild:
+
+```bash
+docker compose --project-directory docker -f docker/docker-compose.yml -f docker/docker-compose.dev.yml up -d aktenraum-api auto-tagger
+docker compose --project-directory docker up -d aktenraum-api auto-tagger   # back to the prod entrypoints
+```
 
 ---
 
@@ -130,11 +130,11 @@ source changes. Use `up -d --build`:
 
 | You changed | Task | Raw command |
 |---|---|---|
-| `services/auto-tagger/**` or `packages/aktenraum-core/**` | `task build:be` | `docker compose up -d --build auto-tagger` |
-| `services/aktenraum-api/**` or `packages/aktenraum-core/**` | `task build:be` | `docker compose up -d --build aktenraum-api` |
-| `apps/web/**` (production build, not dev server) | `task build:fe` | `docker compose up -d --build nginx` |
-| `docker/nginx/nginx.conf` | `task build:fe` | `docker compose up -d --build nginx` |
-| Any `docker/*.env` value | `task recreate SVC=<svc>` | `docker compose up -d <service>` |
+| `services/auto-tagger/**` or `packages/aktenraum-core/**` | `task build` | `docker compose up -d --build auto-tagger` |
+| `services/aktenraum-api/**` or `packages/aktenraum-core/**` | `task build` | `docker compose up -d --build aktenraum-api` |
+| `apps/web/**` (production build, not dev server) | `task build` | `docker compose up -d --build nginx` |
+| `docker/nginx/nginx.conf` | `task build` | `docker compose up -d --build nginx` |
+| Any `docker/*.env` value | `task start` | `docker compose up -d <service>` |
 | `docker/docker-compose.yml` | `task start` | `docker compose up -d` |
 
 The auto-tagger Dockerfile's build context is the repo root, so a
@@ -148,7 +148,7 @@ single rebuild picks up both `services/auto-tagger/src/` and
 ### Python (workspace root)
 
 ```bash
-task install                        # pnpm install across the workspace
+pnpm install                        # task test/lint also run this first
 task test                           # every package (~90s, 594 tests)
 task lint                           # eslint across every package
 ```
@@ -170,7 +170,7 @@ pnpm --filter @aktenraum/api typecheck               # tsc over the test files t
 
 None of these need the stack running. For the pipeline end to end —
 webhook, extraction, routing, propagation, dedup, Qdrant indexing —
-`task e2e:worker` drives a throwaway Paperless/Postgres/Qdrant stack and
+`bash scripts/e2e-worker.sh` (`--down` tears it down) drives a throwaway Paperless/Postgres/Qdrant stack and
 asserts 20 outcomes. It refuses to run against live-stack ports.
 
 ### CI
@@ -242,12 +242,11 @@ curl -s -H "Authorization: Token $TOKEN" "$BASE/api/documents/?document_type__id
 
 ### Reprocess a single document
 
-`task reprocess ID=27` clears every lifecycle tag on that doc; the
-poller (or the auto-tagger webhook for the SPA's reprocess button)
-re-extracts it within 30 s.
+The SPA's "Erneut verarbeiten" button, or the PATCH below, clears every
+lifecycle tag on that doc; the poller (or the auto-tagger webhook for the
+SPA's button) re-extracts it within 30 s.
 
 ```bash
-# Equivalent without task:
 TOKEN=$(grep PAPERLESS_API_TOKEN docker/auto-tagger.env | cut -d= -f2)
 curl -s -X PATCH "http://localhost:8000/api/documents/27/" \
   -H "Authorization: Token $TOKEN" -H "Content-Type: application/json" \
@@ -284,9 +283,8 @@ ANTHROPIC_MODEL=claude-sonnet-4-6
 Then recreate the containers (env-file changes need a recreate, not a restart):
 
 ```bash
-task recreate SVC=auto-tagger
-task recreate SVC=aktenraum-api
-# or:
+task start
+# or just those two:
 cd docker && docker compose up -d auto-tagger aktenraum-api
 ```
 
@@ -301,8 +299,8 @@ existing corpus needs a one-shot index pass — newly-propagated docs
 index automatically but old ones don't:
 
 ```bash
-task rag:backfill                            # idempotent, skips already-indexed
-bash scripts/backfill-rag-index.sh --force   # re-index everything (no task wrapper for --force)
+bash scripts/backfill-rag-index.sh           # idempotent, skips already-indexed
+bash scripts/backfill-rag-index.sh --force   # re-index everything
 ```
 
 JSON-line events on stdout (`started → doc_indexed* → completed`).
@@ -314,7 +312,7 @@ Cases live in `evals/golden-questions.yaml` (bind-mounted into the api
 container at `/app/evals/`).
 
 ```bash
-task rag:eval                             # text report
+bash scripts/run-rag-eval.sh              # text report
 bash scripts/run-rag-eval.sh --json       # CI-friendly JSON
 ```
 
@@ -328,13 +326,9 @@ their own corpus.
 ### Run a manual backup
 
 ```bash
-# Dockerised path (default)
-task backup:run                             # trigger a snapshot
-task backup:snapshots                       # list snapshots
-
-# Or the raw commands:
+# Dockerised path (default): trigger a snapshot, then list snapshots
 MSYS_NO_PATHCONV=1 docker compose exec backup //usr/local/bin/entrypoint.sh
-MSYS_NO_PATHCONV=1 docker compose exec backup restic snapshots --tag aktenraum
+MSYS_NO_PATHCONV=1 docker compose exec -e RESTIC_REPOSITORY=/repo backup restic snapshots --tag aktenraum
 
 # Host-side path (only if you opted into the systemd unit)
 export RESTIC_PASSWORD=...

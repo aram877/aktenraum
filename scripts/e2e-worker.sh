@@ -272,7 +272,7 @@ step "Checking RAG indexing into Qdrant"
 CHUNKS=""
 for _ in $(seq 1 60); do
   CHUNKS="$(curl -sf -X POST "${QDRANT}/collections/aktenraum_chunks/points/count" \
-    -H "Content-Type: application/json" \
+    -H "Content-Type: application/json" -H "api-key: e2e-qdrant-key" \
     -d "{\"filter\":{\"must\":[{\"key\":\"doc_id\",\"match\":{\"value\":${DOC_ID}}}]},\"exact\":true}" \
     | "${PY}" -c "import sys,json; print(json.load(sys.stdin)['result']['count'])" 2>/dev/null || echo "")"
   [ -n "${CHUNKS}" ] && [ "${CHUNKS}" != "0" ] && break

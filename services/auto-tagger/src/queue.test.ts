@@ -65,8 +65,9 @@ describe("ProcessingState", () => {
 });
 
 describe("webhook helpers", () => {
-  it("accepts any request when no secret is configured", () => {
-    expect(secretMatches(undefined, "")).toBe(true);
+  it("rejects every request when no secret is configured", () => {
+    expect(secretMatches(undefined, "")).toBe(false);
+    expect(secretMatches("anything", "")).toBe(false);
   });
 
   it("rejects a missing or wrong secret once one is configured", () => {

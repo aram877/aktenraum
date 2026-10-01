@@ -20,7 +20,7 @@ import { projectResults } from "../ai/translate.js";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { PaperlessGatewayProvider } from "../paperless/paperless.module.js";
 import { collectTagIds } from "../paperless/tag-ids.js";
-import { pipeUpstreamToResponse } from "../common/stream.js";
+import { inlineSafe, pipeUpstreamToResponse } from "../common/stream.js";
 import { ZodValidationPipe } from "../common/zod-validation.pipe.js";
 import {
   inboxFieldUpdateSchema,
@@ -137,10 +137,13 @@ export class DocumentsController {
     @Res() response: Response,
   ): Promise<void> {
     const upstream = await this.documentsService.openStream(docId, "preview");
-    await pipeUpstreamToResponse(upstream, response, {
-      contentType: upstream.headers.get("content-type") ?? "application/pdf",
-      headers: { "Cache-Control": "private, max-age=300" },
-    });
+    const contentType = upstream.headers.get("content-type") ?? "application/pdf";
+    const headers: Record<string, string> = { "Cache-Control": "private, max-age=300" };
+    if (!inlineSafe(contentType)) {
+      headers["Content-Disposition"] = "attachment";
+      headers["Content-Security-Policy"] = "sandbox";
+    }
+    await pipeUpstreamToResponse(upstream, response, { contentType, headers });
   }
 
   @Get(":doc_id/download")
@@ -152,7 +155,12 @@ export class DocumentsController {
     await pipeUpstreamToResponse(upstream, response, {
       contentType: upstream.headers.get("content-type") ?? "application/octet-stream",
       forwardHeaders: ["content-disposition"],
-      headers: { "Cache-Control": "private, no-store" },
+      headers: {
+        "Cache-Control": "private, no-store",
+        ...(inlineSafe(upstream.headers.get("content-type") ?? "")
+          ? {}
+          : { "Content-Security-Policy": "sandbox" }),
+      },
     });
   }
 }

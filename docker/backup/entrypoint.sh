@@ -28,20 +28,6 @@ if ! restic snapshots &>/dev/null; then
     fi
 fi
 
-# --------------------------------------------------------------------------
-# Backup data directories
-# --------------------------------------------------------------------------
-log "Backing up Paperless data directories..."
-restic backup \
-    /backup/data \
-    /backup/media \
-    /backup/export \
-    --tag aktenraum \
-    --tag filesystem
-
-# --------------------------------------------------------------------------
-# Backup postgres via direct connection
-# --------------------------------------------------------------------------
 log "Backing up paperless database..."
 pg_dump -h postgres -U "${DBUSER}" paperless \
     | restic backup \
@@ -57,6 +43,14 @@ pg_dump -h postgres -U "${DBUSER}" aktenraum \
         --stdin-filename aktenraum.dump \
         --tag aktenraum \
         --tag postgres-aktenraum
+
+log "Backing up Paperless data directories..."
+restic backup \
+    --stdin-from-command \
+    --stdin-filename aktenraum-files.tar \
+    --tag aktenraum \
+    --tag filesystem \
+    -- /usr/local/bin/tar-data.sh
 
 # --------------------------------------------------------------------------
 # Retention policy

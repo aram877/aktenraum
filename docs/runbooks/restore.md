@@ -62,47 +62,42 @@ This reads `AKTENRAUM_DATA_DIR` from `docker/.env` and creates `consume`, `media
 
 ## Step 4 — Restore filesystem data
 
-> **Important — confirm the paths first.** The default deployment backs up
-> through the `backup` container, which records the in-container mount
-> paths `/backup/data`, `/backup/media`, `/backup/export` (NOT
-> host paths). The host-side `scripts/backup.sh` instead records
-> `<AKTENRAUM_DATA_DIR>/data` etc. Always check what the snapshot actually contains
-> before restoring:
->
-> ```bash
-> restic ls latest --tag filesystem | head
-> ```
->
-> The examples below assume the **container** layout (`/backup/*`). If your
-> snapshot shows host paths, substitute those.
+Since 2026-10-01 the backup container stores `data/`, `media/` and `export/`
+as one tar stream, `aktenraum-files.tar` (tag `filesystem`). restic's own file
+reader fails with `input/output error` on Docker Desktop bind mounts, so
+`tar` reads the files instead. Snapshots taken before that date contain the
+directory tree but **no document files** and are useless for a restore.
 
-restic always recreates the snapshot's absolute paths under `--target`, so
-restore into a staging dir and then move the trees into your data directory
-(`AKTENRAUM_DATA_DIR`, e.g. `~/aktenraum` on Linux/macOS or `D:/aktenraum`
-on Windows):
+Check the snapshot first — it should list `/aktenraum-files.tar`:
+
+```bash
+restic ls latest --tag filesystem
+```
+
+Extract it straight into your data directory (`AKTENRAUM_DATA_DIR`, e.g.
+`~/aktenraum` on macOS/Linux or `D:/aktenraum` on Windows). The empty
+`data/`, `media/` and `export/` folders from step 3 are fine; anything else in
+them is overwritten:
 
 ```bash
 SNAPSHOT=latest  # or a specific snapshot ID
 DATA_DIR="${HOME}/aktenraum"   # set to your AKTENRAUM_DATA_DIR
 
-restic restore "${SNAPSHOT}" --tag filesystem \
-  --target /tmp/aktenraum-restore \
-  --include /backup/data \
-  --include /backup/media \
-  --include /backup/export
-
-# Move the restored trees into place (rmdir drops the empty dirs from step 3;
-# it fails rather than deleting anything if they are not empty)
-for d in data media export; do
-  rmdir "${DATA_DIR}/${d}" 2>/dev/null || true
-  [ -e "${DATA_DIR}/${d}" ] && { echo "${DATA_DIR}/${d} is not empty — stop"; break; }
-  mv "/tmp/aktenraum-restore/backup/${d}" "${DATA_DIR}/${d}"
-done
+restic dump --tag filesystem "${SNAPSHOT}" aktenraum-files.tar | tar -x -C "${DATA_DIR}"
+ls "${DATA_DIR}/media/documents/originals" | head
 ```
 
-On Windows (Git Bash / PowerShell) set `DATA_DIR` to the `AKTENRAUM_DATA_DIR`
-you configured in `docker/.env` (e.g. `D:/aktenraum`) and use a staging path
-on the same drive.
+The same works from inside the backup container (the repo is at `/repo`):
+
+```bash
+docker compose --project-directory docker run --rm --no-deps \
+  -e RESTIC_REPOSITORY=/repo -v "${DATA_DIR}:/restore" --entrypoint sh backup \
+  -c 'restic dump --tag filesystem latest aktenraum-files.tar | tar -x -C /restore'
+```
+
+On Windows (Git Bash) set `DATA_DIR` to the `AKTENRAUM_DATA_DIR` you
+configured in `docker/.env` (e.g. `D:/aktenraum`) and prefix the container
+command with `MSYS_NO_PATHCONV=1`.
 
 ---
 

@@ -6,7 +6,7 @@ import cookieParser from "cookie-parser";
 
 import { AppModule } from "./app.module.js";
 import { FastApiErrorShapeFilter } from "./common/http-exception.filter.js";
-import { csrfMiddleware, securityHeadersMiddleware } from "./common/middleware.js";
+import { createCsrfMiddleware, securityHeadersMiddleware } from "./common/middleware.js";
 import { loadSettings } from "./config/settings.js";
 import { applySchema } from "./db/apply-schema.js";
 
@@ -17,8 +17,8 @@ export async function bootstrap(): Promise<void> {
     logger.warn("webhook_secret_unset", {
       detail:
         "WEBHOOK_SECRET is empty — the internal /api/settings/active-* endpoints " +
-        "are unauthenticated and rely on Docker network isolation alone. Set " +
-        "WEBHOOK_SECRET (bootstrap-secrets.sh generates one) in docker/.env.",
+        "reject every call, so the auto-tagger falls back to OLLAMA_MODEL and " +
+        "fail-closed auto-approve rules. Run scripts/bootstrap-secrets.sh.",
     });
   }
 
@@ -28,7 +28,7 @@ export async function bootstrap(): Promise<void> {
   app.setGlobalPrefix("api");
   app.use(cookieParser());
   app.use(securityHeadersMiddleware);
-  app.use(csrfMiddleware);
+  app.use(createCsrfMiddleware(settings.WEBHOOK_SECRET));
   app.useGlobalFilters(new FastApiErrorShapeFilter());
 
   await app.listen(settings.PORT, "0.0.0.0");

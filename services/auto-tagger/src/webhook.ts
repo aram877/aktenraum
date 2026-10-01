@@ -10,8 +10,7 @@ import type { ProcessingState } from "./processing-state.js";
 export type Trigger = "extract" | "propagate" | "reindex-metadata";
 
 export function secretMatches(provided: string | undefined, expected: string): boolean {
-  if (!expected) return true;
-  if (provided === undefined) return false;
+  if (!expected || provided === undefined) return false;
   const a = Buffer.from(provided);
   const b = Buffer.from(expected);
   if (a.length !== b.length) return false;

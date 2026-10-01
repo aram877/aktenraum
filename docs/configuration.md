@@ -30,7 +30,7 @@ Rules that bite:
   `docker compose --project-directory docker up -d <service>` (or
   `task start`) to recreate the container.
 - Empty is treated as unset: `KEY=` falls back to the code default. Where
-  empty *disables* a feature (`QDRANT_URL`, `WEBHOOK_SECRET`,
+  empty *disables* a feature (`QDRANT_URL`,
   `AKTENRAUM_MAIL_IMAP_SERVER`) it is called out below.
 - Run compose from the repo root with `--project-directory docker`, or from
   inside `docker/`; otherwise Compose does not find `docker/.env` and the
@@ -130,7 +130,7 @@ re-run reconciles drift). No service reads them at runtime.
 
 | Var | Template | Code default | Purpose |
 |---|---|---|---|
-| `WEBHOOK_SECRET` | empty (generated) | empty | Sent as `X-Aktenraum-Secret`. Gates the auto-tagger's `/trigger/*` endpoints (Paperless `post_consume`, api → worker triggers) and the api's internal `/api/settings/active-llm-model` + `/api/settings/active-auto-approve-rules` endpoints. Empty disables the check on both sides. |
+| `WEBHOOK_SECRET` | empty (generated) | empty | Sent as `X-Aktenraum-Secret`. Gates the auto-tagger's `/trigger/*` endpoints (Paperless `post_consume`, api → worker triggers) and the api's internal `/api/settings/active-llm-model` + `/api/settings/active-auto-approve-rules` endpoints. Empty means every internal call is rejected (fail-closed) — keep it set. |
 
 ### LLM backend
 
@@ -164,6 +164,7 @@ With `LLM_BACKEND=anthropic` both services use `ANTHROPIC_MODEL` (plus
 | Var | Template | Code default | Purpose |
 |---|---|---|---|
 | `QDRANT_URL` | `http://qdrant:6333` | empty | Qdrant REST URL. Empty disables RAG: the worker runs no indexer and the api answers from AI metadata only. |
+| `QDRANT_API_KEY` | empty (filled by `bootstrap-secrets.sh`) | empty | **Required by compose.** Passed to Qdrant as `QDRANT__SERVICE__API_KEY` and sent by both Node services as the `api-key` header. |
 | `EMBEDDING_MODEL` | `qwen3-embedding:4b` | `qwen3-embedding:4b` | Ollama embedding model, used for indexing (worker) and query embedding (api). Its dimension must match `rag.DENSE_DIM` in `@aktenraum/core` (2560); after changing it run `task rag:reembed`. Pull it first with `ollama pull`. |
 
 ### Logging

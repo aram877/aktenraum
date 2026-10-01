@@ -6,7 +6,8 @@ set -euo pipefail
 #
 # Proves a backup is actually recoverable WITHOUT touching live data:
 #   1. restic check       — repository integrity (structure + 5% data sample)
-#   2. filesystem restore  — into a throwaway staging dir; asserts >0 files
+#   2. filesystem restore  — tar stream into a throwaway staging dir; asserts
+#                            at least one original document came back
 #   3. both DB dumps       — restic dump each stream; asserts non-empty + looks
 #                            like a pg_dump (paperless AND aktenraum)
 #
@@ -32,11 +33,14 @@ restic check --read-data-subset=5% || fail "restic check reported repository err
 
 # 2. Filesystem restorability ---------------------------------------------
 log "Restoring filesystem snapshot (${SNAPSHOT}) to staging..."
-restic restore "${SNAPSHOT}" --tag filesystem --target "${STAGING}/fs" >/dev/null \
-    || fail "filesystem restore failed (no filesystem-tagged snapshot?)"
+mkdir -p "${STAGING}/fs"
+restic dump --tag filesystem "${SNAPSHOT}" aktenraum-files.tar 2>/dev/null \
+    | tar -x -C "${STAGING}/fs" \
+    || fail "filesystem restore failed (no aktenraum-files.tar under tag filesystem?)"
+originals="$(find "${STAGING}/fs/media/documents/originals" -type f 2>/dev/null | wc -l | tr -d ' ')"
+[ "${originals}" -gt 0 ] || fail "filesystem restore contains 0 original documents"
 fs_files="$(find "${STAGING}/fs" -type f | wc -l | tr -d ' ')"
-[ "${fs_files}" -gt 0 ] || fail "filesystem restore produced 0 files — snapshot paths likely wrong"
-log "Filesystem restore OK: ${fs_files} files."
+log "Filesystem restore OK: ${fs_files} files, ${originals} original documents."
 
 # 3. Database dumps --------------------------------------------------------
 # tag : stdin-filename : human label

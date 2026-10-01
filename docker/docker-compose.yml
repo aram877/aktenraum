@@ -102,8 +102,14 @@ services:
     # /dashboard is reachable from the dev machine without exposing the
     # vector store to the LAN. Override AKTENRAUM_QDRANT_PORT in docker/.env
     # if 6333 is already in use locally.
-    image: qdrant/qdrant:v1.17.1@sha256:94728574965d17c6485dd361aa3c0818b325b9016dac5ea6afec7b4b2700865f
+    image: qdrant/qdrant:v1.17.1-unprivileged@sha256:9ccb41c57d4297b082bfadeeb985359234c0497e6456a11b824a63a0e7a9cf65
     restart: unless-stopped
+    environment:
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:?QDRANT_API_KEY is required - run scripts/bootstrap-secrets.sh}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     volumes:
       - ${AKTENRAUM_DATA_DIR:?must be set to an absolute path in docker/.env (see .env.example) - unset/empty risks silent data loss}/qdrant:/qdrant/storage
     ports:
@@ -130,6 +136,10 @@ services:
       context: ..
       dockerfile: services/auto-tagger/Dockerfile
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     # Cap RAM so a runaway extraction/indexing job can't OOM-kill postgres
     # mid-write. Tune per host via AUTO_TAGGER_MEM_LIMIT.
     mem_limit: ${AUTO_TAGGER_MEM_LIMIT:-3g}
@@ -165,6 +175,10 @@ services:
       context: ..
       dockerfile: services/aktenraum-api/Dockerfile
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     # Cap RAM so a runaway (reranker load + concurrent requests) can't
     # OOM-kill postgres mid-write. Tune per host via AKTENRAUM_API_MEM_LIMIT.
     mem_limit: ${AKTENRAUM_API_MEM_LIMIT:-4g}
@@ -207,19 +221,23 @@ services:
       context: ..
       dockerfile: docker/nginx/Dockerfile
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     depends_on:
       aktenraum-api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
       interval: 30s
       timeout: 5s
       retries: 3
     ports:
-      # Host 8080 → container 80. Port 80 is often taken on dev machines (eg.
+      # Host 8080 → container 8080 (non-root nginx cannot bind 80). Port 80 is often taken on dev machines (eg.
       # by another project's traefik); 8080 is the conventional alternate.
       # Override via AKTENRAUM_WEB_PORT in docker/.env.
-      - "127.0.0.1:${AKTENRAUM_WEB_PORT:-8080}:80"
+      - "127.0.0.1:${AKTENRAUM_WEB_PORT:-8080}:8080"
     networks:
       - internal
 
@@ -227,6 +245,14 @@ services:
     build:
       context: ./backup
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/healthcheck.sh"]
+      interval: 1h
+      timeout: 2m
+      retries: 1
+      start_period: 5m
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       postgres:
         condition: service_healthy

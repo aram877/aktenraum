@@ -6,7 +6,7 @@ import { newDb } from "pg-mem";
 
 import { AppModule } from "../app.module.js";
 import { FastApiErrorShapeFilter } from "../common/http-exception.filter.js";
-import { csrfMiddleware, securityHeadersMiddleware } from "../common/middleware.js";
+import { createCsrfMiddleware, securityHeadersMiddleware } from "../common/middleware.js";
 import { SETTINGS, loadSettings, type Settings } from "../config/settings.js";
 import { DB, DB_POOL, type Database } from "../db/db.module.js";
 import * as schema from "../db/schema.js";
@@ -146,7 +146,7 @@ export async function createHarness(options: {
   app.setGlobalPrefix("api");
   app.use(cookieParser());
   app.use(securityHeadersMiddleware);
-  app.use(csrfMiddleware);
+  app.use(createCsrfMiddleware(settings.WEBHOOK_SECRET));
   app.useGlobalFilters(new FastApiErrorShapeFilter());
   await app.init();
 

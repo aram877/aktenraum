@@ -77,7 +77,9 @@ services:
       - e2e
 
   qdrant:
-    image: qdrant/qdrant:v1.17.1
+    image: qdrant/qdrant:v1.17.1-unprivileged@sha256:9ccb41c57d4297b082bfadeeb985359234c0497e6456a11b824a63a0e7a9cf65
+    environment:
+      QDRANT__SERVICE__API_KEY: e2e-qdrant-key
     volumes:
       - e2e-qdrant:/qdrant/storage
     ports:
@@ -144,6 +146,7 @@ services:
       WEBHOOK_SECRET: e2e-webhook-secret
       AKTENRAUM_API_URL: http://aktenraum-api:8002
       QDRANT_URL: http://qdrant:6333
+      QDRANT_API_KEY: e2e-qdrant-key
       LLM_BACKEND: ollama
       OLLAMA_BASE_URL: ${E2E_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:14b-instruct-q8_0}

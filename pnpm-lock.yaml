@@ -126,6 +126,9 @@ importers:
       jsonwebtoken:
         specifier: ^9.0.2
         version: 9.0.3
+      multer:
+        specifier: 2.0.2
+        version: 2.0.2
       pg:
         specifier: ^8.13.1
         version: 8.23.0
@@ -157,6 +160,9 @@ importers:
       '@types/jsonwebtoken':
         specifier: ^9.0.7
         version: 9.0.10
+      '@types/multer':
+        specifier: ^2
+        version: 2.3.0
       '@types/node':
         specifier: ^22.10.2
         version: 22.20.1
@@ -2507,6 +2513,9 @@ packages:
 
   '@types/ms@2.1.0':
     resolution: {integrity: sha512-GsCCIZDE/p3i96vtEqx+7dBUGXrc7zeSK3wwPHIaRThS+9OhWIXRqzs4d6k1SVU8g91DrNRWxWUGhp5KXQb2VA==}
+
+  '@types/multer@2.3.0':
+    resolution: {integrity: sha512-i7STIm9V4K2MPH4ZYMtrZAwNxs3kglk2LgleaTuB9pUXgADBcQYQuYMd7+6xgTIxfoggIkFA/DkkvycdZpIARA==}
 
   '@types/node-fetch@2.6.13':
     resolution: {integrity: sha512-QGpRVpzSaUs30JBSGPjOg4Uveu384erbHBoT1zeONvyCfwQxIkUshLAOqN/k9EjGviPRmWTTe6aH2qySWKTVSw==}
@@ -9322,6 +9331,10 @@ snapshots:
   '@types/methods@1.1.4': {}
 
   '@types/ms@2.1.0': {}
+
+  '@types/multer@2.3.0':
+    dependencies:
+      '@types/express': 5.0.6
 
   '@types/node-fetch@2.6.13':
     dependencies:

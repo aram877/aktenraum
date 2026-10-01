@@ -78,6 +78,7 @@ export const settingsSchema = z.object({
   OLLAMA_ANSWER_MODEL: str(""),
 
   QDRANT_URL: str(""),
+  QDRANT_API_KEY: str(""),
   EMBEDDING_MODEL: str("qwen3-embedding:4b"),
   RERANKER_MODEL: str("onnx-community/bge-reranker-v2-m3-ONNX"),
   RAG_RETRIEVAL_TOP_K: int(50, 1, 200),

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { logger } from "@aktenraum/core";
 import { Inject, Injectable, type OnModuleInit } from "@nestjs/common";
 import { eq } from "drizzle-orm";
@@ -5,7 +7,19 @@ import { eq } from "drizzle-orm";
 import { SETTINGS, type Settings } from "../config/settings.js";
 import { DB, type Database } from "../db/db.module.js";
 import { users } from "../db/schema.js";
+import { verifyToken } from "./jwt.js";
 import { hashPassword, verifyPassword } from "./passwords.js";
+
+let timingDummyHash: Promise<string> | null = null;
+
+function dummyHash(): Promise<string> {
+  timingDummyHash ??= hashPassword("aktenraum-timing-equaliser");
+  return timingDummyHash;
+}
+
+export function passwordFingerprint(passwordHash: string): string {
+  return createHash("sha256").update(passwordHash).digest("hex").slice(0, 16);
+}
 
 export interface AuthUser {
   id: number;
@@ -63,8 +77,20 @@ export class AuthService implements OnModuleInit {
 
   async authenticate(username: string, password: string): Promise<AuthUser | null> {
     const user = await this.findByUsername(username);
-    if (user === null) return null;
+    if (user === null) {
+      await verifyPassword(password, await dummyHash());
+      return null;
+    }
     if (!(await verifyPassword(password, user.passwordHash))) return null;
+    return user;
+  }
+
+  async verifySession(token: string): Promise<AuthUser | null> {
+    const claims = verifyToken(token, { secret: this.settings.JWT_SECRET });
+    if (claims === null) return null;
+    const user = await this.findById(claims.userId);
+    if (user === null) return null;
+    if (passwordFingerprint(user.passwordHash) !== claims.fingerprint) return null;
     return user;
   }
 

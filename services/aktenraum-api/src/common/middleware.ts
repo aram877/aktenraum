@@ -1,3 +1,5 @@
+import { timingSafeEqual } from "node:crypto";
+
 import { logger } from "@aktenraum/core";
 import type { NextFunction, Request, Response } from "express";
 
@@ -17,6 +19,13 @@ const CSRF_EXEMPT_PATHS: ReadonlySet<string> = new Set([
   "/api/openapi.json",
   "/api/docs",
 ]);
+
+export function internalSecretMatches(provided: unknown, expected: string): boolean {
+  if (!expected || typeof provided !== "string") return false;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
 
 function pathOf(request: Request): string {
   const raw = request.originalUrl || request.url;
@@ -47,14 +56,25 @@ export function isCsrfAllowed(options: {
   return SAFE_SITE_VALUES.has(options.secFetchSite);
 }
 
-export function csrfMiddleware(request: Request, response: Response, next: NextFunction): void {
+export function createCsrfMiddleware(
+  webhookSecret: string,
+): (request: Request, response: Response, next: NextFunction) => void {
+  return (request, response, next) => csrfCheck(request, response, next, webhookSecret);
+}
+
+function csrfCheck(
+  request: Request,
+  response: Response,
+  next: NextFunction,
+  webhookSecret: string,
+): void {
   const path = pathOf(request);
   const secFetchSite = request.headers["sec-fetch-site"];
   const allowed = isCsrfAllowed({
     method: request.method,
     path,
     secFetchSite: typeof secFetchSite === "string" ? secFetchSite : undefined,
-    hasInternalSecret: request.headers["x-aktenraum-secret"] !== undefined,
+    hasInternalSecret: internalSecretMatches(request.headers["x-aktenraum-secret"], webhookSecret),
   });
   if (allowed) {
     next();

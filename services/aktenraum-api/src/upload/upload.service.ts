@@ -1,3 +1,5 @@
+import { readFile, unlink } from "node:fs/promises";
+
 import { logger } from "@aktenraum/core";
 import { Inject, Injectable } from "@nestjs/common";
 
@@ -33,7 +35,21 @@ export interface UploadResponse {
 export interface IncomingFile {
   originalname: string;
   mimetype: string;
-  buffer: Buffer;
+  size: number;
+  path?: string;
+  buffer?: Buffer;
+}
+
+async function readContent(file: IncomingFile): Promise<Buffer> {
+  if (file.buffer !== undefined) return file.buffer;
+  if (file.path !== undefined) return readFile(file.path);
+  return Buffer.alloc(0);
+}
+
+async function removeTempFiles(files: IncomingFile[]): Promise<void> {
+  await Promise.all(
+    files.map((file) => (file.path ? unlink(file.path).catch(() => undefined) : undefined)),
+  );
 }
 
 @Injectable()
@@ -44,6 +60,14 @@ export class UploadService {
   ) {}
 
   async uploadAll(files: IncomingFile[], title?: string): Promise<UploadResponse> {
+    try {
+      return await this.uploadEach(files, title);
+    } finally {
+      await removeTempFiles(files);
+    }
+  }
+
+  private async uploadEach(files: IncomingFile[], title?: string): Promise<UploadResponse> {
     const gateway = this.gatewayProvider.require();
     const results: UploadResult[] = [];
 
@@ -59,11 +83,11 @@ export class UploadService {
           });
           continue;
         }
-        if (file.buffer.length === 0) {
+        if (file.size === 0) {
           results.push({ filename, status: "error", detail: "Empty file" });
           continue;
         }
-        if (file.buffer.length > this.settings.UPLOAD_MAX_FILE_BYTES) {
+        if (file.size > this.settings.UPLOAD_MAX_FILE_BYTES) {
           results.push({
             filename,
             status: "error",
@@ -72,7 +96,7 @@ export class UploadService {
           continue;
         }
         const taskId = await gateway.uploadDocument({
-          content: file.buffer,
+          content: await readContent(file),
           filename: file.originalname || "document",
           contentType: file.mimetype,
           title,

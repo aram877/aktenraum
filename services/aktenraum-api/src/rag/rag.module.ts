@@ -13,7 +13,7 @@ export const VECTOR_STORE = Symbol("AKTENRAUM_VECTOR_STORE");
       inject: [SETTINGS],
       useFactory: (settings: Settings): QdrantVectorStore | null => {
         if (!settings.QDRANT_URL) return null;
-        const store = new QdrantVectorStore(settings.QDRANT_URL);
+        const store = new QdrantVectorStore(settings.QDRANT_URL, { apiKey: settings.QDRANT_API_KEY });
         void store.ensureCollection().catch((error: unknown) => {
           logger.warn("qdrant_ensure_collection_failed", {
             error: error instanceof Error ? error.message : String(error),

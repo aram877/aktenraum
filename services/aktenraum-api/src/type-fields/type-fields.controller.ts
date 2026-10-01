@@ -21,7 +21,7 @@ import { z } from "zod";
 
 import { AuthGuard } from "../auth/auth.guard.js";
 import type { AuthenticatedRequest } from "../auth/auth.guard.js";
-import { verifyToken } from "../auth/jwt.js";
+import { AuthService } from "../auth/auth.service.js";
 import { ZodValidationPipe } from "../common/zod-validation.pipe.js";
 import { SETTINGS, type Settings } from "../config/settings.js";
 import { TypeFieldsService, validateFieldNames } from "./type-fields.service.js";
@@ -48,6 +48,7 @@ function secretsMatch(provided: string, expected: string): boolean {
 export class TypeFieldsController {
   constructor(
     private readonly typeFieldsService: TypeFieldsService,
+    private readonly authService: AuthService,
     @Inject(SETTINGS) private readonly settings: Settings,
   ) {}
 
@@ -83,7 +84,7 @@ export class TypeFieldsController {
     @Headers("x-aktenraum-secret") secret: string | undefined,
     @Req() request: AuthenticatedRequest,
   ): Promise<TypeFieldsResponse> {
-    this.requireUserOrSecret(request, secret);
+    await this.requireUserOrSecret(request, secret);
     const docTypeStr =
       body.document_type ?? (await this.typeFieldsService.inferDocumentType(docId));
     const unknown = validateFieldNames(docTypeStr, body.fields);
@@ -97,20 +98,21 @@ export class TypeFieldsController {
     return { document_type: row.documentType, fields: row.fields };
   }
 
-  private requireUserOrSecret(
+  private async requireUserOrSecret(
     request: AuthenticatedRequest,
     secret: string | undefined,
-  ): void {
-    if (secret !== undefined && this.settings.WEBHOOK_SECRET) {
-      if (secretsMatch(secret, this.settings.WEBHOOK_SECRET)) return;
+  ): Promise<void> {
+    if (secret !== undefined) {
+      if (this.settings.WEBHOOK_SECRET && secretsMatch(secret, this.settings.WEBHOOK_SECRET)) return;
       throw new UnauthorizedException("Invalid secret");
     }
     const token: unknown = request.cookies?.[this.settings.COOKIE_NAME];
     if (typeof token !== "string" || token === "") {
       throw new UnauthorizedException("Not authenticated");
     }
-    if (verifyToken(token, { secret: this.settings.JWT_SECRET }) === null) {
+    if ((await this.authService.verifySession(token)) === null) {
       throw new UnauthorizedException("Invalid session");
     }
   }
+
 }

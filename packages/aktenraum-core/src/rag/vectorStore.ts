@@ -90,6 +90,7 @@ export interface QdrantVectorStoreOptions {
   denseDim?: number;
   /** Dependency-injection seam for testing — pass a fake QdrantClient. */
   client?: QdrantClient;
+  apiKey?: string;
 }
 
 export class QdrantVectorStore {
@@ -98,7 +99,9 @@ export class QdrantVectorStore {
   private readonly denseDim: number;
 
   constructor(url: string, options: QdrantVectorStoreOptions = {}) {
-    this.client = options.client ?? new QdrantClient({ url });
+    this.client =
+      options.client ??
+      new QdrantClient({ url, ...(options.apiKey ? { apiKey: options.apiKey } : {}) });
     this.collectionName = options.collection ?? DEFAULT_COLLECTION;
     this.denseDim = options.denseDim ?? DENSE_DIM;
   }

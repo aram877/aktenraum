@@ -23,7 +23,7 @@ export async function backfill(force: boolean): Promise<number> {
   }
 
   const paperless = new PaperlessClient(settings.PAPERLESS_BASE_URL, settings.PAPERLESS_API_TOKEN);
-  const vectorStore = new QdrantVectorStore(settings.QDRANT_URL);
+  const vectorStore = new QdrantVectorStore(settings.QDRANT_URL, { apiKey: settings.QDRANT_API_KEY });
   await vectorStore.ensureCollection();
 
   const deps: IndexingDeps = {

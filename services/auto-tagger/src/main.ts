@@ -26,6 +26,13 @@ import { createWebhookServer } from "./webhook.js";
 
 export async function bootstrap(): Promise<void> {
   const settings = loadSettings();
+  if (!settings.WEBHOOK_SECRET) {
+    logger.warn("webhook_secret_unset", {
+      detail:
+        "WEBHOOK_SECRET is empty — every /trigger/* and /processing call is rejected; " +
+        "only the 30 s pollers drive the pipeline. Run scripts/bootstrap-secrets.sh.",
+    });
+  }
 
   const paperless = new PaperlessClient(
     settings.PAPERLESS_BASE_URL,
@@ -145,7 +152,7 @@ export async function bootstrap(): Promise<void> {
   }
 
   if (indexingQueue !== null) {
-    const vectorStore = new QdrantVectorStore(settings.QDRANT_URL);
+    const vectorStore = new QdrantVectorStore(settings.QDRANT_URL, { apiKey: settings.QDRANT_API_KEY });
     await vectorStore.ensureCollection().catch((error: unknown) => {
       logger.warn("qdrant_ensure_collection_failed", {
         error: error instanceof Error ? error.message : String(error),

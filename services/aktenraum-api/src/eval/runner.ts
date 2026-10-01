@@ -89,7 +89,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     return 1;
   }
 
-  const vectorStore = new QdrantVectorStore(settings.QDRANT_URL);
+  const vectorStore = new QdrantVectorStore(settings.QDRANT_URL, { apiKey: settings.QDRANT_API_KEY });
   const deps = {
     embedder: new OllamaEmbedder(settings.OLLAMA_BASE_URL, settings.EMBEDDING_MODEL),
     vectorStore,

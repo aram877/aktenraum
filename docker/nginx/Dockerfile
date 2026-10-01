@@ -18,10 +18,10 @@ COPY apps/web/ apps/web/
 RUN pnpm --filter @aktenraum/web build
 
 # Runtime stage — nginx alpine serving the built SPA + reverse-proxying /api.
-FROM nginx:alpine@sha256:df221db836e1754089190208cee7eeda94f233197056426eda74a43ab1abeac2
+FROM nginxinc/nginx-unprivileged:alpine@sha256:26b0bf6fbf07297983cb341998d79c831508787de26627dd2a112321b9c3a4af
 
 COPY docker/nginx/security-headers.conf /etc/nginx/snippets/aktenraum-security-headers.conf
 COPY docker/nginx/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /repo/apps/web/.output/public /usr/share/nginx/html
 
-EXPOSE 80
+EXPOSE 8080

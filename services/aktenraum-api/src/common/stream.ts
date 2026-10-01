@@ -3,6 +3,12 @@ import { pipeline } from "node:stream/promises";
 
 import type { Response } from "express";
 
+const INLINE_SAFE_TYPE = /^(application\/pdf|image\/(png|jpeg|gif|webp|tiff))\b/i;
+
+export function inlineSafe(contentType: string): boolean {
+  return INLINE_SAFE_TYPE.test(contentType.trim());
+}
+
 export async function pipeUpstreamToResponse(
   upstream: Response_,
   response: Response,

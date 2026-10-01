@@ -70,6 +70,7 @@ export const settingsSchema = z.object({
 
   AKTENRAUM_API_URL: str("http://aktenraum-api:8002"),
   QDRANT_URL: str(""),
+  QDRANT_API_KEY: str(""),
   EMBEDDING_MODEL: str("qwen3-embedding:4b"),
   LOG_LEVEL: str("INFO"),
 });

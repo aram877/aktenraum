@@ -118,6 +118,25 @@ fi
 
 # 2. Generate unique secrets.
 
+declare -a migrated_lines=()
+LEGACY_ENV_FILES=("${DOCKER_DIR}/backup.env" "${DOCKER_DIR}/aktenraum-api.env" "${DOCKER_DIR}/auto-tagger.env")
+for key in RESTIC_PASSWORD PAPERLESS_DBPASS JWT_SECRET WEBHOOK_SECRET PAPERLESS_API_TOKEN ANTHROPIC_API_KEY BOOTSTRAP_USERNAME BOOTSTRAP_PASSWORD; do
+  [[ -n "$(read_value "$ENV_FILE" "$key")" ]] && continue
+  for legacy in "${LEGACY_ENV_FILES[@]}"; do
+    value="$(read_value "$legacy" "$key")"
+    if [[ -n "$value" ]]; then
+      write_value "$ENV_FILE" "$key" "$value"
+      migrated_lines+=("${key} ← $(basename "$legacy")")
+      break
+    fi
+  done
+done
+if (( ${#migrated_lines[@]} > 0 )); then
+  echo "Carried over from the old per-service env files:"
+  for line in "${migrated_lines[@]}"; do echo "  ${line}"; done
+  echo
+fi
+
 if fill_if_empty PAPERLESS_SECRET_KEY gen_secret_hex; then
   generated_lines+=("Paperless framework secret key: generated ✓")
 fi
@@ -126,7 +145,12 @@ if fill_if_empty JWT_SECRET gen_secret_b64; then
   generated_lines+=("aktenraum-api JWT signing key: generated ✓")
 fi
 
-if fill_if_empty RESTIC_PASSWORD gen_password; then
+DATA_DIR="$(read_value "$ENV_FILE" AKTENRAUM_DATA_DIR)"
+RESTIC_REPO_CONFIG="${DATA_DIR:+${DATA_DIR}/backup/restic-repo/config}"
+restic_blocked=0
+if [[ -z "$(read_value "$ENV_FILE" RESTIC_PASSWORD)" && -n "$RESTIC_REPO_CONFIG" && -f "$RESTIC_REPO_CONFIG" ]]; then
+  restic_blocked=1
+elif fill_if_empty RESTIC_PASSWORD gen_password; then
   RESTIC_PW="$(read_value "$ENV_FILE" RESTIC_PASSWORD)"
   generated_lines+=("Restic backup passphrase: ${RESTIC_PW}")
   generated_lines+=("  ⚠ Without this passphrase your backups CANNOT be restored. Save it now.")
@@ -136,6 +160,9 @@ if fill_if_empty PAPERLESS_DBPASS gen_password; then
   generated_lines+=("Postgres password (paperless user): generated ✓")
 fi
 
+if fill_if_empty QDRANT_API_KEY gen_secret_hex; then
+  generated_lines+=("Qdrant API key: generated ✓")
+fi
 if fill_if_empty WEBHOOK_SECRET gen_secret_b64; then
   generated_lines+=("Internal webhook secret: generated ✓")
 fi
@@ -157,6 +184,14 @@ if fill_if_empty BOOTSTRAP_PASSWORD gen_password; then
 fi
 
 # 4. Final report.
+
+if (( restic_blocked == 1 )); then
+  echo "✗ RESTIC_PASSWORD is missing from ${ENV_FILE}, but a restic repository already exists at" >&2
+  echo "  ${RESTIC_REPO_CONFIG%/config}." >&2
+  echo "  A new random password could not open it, so none was generated." >&2
+  echo "  Put the repository's existing passphrase into docker/.env as RESTIC_PASSWORD=..." >&2
+  exit 1
+fi
 
 if (( ${#generated_lines[@]} == 0 )); then
   echo "✓ All secrets already populated. No changes made."

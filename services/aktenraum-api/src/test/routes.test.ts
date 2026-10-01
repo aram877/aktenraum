@@ -362,13 +362,12 @@ describe("settings routes", () => {
 });
 
 describe("secret-gated internal endpoints", () => {
-  it("are open when no WEBHOOK_SECRET is configured", async () => {
+  it("are closed when no WEBHOOK_SECRET is configured", async () => {
     await boot();
-    const response = await request(harness!.app.getHttpServer()).get(
-      "/api/settings/active-llm-model",
-    );
-    expect(response.status).toBe(200);
-    expect(response.body.ollama_model).toBe("qwen2.5:14b-instruct-q8_0");
+    const response = await request(harness!.app.getHttpServer())
+      .get("/api/settings/active-llm-model")
+      .set("X-Aktenraum-Secret", "");
+    expect(response.status).toBe(401);
   });
 
   it("reject a missing or wrong secret once one is configured", async () => {

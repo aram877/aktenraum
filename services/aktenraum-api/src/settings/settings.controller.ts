@@ -42,8 +42,11 @@ export class SettingsController {
   ) {}
 
   private requireSecret(provided: string | undefined): void {
-    if (!this.settings.WEBHOOK_SECRET) return;
-    if (provided === undefined || !secretsMatch(provided, this.settings.WEBHOOK_SECRET)) {
+    if (
+      !this.settings.WEBHOOK_SECRET ||
+      provided === undefined ||
+      !secretsMatch(provided, this.settings.WEBHOOK_SECRET)
+    ) {
       throw new UnauthorizedException("Bad secret");
     }
   }

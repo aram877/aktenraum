@@ -2,7 +2,13 @@
 
 The durable plan for replacing the answer pipeline's shallow candidate-fetch (`_enrich_with_ai_fields` over Paperless metadata) with a full retrieval stack: dense embeddings + lexical/BM25 + cross-encoder reranking, all running locally. This is the differentiator for the sellable product per ADR-002 (privacy-first, local-LLM-only).
 
-**Status**: Not started. This document is the spec.
+**Status**: Sub-phases 1.1–1.10 done and live. 1.11 (model auto-pull) waits on desktop-app Phase 0.3; 1.12 (docs) ongoing. As built, the stack differs from the spec below in three ways:
+
+- **Embedder**: `qwen3-embedding:4b` via Ollama, 2560-dim dense (`DENSE_DIM` in `packages/aktenraum-core/src/rag/embedder.ts`), not `bge-m3`/1024. `task rag:reembed` rebuilds the index after a model/dimension change.
+- **Retrieval is dense-only**: unnamed dense vector (Cosine) + payload filter → top-50 → `bge-reranker-v2-m3` → top-5. Sparse vectors and RRF hybrid fusion are not implemented.
+- **Runtime**: everything is TypeScript — the chunker/embedder/vector store live in `packages/aktenraum-core/src/rag/`, the reranker runs the ONNX export via transformers.js inside `aktenraum-api`, the eval runner is `bash scripts/run-rag-eval.sh`. Qdrant data (`<AKTENRAUM_DATA_DIR>/qdrant`) is not in the restic backup; it is rebuilt with `bash scripts/backfill-rag-index.sh`.
+
+The rest of this document is the original spec.
 
 ---
 
@@ -39,7 +45,7 @@ Considered: pgvector (cheaper — postgres already there), Qdrant (dedicated), V
 
 The cost is one more service to monitor and back up. The win is no rewrite when corpus grows past pgvector's comfort zone (~100k chunks).
 
-### Embedding model: `bge-m3` via Ollama
+### Embedding model: `bge-m3` via Ollama (superseded: `qwen3-embedding:4b`, 2560-dim)
 
 Considered: `nomic-embed-text-v1.5` (lighter, multilingual), `multilingual-e5-large-instruct` (strong on German), `bge-m3` (BAAI, hybrid dense+sparse+ColBERT in one model).
 
@@ -64,7 +70,7 @@ Considered: fixed-size token windows (simple, dumb), recursive character splitti
 
 Rationale: paragraph-aware is "good enough" for personal-DMS docs (invoices, contracts, CVs) without the complexity of layout-aware extraction (which is Phase 2 territory via Docling). Token budget of 500 fits well within `bge-m3`'s 8192-token context with headroom for the next-step reranker prompt.
 
-### Hybrid retrieval at query time
+### Hybrid retrieval at query time (not implemented: retrieval is dense + payload filter + rerank)
 
 For every question we run **three** retrieval signals and combine them:
 

@@ -1,6 +1,6 @@
 # Plan: Modular AI Prompts
 
-**Status:** Implemented (2026-05-16)
+**Status:** Implemented (2026-05-16). Now lives in TypeScript: `services/aktenraum-api/src/ai/{intent,prompt-modules,prompt,answer-prompt}.ts`; the `.py` paths and Pydantic references below are from the original Python implementation.
 **Motivation:** Static prompts cause "nicht gefunden" failures when the LLM
 gets irrelevant instructions for the doc types at hand. The 26 doc types in
 `DocumentType` each have their own typespecific fields (`TYPE_FIELD_SCHEMA`);

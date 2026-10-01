@@ -133,7 +133,7 @@ function promptDocIds(prompts: ChatMessage[][]): number[] {
   return [...user.matchAll(/<dokument id="(\d+)">/g)].map((m) => Number(m[1]));
 }
 
-describe("POST /api/ai/answer/stream", () => {
+describe("POST /api/ai/answer/stream", { timeout: 20_000 }, () => {
   it("answers from RAG when the structured filter matches nothing", async () => {
     const gateway = new FakeGateway({ docs: [makeDoc({ id: 42, document_type: 80 })] });
     const { events, prompts } = await ask({

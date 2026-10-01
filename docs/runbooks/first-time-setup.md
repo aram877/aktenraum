@@ -3,9 +3,17 @@
 ## Prerequisites
 
 - Linux or macOS host with Docker and Docker Compose v2 installed
+- An LLM backend: [Ollama](https://ollama.com) on the host (default; `ollama pull qwen2.5:14b-instruct-q8_0` and `ollama pull qwen3-embedding:4b`) or an Anthropic API key
 - `restic` installed only if you opt into the host-side systemd timer (step 7). The Dockerised `backup` service ships its own restic
 - This repository cloned to your workstation
 - [`task`](https://taskfile.dev) — strongly recommended (`brew install go-task` / `winget install Task.Task`). Every step below has a `task` shortcut.
+
+## Configuration model
+
+There is exactly **one** env file: `docker/.env`, loaded by every service in `docker/docker-compose.yml` (`env_file: .env`). Its committed template is `docker/.env.example`. `scripts/bootstrap-secrets.sh` creates `docker/.env` from the template if it is missing and fills every empty secret except `PAPERLESS_API_TOKEN`. Two values you always set by hand:
+
+- `AKTENRAUM_DATA_DIR` — absolute path to the data directory (e.g. `/Users/you/aktenraum`, `/srv/aktenraum`, `D:/aktenraum`). Compose refuses to start while it is empty. Never change it without moving the data first.
+- `PAPERLESS_API_TOKEN` — minted after Paperless first boots (step 5).
 
 ## The fast path (with `task`)
 
@@ -13,57 +21,61 @@
 task setup
 ```
 
-This runs `scripts/setup.sh` (host dirs) + `scripts/bootstrap-secrets.sh` (generates all REQUIRED secrets into `docker/*.env`) + `task start` (compose up) and prints the two manual follow-ups (mint Paperless API token, run `bash scripts/bootstrap-paperless.sh`). The bootstrap script is idempotent — re-runs are safe.
+This runs `scripts/setup.sh` (host dirs) → `scripts/bootstrap-secrets.sh` (fills secrets in `docker/.env`, prints the generated admin/SPA/restic passwords once) → `docker compose up -d` → `scripts/fix-token.sh` (mints the Paperless API token into `docker/.env` and recreates both Node services) → `scripts/bootstrap-paperless.sh` inside the paperless container → `restic init` in the backup container → a first snapshot.
+
+`scripts/setup.sh` exits unless `AKTENRAUM_DATA_DIR` is set, so on a fresh clone first run `bash scripts/bootstrap-secrets.sh` (creates `docker/.env`), set `AKTENRAUM_DATA_DIR` in it, then run `task setup`. The bootstrap-secrets step inside `task setup` is then a no-op apart from any still-empty values.
 
 The remaining sections walk through every step in detail; do them only if `task setup` doesn't fit your setup or you want the raw commands.
 
 ## Steps (raw)
 
-### 1. Create host directories
+### 1. Generate `docker/.env`
+
+```bash
+bash scripts/bootstrap-secrets.sh
+```
+
+This copies `docker/.env.example` → `docker/.env` if absent and fills `PAPERLESS_SECRET_KEY`, `PAPERLESS_ADMIN_PASSWORD`, `PAPERLESS_DBPASS`, `JWT_SECRET`, `BOOTSTRAP_PASSWORD`, `WEBHOOK_SECRET` and `RESTIC_PASSWORD`. Record the passwords it prints — they are shown only once. Re-runs are no-ops once everything is populated.
+
+Then open `docker/.env` and set:
+- `AKTENRAUM_DATA_DIR` — absolute data path (required)
+- `LLM_BACKEND` — `ollama` (default) or `anthropic`; with `anthropic`, also set `ANTHROPIC_API_KEY` (from console.anthropic.com)
+- `COOKIE_SECURE=false` — only for plain-HTTP access on `http://localhost:8080` from the host itself
+
+### 2. Create host directories
 
 ```bash
 bash scripts/setup.sh
 ```
 
-This creates `~/aktenraum/{consume,media,data,export,pgdata,backup/restic-repo}`.
-
-### 2. Configure environment files
-
-```bash
-cp docker/.env.example docker/.env
-cp docker/auto-tagger.env.example docker/auto-tagger.env
-```
-
-Open `docker/.env` and fill in the **REQUIRED** values:
-- `PAPERLESS_SECRET_KEY` — generate with `openssl rand -hex 32`
-- `PAPERLESS_ADMIN_PASSWORD` — choose a strong password
-- `PAPERLESS_DBPASS` — choose a strong database password
-
-Open `docker/auto-tagger.env` and fill in:
-- `PAPERLESS_API_TOKEN` — create after Paperless first login (see step 5)
-- `ANTHROPIC_API_KEY` — from console.anthropic.com (if using `LLM_BACKEND=anthropic`)
+This reads `AKTENRAUM_DATA_DIR` (from the environment or `docker/.env`) and creates `consume`, `media`, `data`, `export`, `pgdata`, `qdrant` and `backup/restic-repo` under it.
 
 ### 3. Start the stack
 
 ```bash
-cd docker
-docker compose up -d
-docker compose logs -f paperless  # wait until you see "Ready"
+docker compose --project-directory docker up -d
+docker compose --project-directory docker logs -f paperless  # wait until you see "Ready"
 ```
 
-Paperless will be available at `http://localhost:8000`.
+Paperless will be available at `http://localhost:8000`; the aktenraum SPA at `http://localhost:8080`.
 
 ### 4. Log in to Paperless
 
-Open `http://localhost:8000` in your browser and log in with the admin credentials you set in `.env`.
+Open `http://localhost:8000` and log in with `PAPERLESS_ADMIN_USER` / `PAPERLESS_ADMIN_PASSWORD` from `docker/.env`.
 
 ### 5. Create an API token
 
-In Paperless: **Settings → API Tokens → Add Token**. Copy the token and paste it into `docker/auto-tagger.env` as `PAPERLESS_API_TOKEN`.
+Either in Paperless (**Settings → API Tokens → Add Token**) or via the API:
 
-Restart the auto-tagger to pick up the token:
 ```bash
-docker compose restart auto-tagger
+curl -s -X POST http://localhost:8000/api/token/ -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"<PAPERLESS_ADMIN_PASSWORD>"}'
+```
+
+Paste the token into `docker/.env` as `PAPERLESS_API_TOKEN`, then recreate both Node services so they re-read the file (`restart` does not re-read env files):
+
+```bash
+docker compose --project-directory docker up -d auto-tagger aktenraum-api
 ```
 
 ### 6. Bootstrap custom fields and tags
@@ -74,7 +86,7 @@ PAPERLESS_API_TOKEN=<your-token> \
 bash scripts/bootstrap-paperless.sh
 ```
 
-This creates the 12 AI custom fields and the six lifecycle tags (`ai-pending`, `ai-approved`, `ai-rejected`, `ai-propagated`, `ai-propagation-error`, `ai-error`). Safe to run multiple times.
+This creates the 12 AI custom fields, the six lifecycle tags (`ai-pending`, `ai-approved`, `ai-rejected`, `ai-propagated`, `ai-propagation-error`, `ai-error`) and the auxiliary tags (`ai-auto-approved`, `ai-low-confidence`, `ai-duplicate`, `ai-duplicate-dismissed`, `email-ingested`, `wichtig`). Safe to run multiple times.
 
 ### 6.5. (optional) Set up email ingestion
 
@@ -99,30 +111,40 @@ PAPERLESS_API_TOKEN=<your-token> \
 bash scripts/bootstrap-paperless.sh
 ```
 
-Paperless polls the mailbox every ~10 minutes. Attachments matching `*.pdf,*.png,*.jpg,*.jpeg,*.tif,*.tiff` flow through the same pipeline as files dropped into `~/aktenraum/consume/` — they OCR, the auto-tagger picks them up, and they land in the inbox for review. Each ingested doc gets the `email-ingested` tag so you can filter them in Library (`?tags=email-ingested`).
+Paperless polls the mailbox every ~10 minutes. Attachments matching `*.pdf,*.png,*.jpg,*.jpeg,*.tif,*.tiff` flow through the same pipeline as files dropped into `<AKTENRAUM_DATA_DIR>/consume/` — they OCR, the auto-tagger picks them up, and they land in the review queue. Each ingested doc gets the `email-ingested` tag so you can filter them in Library (`?tags=email-ingested`).
 
 Re-running the script with the same `AKTENRAUM_MAIL_NAME` updates the existing account in place (password rotation works). Unsetting `AKTENRAUM_MAIL_IMAP_SERVER` does **not** delete the account — remove it manually via Paperless's admin UI (Settings → Mail) if you want to stop ingestion.
 
 ### 7. Set up backup
 
-The default deployment uses the Dockerised backup service (compose service `backup`), which runs crond inside a container and fires `entrypoint.sh` daily at 02:00. Configure it with `docker/backup.env` as described in step 2; no further setup is needed.
-
-If you prefer a Linux-native systemd timer instead (e.g., on a host without Docker for backups, or to run the host-side `scripts/backup.sh`), do the following:
+The default deployment uses the Dockerised `backup` service, which runs crond inside a container and fires `entrypoint.sh` daily at 02:00. It reads `RESTIC_PASSWORD` and `PAPERLESS_DBPASS` from `docker/.env` (generated in step 1) and writes to `<AKTENRAUM_DATA_DIR>/backup/restic-repo` (mounted at `/repo`). The entrypoint does not create a missing repository, so initialise it once and take a first snapshot:
 
 ```bash
-# 1. Test a manual backup
-export RESTIC_PASSWORD=<choose-a-strong-passphrase>
-export PAPERLESS_DBUSER=paperless
-export PAPERLESS_DBPASS=<same-as-docker/.env>
-bash scripts/backup.sh
+docker compose --project-directory docker exec -T backup sh -c \
+  'restic -r /repo snapshots > /dev/null 2>&1 || restic -r /repo init'
+docker compose --project-directory docker exec backup /usr/local/bin/entrypoint.sh
+```
 
-# 2. Create the env file the systemd unit reads
+(Git Bash: prefix with `MSYS_NO_PATHCONV=1` and use `//usr/local/bin/entrypoint.sh`.) Verify with `task backup:verify`.
+
+Store `RESTIC_PASSWORD` securely (password manager). **You cannot restore backups without it.**
+
+#### Optional: host-side systemd timer instead of the container
+
+Only for Linux hosts that should run `scripts/backup.sh` from the host. The unit reads its own env file, `~/aktenraum/.backup.env` (separate from `docker/.env`), and `scripts/backup.sh` takes its base path from `AKTENRAUM_DATA_DIR` (environment, else `docker/.env`).
+
+```bash
+# 1. Create the env file the systemd unit reads (copy values from docker/.env)
 cat > ~/aktenraum/.backup.env <<EOF
-RESTIC_PASSWORD=${RESTIC_PASSWORD}
-PAPERLESS_DBUSER=${PAPERLESS_DBUSER}
-PAPERLESS_DBPASS=${PAPERLESS_DBPASS}
+RESTIC_PASSWORD=<same-as-docker/.env>
+PAPERLESS_DBUSER=paperless
+PAPERLESS_DBPASS=<same-as-docker/.env>
 EOF
 chmod 600 ~/aktenraum/.backup.env
+
+# 2. Test a manual run
+set -a; . ~/aktenraum/.backup.env; set +a
+bash scripts/backup.sh
 
 # 3. Substitute the repo path placeholder, then install the unit + timer
 REPO_PATH="$(pwd)"
@@ -134,14 +156,12 @@ sudo systemctl enable --now aktenraum-backup.timer
 systemctl status aktenraum-backup.timer
 ```
 
-Store your `RESTIC_PASSWORD` securely (password manager). **You cannot restore backups without it.**
-
 ### 8. Test ingestion
 
-Drop a PDF into `~/aktenraum/consume/`. Within a minute it should appear in Paperless with OCR text. Within 30–60 seconds of that, the auto-tagger should add `ai_*` custom fields and the `ai-pending` tag.
+Drop a PDF into `<AKTENRAUM_DATA_DIR>/consume/` (or upload it at `http://localhost:8080/upload`). Within a minute it should appear in Paperless with OCR text. Paperless's `post_consume` webhook then triggers the auto-tagger, which adds the `ai_*` custom fields and the `ai-pending` tag (or `ai-approved` + `ai-auto-approved` if an auto-approve rule matches); the 30-second poller is the fallback. The document appears in the SPA under `/library?tab=review`.
 
 ---
 
-## TODO: HTTPS / Tailscale
+## Remote access (HTTPS / Tailscale)
 
-To expose Paperless securely beyond localhost, add a reverse proxy (nginx, Caddy) or join the host to your Tailscale network. This is intentionally deferred from v1.
+Remote access during the testing phase goes through Tailscale: see [`tailscale-remote-access.md`](tailscale-remote-access.md).

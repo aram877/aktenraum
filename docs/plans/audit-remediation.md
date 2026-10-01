@@ -2,7 +2,7 @@
 
 The durable, prioritized plan for fixing the findings from the 2026-05-28 full-app audit (four read-only dimension reviews + one adversarially-verified backup/restore workflow). Findings are grouped into phases by **blast radius first, effort second**: a phase is "done" only when its items are fixed, tested, and — where they touch a documented behaviour — the docs are corrected in the same commit (per the binding documentation cadence in `CLAUDE.md`).
 
-**Status**: Phase 0 (disaster recovery) and Phase 2 (data safety + correctness) implemented; Phase 1 items 1.1–1.3 implemented. Deferred: 1.4 magic-byte sniffing, 1.5 JWT revocation, 2.5(b) neighbor-nav ordering, 2.6 extraction N+1. The dead `ai_monetary_amount` dedup signal (2.2) was resolved as documentation-honesty + retain-mechanism (a real type-specific repoint is the future follow-up). All pushed — awaiting end-to-end verification on the data machine (see `docs/testing/audit-remediation-tests.md`). Phases 3–5 (hardening + tech-debt) not started.
+**Status**: Phase 0 (disaster recovery) and Phase 2 (data safety + correctness) implemented; Phase 1 items 1.1–1.3 implemented. Deferred: 1.4 magic-byte sniffing, 1.5 JWT revocation, 2.5(b) neighbor-nav ordering, 2.6 extraction N+1. The dead `ai_monetary_amount` dedup signal (2.2) was resolved as documentation-honesty + retain-mechanism (a real type-specific repoint is the future follow-up). All pushed — awaiting end-to-end verification on the data machine (see `docs/testing/audit-remediation-tests.md`). Phases 3–5 (hardening + tech-debt) not started; 3.4 is moot. Items in Phases 4–5 that name Python (`*.py`) or React (`*.tsx`) files predate the TypeScript/Nuxt rewrite and need re-scoping against the current code before work starts.
 
 > **Severity legend**: 🔴 CRITICAL (data loss / security / silently broken) · 🟠 HIGH · 🟡 MEDIUM · ⚪ LOW.
 > Severities reflect the **adversarially-verified** outcome — where the verification workflow refuted or re-rated a first-pass finding, the corrected rating is used and the correction is noted.
@@ -132,13 +132,12 @@ These matter precisely because the product is sold and buyers run the templates 
 - No `stop_grace_period`; a mid-propagation SIGKILL can strand a doc in `ai-propagation-error`.
 - **Fix**: confirm SIGTERM finishes the current item + stops dequeuing; bump `stop_grace_period` for auto-tagger.
 
-### 3.4 ⚪ Build-toolchain `uv` image is unpinned `:latest`
-- Violates the repo's own tag+digest policy for the build toolchain (`services/*/Dockerfile`).
-- **Fix**: pin `ghcr.io/astral-sh/uv:<version>@sha256:…`.
+### 3.4 ⚪ Build-toolchain `uv` image is unpinned `:latest` — **moot**
+- Moot: the Python services and the `uv` build stage no longer exist; `services/*/Dockerfile` build on `node:22-slim`.
 
 ### 3.5 ⚪ Container/build nits
 - nginx + qdrant run as root — use `nginxinc/nginx-unprivileged` or add a non-root `USER`.
-- Thin `.dockerignore` ships `apps/web`, `docs/`, `openspec/`, `evals/` into the Python build context — tighten it.
+- Thin `.dockerignore` ships `apps/web`, `docs/`, `openspec/`, `evals/` into the service build context — tighten it.
 - `bootstrap-secrets.sh` lacks a `trap`/`umask 077` on its secret-bearing tempfile.
 
 ---

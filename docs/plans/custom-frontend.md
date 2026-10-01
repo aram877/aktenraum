@@ -2,7 +2,7 @@
 
 This document is the durable plan for replacing the Paperless web UI with a custom AI-first frontend. It lives outside the OpenSpec change pipeline because the work spans multiple deliveries; each phase becomes its own OpenSpec change when implementation starts.
 
-**Status**: Phase 3 in progress (`openspec/changes/web-inbox-review/`). Phases 0–2 done — `aktenraum-core` shared lib extracted, FastAPI shell + SPA + nginx edge running, natural-language search live.
+**Status**: Phases 0–3 done — `@aktenraum/core` shared lib, NestJS API + Nuxt 4 SPA + nginx edge running (stack rewritten in TypeScript per ADR-007/ADR-008), natural-language search folded into Ask AI, inbox review live at `/library?tab=review` and `/inbox/:id`. Phase 4: upload shipped; Summary / Ask-this-doc tabs not built. Phase 5: Library browse shipped; errors page and saved queries not built. Phase 6 superseded by RAG Phase 1 (`docs/plans/rag-phase-1.md`, live). Phase 7 not started.
 
 ---
 
@@ -84,7 +84,7 @@ Each phase is its own OpenSpec change. Cross out as completed.
 | **0** | `extract-aktenraum-core` *(done)* | Shared `aktenraum-core` package; `auto-tagger` depends on it; uv workspace at root; tests + CI green |
 | **1** | `aktenraum-api-shell` *(done)* | FastAPI scaffold with auth + health; SPA scaffold with login + empty layout; nginx + compose wiring; one-command deploy |
 | **2** | `ai-natural-language-search` *(done)* | `/api/ai/ask` endpoint + Ask AI page (NL → structured filter → Paperless search) |
-| **3** | `web-inbox-review` *(in progress)* | Two-pane review queue (PDF preview + editable AI fields + approve/reject + keyboard shortcuts) |
+| **3** | `web-inbox-review` *(done)* | Two-pane review queue (PDF preview + editable AI fields + approve/reject + keyboard shortcuts) |
 | **4** | `web-document-detail` | Document detail with Summary + Ask-this-doc tabs (`/api/ai/summarize`, `/api/ai/qa`) and upload |
 | **5** | `web-library-and-recovery` | Library browse, errors page, saved queries |
 | **6** | `ai-rag-content-search` *(speculative)* | Vector store + RAG, only if Phase 2's structured-filter search proves insufficient |

@@ -12,7 +12,7 @@
 ## Step 1 — Identify the snapshot to restore
 
 ```bash
-export RESTIC_REPOSITORY=~/aktenraum/backup/restic-repo
+export RESTIC_REPOSITORY=<AKTENRAUM_DATA_DIR>/backup/restic-repo   # e.g. ~/aktenraum/backup/restic-repo
 export RESTIC_PASSWORD=<your-passphrase>
 
 # List recent snapshots
@@ -31,22 +31,32 @@ restic snapshots --tag aktenraum
 
 ---
 
-## Step 2 — Create host directories
+## Step 2 — Configure `docker/.env`
+
+All services load one env file, `docker/.env`. Restore it from your password manager / offline copy if you have one. Otherwise:
+
+```bash
+cp docker/.env.example docker/.env
+```
+
+and fill in at least:
+
+- `AKTENRAUM_DATA_DIR` — the absolute data path to restore into
+- `PAPERLESS_SECRET_KEY` — the **same** value as the original instance, or Paperless cannot decrypt stored data
+- `RESTIC_PASSWORD` — the backup passphrase
+- `PAPERLESS_DBPASS`, `PAPERLESS_ADMIN_PASSWORD`, `JWT_SECRET`, `WEBHOOK_SECRET`, `BOOTSTRAP_PASSWORD` — reuse the originals or generate new ones with `bash scripts/bootstrap-secrets.sh` (it only fills empty values)
+
+If you have the original `PAPERLESS_API_TOKEN`, keep it — the token is stored in the `paperless` database you are about to restore. Otherwise leave it empty and mint one in step 8.
+
+---
+
+## Step 3 — Create host directories
 
 ```bash
 bash scripts/setup.sh
 ```
 
----
-
-## Step 3 — Configure environment files
-
-```bash
-cp docker/.env.example docker/.env        # fill in REQUIRED values
-cp docker/auto-tagger.env.example docker/auto-tagger.env  # fill in REQUIRED values
-```
-
-Use the **same** `PAPERLESS_DBPASS` and `PAPERLESS_SECRET_KEY` as the original instance, or Paperless will fail to decrypt stored data.
+This reads `AKTENRAUM_DATA_DIR` from `docker/.env` and creates `consume`, `media`, `data`, `export`, `pgdata`, `qdrant` and `backup/restic-repo` under it.
 
 ---
 
@@ -55,8 +65,8 @@ Use the **same** `PAPERLESS_DBPASS` and `PAPERLESS_SECRET_KEY` as the original i
 > **Important — confirm the paths first.** The default deployment backs up
 > through the `backup` container, which records the in-container mount
 > paths `/backup/data`, `/backup/media`, `/backup/export` (NOT
-> `~/aktenraum/...`). The host-side `scripts/backup.sh` instead records
-> `~/aktenraum/data` etc. Always check what the snapshot actually contains
+> host paths). The host-side `scripts/backup.sh` instead records
+> `<AKTENRAUM_DATA_DIR>/data` etc. Always check what the snapshot actually contains
 > before restoring:
 >
 > ```bash
@@ -64,7 +74,7 @@ Use the **same** `PAPERLESS_DBPASS` and `PAPERLESS_SECRET_KEY` as the original i
 > ```
 >
 > The examples below assume the **container** layout (`/backup/*`). If your
-> snapshot shows `~/aktenraum/*`, substitute those paths.
+> snapshot shows host paths, substitute those.
 
 restic always recreates the snapshot's absolute paths under `--target`, so
 restore into a staging dir and then move the trees into your data directory
@@ -81,10 +91,13 @@ restic restore "${SNAPSHOT}" --tag filesystem \
   --include /backup/media \
   --include /backup/export
 
-# Move the restored trees into place
-mv /tmp/aktenraum-restore/backup/data   "${DATA_DIR}/data"
-mv /tmp/aktenraum-restore/backup/media  "${DATA_DIR}/media"
-mv /tmp/aktenraum-restore/backup/export "${DATA_DIR}/export"
+# Move the restored trees into place (rmdir drops the empty dirs from step 3;
+# it fails rather than deleting anything if they are not empty)
+for d in data media export; do
+  rmdir "${DATA_DIR}/${d}" 2>/dev/null || true
+  [ -e "${DATA_DIR}/${d}" ] && { echo "${DATA_DIR}/${d} is not empty — stop"; break; }
+  mv "/tmp/aktenraum-restore/backup/${d}" "${DATA_DIR}/${d}"
+done
 ```
 
 On Windows (Git Bash / PowerShell) set `DATA_DIR` to the `AKTENRAUM_DATA_DIR`
@@ -96,10 +109,9 @@ on the same drive.
 ## Step 5 — Start postgres only
 
 ```bash
-cd docker
-docker compose up -d postgres
+docker compose --project-directory docker up -d postgres
 # Wait for postgres to be healthy
-docker compose ps postgres
+docker compose --project-directory docker ps postgres
 ```
 
 ---
@@ -122,12 +134,12 @@ ready before you restore into them.
 ```bash
 # Paperless DB
 restic dump --tag postgres latest postgres.dump \
-  | docker compose exec -T postgres \
+  | docker compose --project-directory docker exec -T postgres \
       psql -U paperless paperless
 
 # aktenraum DB (SPA users + auto-approve rules)
 restic dump --tag postgres-aktenraum latest aktenraum.dump \
-  | docker compose exec -T postgres \
+  | docker compose --project-directory docker exec -T postgres \
       psql -U paperless aktenraum
 ```
 
@@ -139,18 +151,20 @@ restic dump --tag postgres-aktenraum latest aktenraum.dump \
 ## Step 7 — Start the full stack
 
 ```bash
-docker compose up -d
+docker compose --project-directory docker up -d
 ```
 
 Verify Paperless loads at `http://localhost:8000` and documents are present.
 
 ---
 
-## Step 8 — Re-create the API token and restart auto-tagger
+## Step 8 — Re-create the API token
 
-1. Log in to Paperless and create a new API token (Settings → API Tokens)
-2. Update `docker/auto-tagger.env` with the new token
-3. `docker compose restart auto-tagger`
+Skip this step if `docker/.env` already holds the original token and the services do not log 401s.
+
+1. Log in to Paperless and create a new API token (Settings → API Tokens), or `POST http://localhost:8000/api/token/` with the admin credentials
+2. Set `PAPERLESS_API_TOKEN` in `docker/.env`
+3. Recreate both Node services so they re-read the file: `docker compose --project-directory docker up -d auto-tagger aktenraum-api`
 
 ---
 
@@ -160,5 +174,6 @@ Verify Paperless loads at `http://localhost:8000` and documents are present.
 - [ ] A document with AI custom fields still shows those fields
 - [ ] **aktenraum SPA (`http://localhost:8080`) login works with your original credentials** (confirms the `aktenraum` DB restored)
 - [ ] **`/settings → Auto-Genehmigung` shows your configured per-type rules** (not the seeded defaults)
-- [ ] Drop a test PDF into `~/aktenraum/consume/` and confirm it is ingested and tagged within 90 seconds
-- [ ] Run `bash scripts/backup.sh` to create a fresh snapshot from the restored state
+- [ ] Drop a test PDF into `<AKTENRAUM_DATA_DIR>/consume/` and confirm it is ingested and tagged within 90 seconds
+- [ ] Ask AI returns chunk-grounded answers; if not, rebuild the vector index with `bash scripts/backfill-rag-index.sh` (Qdrant data is not part of the backup)
+- [ ] Take a fresh snapshot from the restored state: `docker compose --project-directory docker exec backup /usr/local/bin/entrypoint.sh`

@@ -21,8 +21,8 @@ flowchart TB
     end
 
     subgraph app["Application layer (local builds)"]
-        api["aktenraum-api (FastAPI)<br/>:8002<br/>auth · AI find/ask · RAG retrieval · inbox/library"]
-        tagger["auto-tagger (asyncio workers)<br/>:8001 internal<br/>extraction · propagation · RAG indexer"]
+        api["aktenraum-api (NestJS)<br/>:8002<br/>auth · AI ask · RAG retrieval · inbox/library"]
+        tagger["auto-tagger (Node worker, 5 loops)<br/>:8001 internal<br/>extraction · propagation · RAG indexer"]
     end
 
     subgraph paperless_grp["Paperless-ngx core"]
@@ -57,8 +57,8 @@ flowchart TB
 
     tagger -->|extraction prompt| llm
     tagger -->|"PATCH ai_* fields + lifecycle tags"| paperless
-    tagger -->|"chunk → embed (bge-m3) → upsert"| qdrant
-    tagger -.->|"auto-approve rules (HTTP)"| api
+    tagger -->|"chunk → embed (qwen3-embedding:4b) → upsert"| qdrant
+    tagger -.->|"auto-approve rules · active model · type-fields (HTTP)"| api
 
     backup -.->|"snapshots: data/media/export + 2 DB dumps"| pg
 ```
@@ -74,27 +74,38 @@ sequenceDiagram
     participant API as aktenraum-api
     participant Q as qdrant
 
-    U->>P: Upload document (via SPA → /api/documents/upload)
+    U->>API: Upload document (SPA → /api/documents/upload)
+    API->>P: post_document
     P->>P: OCR + consume pipeline
     P->>T: post_consume webhook → /trigger/extract
     T->>L: classify + extract (27-type taxonomy)
-    L-->>T: DocumentExtraction (Pydantic-validated)
+    L-->>T: DocumentExtraction (zod-validated)
     T->>P: PATCH 12 ai_* fields + lifecycle tag
 
     alt confidence ≥ per-type min AND rule enabled
         T->>P: ai-approved + ai-auto-approved
     else needs review
         T->>P: ai-pending
-        U->>API: Review in inbox → approve
-        API->>P: swap ai-pending → ai-approved
     end
 
-    Note over T: propagation watcher (polls ai-approved)
-    T->>P: write native correspondent/type/date/tags → ai-propagated
-    T->>Q: chunk → embed → upsert (RAG index)
+    T->>L: pass 2: type-specific fields
+    L-->>T: per-type values
+    T->>API: PATCH /api/documents/:id/type-fields
+
+    opt needs review
+        U->>API: Review in inbox → approve
+        API->>P: swap ai-pending → ai-approved
+        API->>T: /trigger/propagate
+    end
+
+    Note over T: propagation worker (trigger + 30s poller on ai-approved)
+    T->>P: write native correspondent/type/date/title/tags → ai-propagated
+    T->>Q: chunk → embed → delete old → upsert (RAG index)
 
     U->>API: "Ask AI" question
-    API->>Q: hybrid retrieve + rerank (bge-reranker-v2-m3)
+    API->>L: filter extraction
+    API->>P: structural search
+    API->>Q: dense retrieve + rerank (bge-reranker-v2-m3)
     API->>L: answer prompt + retrieved chunks
     L-->>API: German prose answer + [Quelle: id] citations
     API-->>U: SSE token stream + citation cards
@@ -114,8 +125,8 @@ edge: Edge {
 }
 
 app: Application layer (local builds) {
-  api: aktenraum-api (FastAPI) :8002\nauth · AI find/ask · RAG · inbox/library
-  tagger: auto-tagger (asyncio) :8001\nextraction · propagation · indexer
+  api: aktenraum-api (NestJS) :8002\nauth · AI ask · RAG · inbox/library
+  tagger: auto-tagger (Node worker) :8001\nextraction · propagation · indexer
 }
 
 paperless_core: Paperless-ngx core {
@@ -150,8 +161,8 @@ paperless_core.paperless -> app.tagger: post_consume webhook
 
 app.tagger -> llm: extraction prompt
 app.tagger -> paperless_core.paperless: PATCH ai_* fields + lifecycle tags
-app.tagger -> data.qdrant: chunk -> embed (bge-m3) -> upsert
-app.tagger -> app.api: auto-approve rules (HTTP) {style.stroke-dash: 3}
+app.tagger -> data.qdrant: chunk -> embed (qwen3-embedding:4b) -> upsert
+app.tagger -> app.api: auto-approve rules · active model · type-fields (HTTP) {style.stroke-dash: 3}
 
 backup -> data.pg: snapshots: data/media/export + 2 DB dumps {style.stroke-dash: 3}
 ```
@@ -174,9 +185,9 @@ backup -> data.pg: snapshots: data/media/export + 2 DB dumps {style.stroke-dash:
    │  APPLICATION (local builds)                                        │
    │                                                                    │
    │   ┌──────────────────────────┐      ┌───────────────────────────┐ │
-   │   │ aktenraum-api (FastAPI)   │◀────▶│ auto-tagger (asyncio)     │ │
+   │   │ aktenraum-api (NestJS)    │◀────▶│ auto-tagger (Node worker) │ │
    │   │ :8002                     │ rules│ :8001 internal            │ │
-   │   │ auth · find/ask · RAG     │      │ extraction · propagation  │ │
+   │   │ auth · ask · RAG          │ model│ extraction · propagation  │ │
    │   │ · inbox · library         │      │ · RAG indexer             │ │
    │   └───┬────────┬─────────┬────┘      └───┬───────────┬───────────┘ │
    └───────┼────────┼─────────┼───────────────┼───────────┼─────────────┘
@@ -280,9 +291,9 @@ C4Container
     }
 
     Container_Boundary(app, "Application") {
-        Container(spa, "Web SPA", "React + TanStack", "Inbox, library, find, ask, upload, scan")
-        Container(api, "aktenraum-api", "Python / FastAPI", "Auth, AI find/ask, RAG retrieval, inbox & library")
-        Container(tagger, "auto-tagger", "Python / asyncio", "Extraction, propagation, RAG indexing")
+        Container(spa, "Web SPA", "Nuxt 4 + Vue Query", "Library, review, ask, upload, trash, settings")
+        Container(api, "aktenraum-api", "TypeScript / NestJS", "Auth, AI ask, RAG retrieval, inbox & library")
+        Container(tagger, "auto-tagger", "TypeScript / Node 22", "Extraction, propagation, RAG indexing")
     }
 
     Container_Boundary(core, "Paperless-ngx core") {
@@ -315,7 +326,7 @@ C4Container
     Rel(tagger, llm, "Extraction prompts")
     Rel(tagger, paperless, "PATCH ai_* fields + tags")
     Rel(tagger, qdrant, "Embed + upsert chunks")
-    Rel(tagger, api, "Fetch auto-approve rules")
+    Rel(tagger, api, "Rules, active model, type-fields")
 
     Rel(backup, pg, "Dumps")
 
@@ -361,9 +372,9 @@ flowchart LR
 
 ## Caption notes (for the portfolio write-up)
 
-- **10 services, all Docker** — edge (nginx), app (two Python services), Paperless core (3), data (3 stores), plus a backup sidecar.
-- **Why two Python services** — process isolation, independent memory caps and restart cadence (see `docs/adr/004-two-python-services.md`).
+- **10 services, all Docker** — edge (nginx), app (two Node services), Paperless core (3), data (3 stores), plus a backup sidecar.
+- **Why two backend services** — process isolation, independent memory caps and restart cadence (see `docs/adr/004-two-python-services.md`; the rationale carried over unchanged to the TypeScript stack).
 - **Event-driven, not polling-first** — the `post_consume` webhook drives extraction; a 30s poller is only a safety net.
-- **Local-first AI** — classification + RAG (bge-m3 embeddings, bge-reranker-v2-m3 cross-encoder rerank) run on a local Ollama by default; Anthropic is a drop-in backend.
+- **Local-first AI** — classification + RAG (Qwen3-Embedding-4B dense embeddings via Ollama, bge-reranker-v2-m3 cross-encoder rerank in-process) run locally by default; Anthropic is a drop-in LLM backend.
 - **Corrections become signal** — approved/edited extractions feed few-shot exemplars and per-correspondent history hints, so accuracy improves without retraining a model.
 ```

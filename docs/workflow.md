@@ -32,7 +32,7 @@ Concrete example: a bill from Stadtwerke München arrives in the mail. You scan 
 
 1. **Browser**: you drag the file onto `/upload`. The SPA shows a progress bar.
 2. **nginx**: receives `POST /api/documents/upload`, forwards it to aktenraum-api.
-3. **aktenraum-api**: checks your login cookie, checks the file is ≤25 MB and a real PDF, then streams it to Paperless using the Paperless API token (which never leaves the server).
+3. **aktenraum-api**: checks your login cookie, checks the file is ≤25 MB and an allowed type (PDF, image, Office document or plain text), then streams it to Paperless using the Paperless API token (which never leaves the server).
 4. **Paperless**: stores the file, runs OCR (turns the PDF into searchable text), saves the text in its database. Returns a "task id" so we can track when OCR finishes.
 5. **Paperless** then fires a **webhook** — a small HTTP call to the auto-tagger saying *"document 42 just landed, please look at it."*
 6. **auto-tagger**: puts the document id on its work queue.
@@ -46,7 +46,7 @@ What you see in the upload page: `Bereit → Wird hochgeladen → Paperless vera
 7. **auto-tagger's worker** picks document 42 off the queue:
    - Reads the OCR'd text from Paperless.
    - Builds a German prompt: *"You are a document classification assistant. Here is the text. Tell me the type, sender, date, summary, etc."* It also adds a hint like *"this sender has historically been Rechnung type 9/10 times"* if it recognises the correspondent.
-   - Sends the prompt to the LLM (Ollama on your machine, or Anthropic in the cloud — your choice in Settings).
+   - Sends the prompt to the LLM (Ollama on your machine, or Anthropic in the cloud — chosen with `LLM_BACKEND` in `docker/.env`; the Ollama model itself is picked in Settings).
    - The LLM returns structured JSON: `{document_type: "Rechnung", correspondent: "Stadtwerke München", issue_date: "2024-03-15", summary: "…", confidence: 0.87, …}`.
    - Saves all 12 AI fields onto the document in Paperless (`ai_correspondent`, `ai_document_type`, `ai_summary_de`, …).
    - Tags the document `ai-pending` — meaning *"waiting for the human to review"*.
@@ -68,7 +68,7 @@ The document now appears in your **Review queue** (`/library?tab=review`) with t
     - Hands the document id to the **indexer loop**.
 12. **indexer loop**:
     - Chops the OCR'd text into ~500-word paragraphs.
-    - Sends each paragraph to a special small AI model (`bge-m3`) that turns text into a list of numbers (an "embedding") representing its meaning.
+    - Sends each paragraph to a special small AI model (`qwen3-embedding:4b`) that turns text into a list of numbers (an "embedding") representing its meaning.
     - Saves all the embeddings + the paragraph text into Qdrant.
 
 The document is now fully filed, with native Paperless metadata, and its content is searchable by meaning (not just by keywords).
@@ -83,13 +83,13 @@ This is the "Ask AI" page. It's a two-step pipeline.
 14. **aktenraum-api** — step A, *finding the right documents*:
     - Sends the question to a small LLM with a prompt: *"Extract a structured filter from this question."* The LLM returns `{document_type: "Rechnung", text: "Strom"}`.
     - Asks Paperless: *"Give me bills matching this filter."* Gets back, say, 8 documents.
-    - Also asks Qdrant: *"Find paragraphs whose meaning is close to 'Wann ist meine Stromrechnung fällig?'"* Gets back the 5 most relevant paragraphs across the corpus.
+    - Also asks Qdrant: *"Find paragraphs whose meaning is close to 'Wann ist meine Stromrechnung fällig?'"* Gets back the top 50, then a second model (`bge-reranker-v2-m3`) re-scores them and keeps the 5 most relevant.
 15. **aktenraum-api** — step B, *answering*:
     - Builds a new prompt: *"Here are 8 candidate documents and 5 relevant paragraphs. Answer the user's question in German and cite the doc ids you used."*
     - Sends it to a bigger LLM (the "answer model" you picked in Settings).
     - The LLM streams its answer back word by word.
 16. **aktenraum-api** forwards every word to the browser as a stream of events (this is what *Server-Sent Events / SSE* is).
-17. **Browser**: shows the answer appearing live, character by character, with clickable citation cards at the bottom for each doc the AI used.
+17. **Browser**: shows the answer appearing live, character by character, with citation cards at the bottom for each doc the AI used; each links to that document's page in the Library (`/library/<id>`).
 
 ---
 
@@ -126,7 +126,7 @@ Every document carries one of these as its current state. You can see them in th
 
 ```
 (no tag)      → just uploaded, AI hasn't looked yet
-ai-pending    → AI extracted data, waiting for human review     ← in the Inbox
+ai-pending    → AI extracted data, waiting for human review     ← in the review queue
 ai-approved   → you approved, propagator hasn't run yet         ← transient (≤30s)
 ai-rejected   → you rejected, no propagation will happen
 ai-propagated → fully filed, native fields written              ← final success
@@ -139,7 +139,7 @@ That tag is the **single source of truth** for "where is this doc in the pipelin
 Several auxiliary markers live alongside the lifecycle tag, not instead:
 
 - `ai-auto-approved` — pinned permanently to docs the AI was so confident about that they skipped the review queue. The UI renders "Auto-genehmigt" wherever you see one.
-- `ai-low-confidence` — pinned to docs in the review queue where the AI flagged itself as uncertain. The UI puts them at the top of the queue.
+- `ai-low-confidence` — pinned to docs in the review queue where the AI flagged itself as uncertain. The UI marks those rows with an amber stripe.
 - `ai-duplicate` — set by the propagator when a newly-propagated doc looks like a duplicate of another (same correspondent + issue date + doc type + matching amount or reference number). The Library row shows a purple badge.
 - `ai-duplicate-dismissed` — sticky flag added when you click "Kein Duplikat" on the detail page. Suppresses re-flagging on future propagations against the same cluster.
 - `ai-index-error` — set if the RAG indexer (chunk + embed + Qdrant upsert) failed. Auxiliary, not lifecycle. Clears itself on the next successful indexing.
@@ -152,12 +152,12 @@ Several auxiliary markers live alongside the lifecycle tag, not instead:
 
 | Failure | What happens | What you do |
 | --- | --- | --- |
-| LLM is down / times out | doc gets tagged `ai-error`, error message stored on the doc | Click "Erneut verarbeiten" — the auto-tagger picks it up again. |
+| LLM is down / times out | the doc stays untagged and the 30s poller retries it; after the third consecutive failure it gets `ai-error`, error message stored on the doc | Usually nothing. If it reached `ai-error`, click "Erneut verarbeiten" — the auto-tagger picks it up again. |
 | OCR fails or returns empty text | doc gets tagged `ai-error` | The PDF is probably an image with no text. Re-scan with OCR-friendly settings. |
 | You approve, but writing native fields fails (Paperless rejected the value) | doc gets tagged `ai-propagation-error`, error stored | Fix the offending field on the doc, click "Erneut verarbeiten". |
-| Qdrant is down | indexing of new docs pauses; existing answers still work but only with metadata, no paragraph search | Restart the qdrant container; run `bash scripts/backfill-rag-index.sh` if you skipped indexing for a while. |
+| Qdrant is down | indexing of new docs fails (`ai-index-error`); answers still work but only with metadata, no paragraph search | Restart the qdrant container. On its next start the auto-tagger re-queues every filed doc that has no paragraphs indexed; `bash scripts/backfill-rag-index.sh` does the same on demand. |
 | auto-tagger container crashes | docs queue up in Paperless tagged with nothing | On restart, the poller scans and picks them all up within 30s. No work lost. |
-| You quit Docker Desktop mid-extraction | the in-flight extraction is cancelled; the doc stays with no AI tags | On next start, the poller finds it and re-extracts. The propagator's PATCH is *shielded* against cancellation so it never leaves a doc half-propagated. |
+| You quit Docker Desktop mid-extraction | the worker stops taking new work; if it is killed before the in-flight extraction finishes, the doc stays with no AI tags | On next start, the poller finds it and re-extracts. Propagation writes all native fields in a single PATCH, so a doc is never left half-propagated. |
 
 ---
 

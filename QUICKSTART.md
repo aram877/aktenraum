@@ -10,13 +10,14 @@ It runs as 10 background programs on your computer, managed by Docker.
 
 ## Where does your data live?
 
-**Everything is stored in `D:\aktenraum\`** — a normal Windows folder you can open in File Explorer.
+**Everything is stored in one folder: the `AKTENRAUM_DATA_DIR` set in `docker/.env`** — a normal folder you can open in File Explorer or Finder (for example `D:\aktenraum\` on Windows, `/Users/you/aktenraum/` on macOS).
 
-| What | Where |
+| What | Where (inside that folder) |
 |---|---|
-| Your uploaded documents (PDFs) | `D:\aktenraum\media\` |
-| Database (AI metadata, tags, correspondents) | `D:\aktenraum\pgdata\` |
-| Daily backups | `D:\aktenraum\backup\` |
+| Your uploaded documents (PDFs) | `media/` |
+| Database (AI metadata, tags, correspondents) | `pgdata/` |
+| Search index (for Ask AI) | `qdrant/` |
+| Daily backups | `backup/` |
 
 Your data is yours. Uninstalling Docker doesn't touch this folder.
 
@@ -26,21 +27,22 @@ Your data is yours. Uninstalling Docker doesn't touch this folder.
 
 **Nothing is deleted.**
 
-`task stop` is like closing Excel — the spreadsheet isn't gone, the program just isn't running. All your files in `D:\aktenraum\` stay exactly where they are.
+`task stop` is like closing Excel — the spreadsheet isn't gone, the program just isn't running. All your files in your data folder stay exactly where they are.
 
 `task start` turns everything back on and picks up exactly where you left off.
 
 > **Why did data disappear twice before?**
 >
 > The programs were writing data *inside Docker's own internal storage* instead of to
-> your `D:\aktenraum\` folder. Docker's internal storage can be wiped when Docker
-> Desktop resets or reinstalls. That bug is now fixed — data goes straight to `D:\`.
+> your data folder. Docker's internal storage can be wiped when Docker
+> Desktop resets or reinstalls. That bug is now fixed — data goes straight to the folder
+> named by `AKTENRAUM_DATA_DIR`, and the stack refuses to start if it is not set.
 
 ---
 
 ## The only 3 commands you need
 
-Open a terminal in `D:\Development\document-organizer` and run:
+Open a terminal in the aktenraum repository folder and run:
 
 ```
 task start      ← turn aktenraum on
@@ -54,14 +56,16 @@ Then open **http://localhost:8080** in your browser.
 
 ## First-time setup (run once, ever)
 
+Copy `docker/.env.example` to `docker/.env` and set `AKTENRAUM_DATA_DIR` to an absolute path (e.g. `D:/aktenraum` or `/Users/you/aktenraum`). Then:
+
 ```
 task setup
 ```
 
 This does everything automatically:
-1. Generates all passwords and secrets
+1. Creates the data folders and generates all passwords and secrets in `docker/.env`
 2. Starts all 10 services
-3. Creates the AI custom fields in Paperless
+3. Mints the Paperless API token and creates the AI custom fields and tags in Paperless
 4. Initialises the backup system
 5. Takes the first backup
 
@@ -79,7 +83,7 @@ This means the internal API token got out of sync (usually after a database wipe
 task recover
 ```
 
-This mints a new token and reconnects all services. Takes about 30 seconds.
+This mints a new token and restarts the auto-tagger and aktenraum-api. Takes about 30 seconds.
 
 ### My documents are gone / blank database
 
@@ -107,7 +111,7 @@ Then follow `docs/runbooks/restore.md`.
 task destroy
 ```
 
-This stops everything and deletes **all** data in `D:\aktenraum\` including all documents and backups. There is no undo. It will ask you to type `DELETE` to confirm.
+This stops everything and deletes **all** data in your `AKTENRAUM_DATA_DIR` folder, including all documents and backups. There is no undo. It will ask you to type `DELETE` to confirm.
 
 After a destroy, run `task setup` to start over.
 

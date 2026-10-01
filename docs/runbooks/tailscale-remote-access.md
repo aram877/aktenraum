@@ -147,7 +147,7 @@ Tailscale supports inviting other people to your tailnet ([user-sharing docs](ht
 
 **Root cause**: `COOKIE_SECURE=true` (the default) tells the browser to only send the auth cookie over HTTPS. If you're accessing aktenraum at `http://<lan-ip>:8080` (plain HTTP), the browser refuses to send the cookie back even though the server set it. Login looks like it works, then every API call returns 401.
 
-**Remediation**: use the Tailscale MagicDNS URL (`https://...`) instead. **Do not** flip `COOKIE_SECURE` to `false` in `docker/aktenraum-api.env` to "fix" this — that weakens security for no reason; the Tailscale HTTPS URL works correctly with the secure-cookie default. `COOKIE_SECURE=false` is reserved for genuine plain-HTTP localhost dev on the host itself.
+**Remediation**: use the Tailscale MagicDNS URL (`https://...`) instead. **Do not** flip `COOKIE_SECURE` to `false` in `docker/.env` to "fix" this — that weakens security for no reason; the Tailscale HTTPS URL works correctly with the secure-cookie default. `COOKIE_SECURE=false` is reserved for genuine plain-HTTP localhost dev on the host itself.
 
 ### "I'm getting 'tailnet only' but the URL still 404s"
 

@@ -2,7 +2,7 @@
 
 The durable plan for shipping aktenraum as a Tauri desktop app per ADR-002. Lives outside the OpenSpec change pipeline because it spans multiple deliveries; each phase becomes its own OpenSpec change when implementation starts.
 
-**Status**: Phase 0 not started. ADR-002 accepted.
+**Status**: Phase 0 in progress, currently deferred per ADR-005 (testing phase via Tailscale). ADR-002 accepted. Shipped: 0.1 secret bootstrap as `scripts/bootstrap-secrets.sh` (fills a single `docker/.env` from `docker/.env.example`; the Paperless token is minted separately by `scripts/fix-token.sh` / `task setup`); `AKTENRAUM_DATA_DIR` is required by every compose volume mount and read by `scripts/setup.sh` / `scripts/backup.sh` (0.2 partial — no per-platform default; the optional systemd unit still reads `~/aktenraum/.backup.env`); the auto-tagger exposes `GET /health` (part of 0.4). Not started: model pull (0.3), single-command first-run (0.5), preflight (0.6). Phases 1–3 not started.
 
 ---
 
@@ -39,26 +39,26 @@ Concrete deliverables:
 2. **`AKTENRAUM_DATA_DIR` end-to-end.** Audit and replace every reference to `~/aktenraum/`:
    - `docker-compose.yml` volume mounts.
    - `scripts/bootstrap-paperless.sh` and friends.
-   - `services/aktenraum-api/src/config.py` (data paths, if any).
+   - `services/aktenraum-api/src/config/settings.ts` (data paths, if any).
    - Default per-platform: `~/Library/Application Support/aktenraum/` (macOS), `%APPDATA%\aktenraum\` (Windows), `$XDG_DATA_HOME/aktenraum/` (Linux).
 
 3. **Model pull on first run.** Extend `bootstrap.sh` (or split into `scripts/pull-models.sh`) to:
    - Detect Ollama is reachable.
    - `ollama pull qwen2.5:14b-instruct-q4_K_M` (chat).
-   - `ollama pull bge-m3` (embeddings, when RAG ships).
+   - `ollama pull qwen3-embedding:4b` (embeddings).
    - Stream pull progress as line-prefixed JSON for the desktop shell to parse.
-   - **Reranker (`bge-reranker-v2-m3`) is NOT pulled via Ollama** — Ollama doesn't host cross-encoder reranker models. The model is downloaded via `sentence-transformers` into the `aktenraum-hf-cache` Docker volume on first `aktenraum-api` startup; the cache survives `docker compose up -d --build` so the ~2.1 GB download happens exactly once per host (~80s on a fast connection). Lifespan in `aktenraum-api.main` runs the load as a background task (`_warm_reranker`) so the first `/ask` request after a fresh start is not blocked. No first-run script work needed for the reranker.
+   - **Reranker (`bge-reranker-v2-m3`) is NOT pulled via Ollama** — Ollama doesn't host cross-encoder reranker models. The ONNX export is downloaded by transformers.js into the `aktenraum-node-hf-cache` Docker volume on first `aktenraum-api` startup; the cache survives `docker compose up -d --build` so the download happens once per host. `RetrievalModule` pre-warms the model as a background task at startup so the first `/ask` request after a fresh start is not blocked. No first-run script work needed for the reranker.
 
 4. **Health endpoints completed for every service.**
    - `aktenraum-api`: `/api/health` exists; extend with subchecks (`db_ok`, `paperless_ok`, `ollama_ok`).
-   - `auto-tagger`: add `GET /health` to its aiohttp listener (currently webhook-only).
+   - `auto-tagger`: `GET /health` on its `node:http` listener (port 8001) — done.
    - `paperless`, `postgres`, `redis`: rely on Docker `healthcheck:` directives in compose; the desktop shell polls `docker compose ps --format json`.
 
 5. **Single-command first-run path.** A `scripts/first-run.sh` (or a `make first-run` target) that orchestrates: preflight → bootstrap → image pull → compose up → wait healthy → bootstrap-paperless → model pull → print "ready, open http://localhost:8080".
 
 6. **Hardware preflight script.** `scripts/preflight.sh` checks RAM, free disk, CPU features, Docker presence, port availability (8080, 8000). Fails with friendly messages, not stack traces.
 
-7. **Graceful shutdown.** `auto-tagger` and `aktenraum-api` already use SIGTERM-aware lifespans (FastAPI/asyncio). Add a 30s drain test to CI.
+7. **Graceful shutdown.** The `auto-tagger` handles SIGTERM/SIGINT via an `AbortController` (each loop finishes its current item); `aktenraum-api` relies on NestJS/Node defaults. Add a 30s drain test to CI.
 
 Phase 0 ships entirely as shell scripts and config; **no Rust, no Tauri**. The deliverable is "the compose stack is now wrappable."
 

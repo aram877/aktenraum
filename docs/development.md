@@ -5,42 +5,48 @@ change. For why the stack looks the way it does see
 [architecture.md](architecture.md); for every env-var knob see
 [configuration.md](configuration.md).
 
+The code is TypeScript end to end in one pnpm workspace:
+
+| Package | Path | What |
+|---|---|---|
+| `@aktenraum/core` | `packages/aktenraum-core` | shared library: Paperless client + normalisers, LLM backends, models, RAG |
+| `@aktenraum/api` | `services/aktenraum-api` | NestJS HTTP API for the SPA (port 8002) |
+| `@aktenraum/worker` | `services/auto-tagger` | extraction / propagation / indexing worker (port 8001) |
+| `@aktenraum/web` | `apps/web` | Nuxt 4 SPA, statically generated and served by nginx |
+
+Run every `pnpm` and `task` command from the repository root. In the raw
+commands below, `DC` stands for `docker compose --project-directory docker`.
+
 ---
 
 ## Prerequisites
 
 - Docker Desktop or Docker Engine + Compose v2.
 - `bash` (macOS, Linux, or Windows Git Bash).
-- [`task`](https://taskfile.dev) — strongly recommended (`brew install go-task` / `winget install Task.Task`). Every common workflow is a one-liner; run `task --list` to enumerate them.
-- For host-side Python work: nothing — `uv` is invoked through the workspace.
-- For host-side SPA work: Node 20+ and `pnpm` (`corepack enable && corepack prepare pnpm@latest --activate`).
-- For backups: `restic` only if you run the host-side `scripts/backup.sh`. The Dockerised `backup` service ships its own restic.
-- For Ollama (default LLM backend): install Ollama on the host and `ollama pull qwen2.5:32b-instruct-q8_0` (recommended; ~32 GB) or `qwen2.5:14b-instruct-q8_0` (~16 GB) if you're tight on memory. The auto-tagger reaches it via `http://host.docker.internal:11434`.
+- [`task`](https://taskfile.dev) — recommended (`brew install go-task` / `winget install Task.Task`). `task --list` enumerates the shortcuts.
+- For editing code, running tests or the Nuxt dev server: Node 22 (`.nvmrc`) and pnpm 9 (`corepack enable`; the version is pinned by `packageManager` in `package.json`).
+- For Ollama (default LLM backend): Ollama on the host, plus `ollama pull qwen2.5:14b-instruct-q8_0` (~16 GB; `qwen2.5:32b-instruct-q8_0` if you have ~32 GB to spare) and `ollama pull qwen3-embedding:4b`. The containers reach it via `http://host.docker.internal:11434`.
+- For backups: nothing — the `backup` service ships its own restic. A host `restic` is only needed for the optional `scripts/backup.sh`.
 
-You do NOT need a Python or Node toolchain installed to run the stack —
-both services build inside Docker. The host installs are only for editing
-code with hot-reload.
+You do not need Node installed just to run the stack — every image builds
+inside Docker.
 
 ## Task runner
 
-Most commands below have a `task` wrapper. The full list is at
-[`Taskfile.yml`](../Taskfile.yml) (run `task --list`); the headline
-shortcuts:
+The full list is in [`Taskfile.yml`](../Taskfile.yml):
 
-| Task | Equivalent |
+| Task | What it does |
 |---|---|
-| `task setup` | first-time setup orchestration |
-| `task start` / `task stop` / `task status` | compose lifecycle |
+| `task setup` | first-time setup: host dirs → secrets → stack → Paperless token → custom fields + tags → restic init → first snapshot |
+| `task start` / `task stop` / `task status` | bring the stack up (recreating services whose `docker/.env` values changed) / take it down (data kept) / show what runs |
+| `task logs SVC=<service>` | tail one service; omit `SVC` for all |
+| `task build` | rebuild and restart nginx (SPA) and both Node services |
 | `task web:dev` | Nuxt dev server on `:4300`, proxying `/api` to `:8080` |
-| `task build` | rebuild SPA (nginx) + both Node services |
-| `task logs SVC=auto-tagger` | tail one service |
-| `task test` / `task lint` | vitest + eslint across all four packages |
-| `task rag:reembed` | drop + re-embed the Qdrant index |
-| `task backup:verify` | DR rehearsal |
-| `task setup` / `task recover` / `task destroy` | first-time setup / re-mint token / wipe everything |
-
-If you don't have `task` installed, every recipe below also lists the
-raw command.
+| `task test` / `task lint` | vitest / eslint across all four packages (runs `pnpm install` first) |
+| `task recover` | re-mint the Paperless API token and recreate both Node services |
+| `task destroy` | stop the stack and delete `AKTENRAUM_DATA_DIR` (asks for `DELETE`) |
+| `task rag:reembed` | drop the Qdrant collection and re-embed every document |
+| `task backup:verify` | non-destructive DR rehearsal: `restic check` + test restore + both DB dumps |
 
 ---
 
@@ -49,46 +55,43 @@ raw command.
 ```bash
 git clone <this-repo>
 cd aktenraum
-bash scripts/setup.sh                # create ~/aktenraum/{consume,media,data,export,pgdata,backup/restic-repo}
-bash scripts/bootstrap-secrets.sh    # generate all REQUIRED secrets into docker/*.env
-cd docker && docker compose up -d
+bash scripts/bootstrap-secrets.sh    # creates docker/.env from docker/.env.example
+# edit docker/.env: set AKTENRAUM_DATA_DIR to an absolute path (required)
+task setup
 ```
 
-`bootstrap-secrets.sh` is idempotent. It copies `docker/*.env.example` →
-`docker/*.env` if absent, fills any empty `REQUIRED` value with
-`openssl rand`, and reconciles cross-file shared secrets (`PAPERLESS_DBPASS`,
-`WEBHOOK_SECRET`). It prints the generated admin/SPA passwords **once**;
-save them.
+`bootstrap-secrets.sh` is idempotent. It copies `docker/.env.example` to
+`docker/.env` if absent and fills every empty REQUIRED value with
+`openssl rand`. It prints the generated admin and SPA passwords **once**;
+save them. `task setup` runs it again (a no-op) and then does the rest.
 
-After the stack is up:
+Without `task`, the same steps by hand:
 
 ```bash
-# Wait until paperless is ready
-docker compose logs -f paperless     # look for "Ready"
+bash scripts/setup.sh                       # host directories under ~/aktenraum
+bash scripts/bootstrap-secrets.sh
+DC up -d
+bash scripts/fix-token.sh                   # mint PAPERLESS_API_TOKEN, recreate the Node services
+TOKEN=$(grep '^PAPERLESS_API_TOKEN=' docker/.env | cut -d= -f2-)
+docker cp scripts/bootstrap-paperless.sh docker-paperless-1:/tmp/bootstrap-paperless.sh
+DC exec -T -e PAPERLESS_API_TOKEN="$TOKEN" paperless bash /tmp/bootstrap-paperless.sh
+DC exec -T backup sh -c 'restic -r /repo snapshots >/dev/null 2>&1 || restic -r /repo init'
+```
 
-# Mint a Paperless API token (one-time; uses the admin password from bootstrap)
-TOKEN=$(curl -s -X POST "http://localhost:8000/api/token/" \
-  -H "Content-Type: application/json" \
-  -d "{\"username\":\"admin\",\"password\":\"<from-bootstrap>\"}" \
-  | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])")
+To mint the token manually instead of `fix-token.sh`:
 
-# Put it in BOTH env files (auto-tagger uses it for writes; aktenraum-api uses it for the SPA's AI features)
-echo "PAPERLESS_API_TOKEN=$TOKEN" >> docker/auto-tagger.env
-echo "PAPERLESS_API_TOKEN=$TOKEN" >> docker/aktenraum-api.env
-
-# Re-create the containers so the new env is picked up (restart alone does NOT re-read env files)
-cd docker && docker compose up -d auto-tagger aktenraum-api
-
-# Bootstrap Paperless: create custom fields + lifecycle tags
-PAPERLESS_BASE_URL=http://localhost:8000 \
-PAPERLESS_API_TOKEN=$TOKEN \
-bash ../scripts/bootstrap-paperless.sh
+```bash
+curl -s -X POST http://localhost:8000/api/token/ -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"<PAPERLESS_ADMIN_PASSWORD>"}'
+# put the value into PAPERLESS_API_TOKEN= in docker/.env, then:
+DC up -d auto-tagger aktenraum-api           # recreate; restart does not re-read env
 ```
 
 The SPA is at <http://localhost:8080>. Log in with `BOOTSTRAP_USERNAME` /
-`BOOTSTRAP_PASSWORD` from `docker/aktenraum-api.env`.
+`BOOTSTRAP_PASSWORD` from `docker/.env`. On plain-HTTP localhost set
+`COOKIE_SECURE=false` there first, or the session cookie is never sent.
 
-A more detailed walkthrough lives at
+A longer walkthrough lives at
 [runbooks/first-time-setup.md](runbooks/first-time-setup.md).
 
 ---
@@ -96,129 +99,138 @@ A more detailed walkthrough lives at
 ## Daily start / stop
 
 ```bash
-task start                           # start everything
-task stop                            # stop everything (data preserved)
-task status                          # status overview
-```
-
-A typical dev session:
-
-```bash
 task start                           # backend stack
-task web:dev                         # Nuxt dev server on :4300
+task web:dev                         # optional: Nuxt dev server on :4300
+task stop                            # data preserved
 ```
 
-Open <http://localhost:4300> for the hot-reloaded SPA against the running
-compose stack; it proxies `/api` to the nginx edge on `:8080` (see
-`nitro.devProxy` in `apps/web/nuxt.config.ts`). The production SPA at `:8080` is unaffected.
+<http://localhost:4300> serves the hot-reloaded SPA against the running
+stack; `/api` is proxied to the nginx edge on `:8080` (`nitro.devProxy` in
+`apps/web/nuxt.config.ts`). The production SPA on `:8080` is unaffected.
 
-For the backend, the dev overlay bind-mounts `src/` into both Node services
-and runs `tsx watch`, so a `.ts` save restarts the process in about a
-second with no image rebuild:
+For the Node services, the dev overlay
+[`docker/docker-compose.dev.yml`](../docker/docker-compose.dev.yml)
+bind-mounts `src/` of both services and of `@aktenraum/core` and runs
+`tsx watch`, so a `.ts` save restarts the process in about a second with no
+image rebuild:
 
 ```bash
-docker compose --project-directory docker -f docker/docker-compose.yml -f docker/docker-compose.dev.yml up -d aktenraum-api auto-tagger
-docker compose --project-directory docker up -d aktenraum-api auto-tagger   # back to the prod entrypoints
+DC -f docker/docker-compose.yml -f docker/docker-compose.dev.yml up -d aktenraum-api auto-tagger
+DC up -d aktenraum-api auto-tagger   # back to the compiled prod entrypoints
 ```
+
+`node_modules` stay the ones baked into the image, so adding a dependency
+still needs a rebuild.
 
 ---
 
 ## Rebuilding after code changes
 
-`docker compose restart` does **not** re-read env files or pick up
-source changes. Use `up -d --build`:
+`docker compose restart` does **not** re-read `docker/.env` or pick up
+source changes.
 
 | You changed | Task | Raw command |
 |---|---|---|
-| `services/auto-tagger/**` or `packages/aktenraum-core/**` | `task build` | `docker compose up -d --build auto-tagger` |
-| `services/aktenraum-api/**` or `packages/aktenraum-core/**` | `task build` | `docker compose up -d --build aktenraum-api` |
-| `apps/web/**` (production build, not dev server) | `task build` | `docker compose up -d --build nginx` |
-| `docker/nginx/nginx.conf` | `task build` | `docker compose up -d --build nginx` |
-| Any `docker/*.env` value | `task start` | `docker compose up -d <service>` |
-| `docker/docker-compose.yml` | `task start` | `docker compose up -d` |
+| `services/auto-tagger/**` | `task build` | `DC up -d --build auto-tagger` |
+| `services/aktenraum-api/**` | `task build` | `DC up -d --build aktenraum-api` |
+| `packages/aktenraum-core/**` | `task build` | `DC up -d --build auto-tagger aktenraum-api` |
+| `apps/web/**` or `docker/nginx/**` | `task build` | `DC up -d --build nginx` |
+| `docker/backup/**` | — | `DC up -d --build backup` |
+| any `docker/.env` value | `task start` | `DC up -d <service>` |
+| `docker/docker-compose.yml` | `task start` | `DC up -d` |
 
-The auto-tagger Dockerfile's build context is the repo root, so a
-single rebuild picks up both `services/auto-tagger/src/` and
-`packages/aktenraum-core/src/` edits. Same for `aktenraum-api`.
+Every Dockerfile's build context is the repo root, so rebuilding either
+Node service picks up `@aktenraum/core` edits.
 
 ---
 
 ## Running tests
 
-### Python (workspace root)
-
 ```bash
-pnpm install                        # task test/lint also run this first
-task test                           # every package (~90s, 594 tests)
-task lint                           # eslint across every package
+task test                            # pnpm install + pnpm -r test (644 tests)
+task lint                            # pnpm install + pnpm -r lint
+pnpm -r build                        # tsc -b for the Node packages + nuxt generate
 ```
 
 One package at a time, or one file:
 
 ```bash
-pnpm --filter @aktenraum/api test                    # aktenraum-api only
+pnpm --filter @aktenraum/api test                    # one package
 pnpm --filter @aktenraum/worker test -- prompt       # files matching "prompt"
-pnpm --filter @aktenraum/api typecheck               # tsc over the test files too
+pnpm --filter @aktenraum/api typecheck               # tsc over the test files, which vitest only transpiles
+pnpm --filter @aktenraum/web typecheck               # nuxt typecheck
 ```
 
 | Package | Tests | Shape |
 | --- | --- | --- |
-| `@aktenraum/core` | 170 | pure functions — normalisers, chunker, models, the Paperless client over a fake fetch |
-| `@aktenraum/api` | 179 | a real Nest app over **pg-mem** plus a stateful fake Paperless, driven with supertest |
-| `@aktenraum/worker` | 105 | routing matrix, queue semantics, prompt assembly, synthesizers, propagation, indexing |
-| `@aktenraum/web` | 140 | vitest + `@nuxt/test-utils` (`environment: "nuxt"`, `mountSuspended`, `mockNuxtImport`) |
+| `@aktenraum/core` | 176 | pure functions — normalisers, dedup, chunker, models, the Paperless client over a fake fetch |
+| `@aktenraum/api` | 193 | a real Nest app over **pg-mem** plus a stateful fake Paperless, driven with supertest |
+| `@aktenraum/worker` | 125 | routing matrix, queue semantics, prompt assembly, synthesizers, extraction/propagation/indexing flows against a fake Paperless |
+| `@aktenraum/web` | 150 | vitest + `@nuxt/test-utils` (`environment: "nuxt"`, `mountSuspended`, `mockNuxtImport`) |
 
-None of these need the stack running. For the pipeline end to end —
-webhook, extraction, routing, propagation, dedup, Qdrant indexing —
-`bash scripts/e2e-worker.sh` (`--down` tears it down) drives a throwaway Paperless/Postgres/Qdrant stack and
-asserts 20 outcomes. It refuses to run against live-stack ports.
+None of these need the stack running.
+
+### End to end
+
+```bash
+bash scripts/e2e-worker.sh           # build + run the throwaway stack, assert each pipeline stage
+bash scripts/e2e-worker.sh --down    # tear it down (deletes its volumes)
+```
+
+It drives the real worker through webhook → extraction → routing →
+propagation → dedup → Qdrant indexing against an isolated stack
+([`docker/docker-compose.e2e.yml`](../docker/docker-compose.e2e.yml), project
+`aktenraum-e2e`, ports 8100/8101/8102/6433). It never touches the live stack
+and refuses to start on live-stack ports. Never point a second worker at the
+live Paperless while the stack's auto-tagger runs — both claim documents by
+writing lifecycle tags.
 
 ### CI
 
-GitHub Actions runs two jobs on every push and PR
-(`.github/workflows/ci.yml`):
-- **python** — `pnpm install && pnpm -r lint && pnpm -r test`
-- **web** — `pnpm install --frozen-lockfile && pnpm lint && pnpm build`
+GitHub Actions ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml))
+runs one job on every push to `main` and every PR: `pnpm install` →
+`pnpm -r lint` → `pnpm -r build` → api and web typecheck → `pnpm -r test`.
 
 ---
 
 ## Logs and debugging
 
-```bash
-# Service logs
-docker compose logs -f auto-tagger
-docker compose logs -f aktenraum-api
-docker compose logs --tail=50 paperless
+When debugging, start from the logs. Both Node services write one JSON object
+per line with an `event` field.
 
-# What's a doc's current state?
-TOKEN=$(grep PAPERLESS_API_TOKEN docker/auto-tagger.env | cut -d= -f2)
+```bash
+task logs SVC=auto-tagger            # or: DC logs -f auto-tagger
+task logs SVC=aktenraum-api
+DC logs --tail=50 paperless
+
+# A doc's current state
+TOKEN=$(grep '^PAPERLESS_API_TOKEN=' docker/.env | cut -d= -f2-)
 curl -s -H "Authorization: Token $TOKEN" \
   "http://localhost:8000/api/documents/<ID>/" | python3 -m json.tool
 
-# Trigger extraction on a specific doc (bypasses the 30s poll lag)
-docker compose exec paperless curl -sS -H "Content-Type: application/json" \
+# Trigger extraction on a specific doc (bypasses the 30 s poll lag)
+DC exec paperless curl -sS -H "Content-Type: application/json" \
+  -H "X-Aktenraum-Secret: $(grep '^WEBHOOK_SECRET=' docker/.env | cut -d= -f2-)" \
   -d '{"document_id": <ID>}' http://auto-tagger:8001/trigger/extract
-
-# Clear lifecycle tags → poller re-extracts within 30s
-curl -s -X PATCH "http://localhost:8000/api/documents/<ID>/" \
-  -H "Authorization: Token $TOKEN" -H "Content-Type: application/json" \
-  -d '{"tags": []}'
 ```
 
-The user's global `~/.claude/CLAUDE.md` says: **when debugging, always
-use logs**. The auto-tagger uses `structlog` with key=value output; grep
-for these events:
+Worker events worth grepping for:
 
 | Event | Meaning |
 |---|---|
-| `auto_tagger_starting` | Service start |
-| `extraction_successful` doc_id=N | LLM call returned a valid extraction |
-| `extraction_failed` | LLM/transport/validation error; doc gets `ai-error` |
-| `ai_title_synthesized` | LLM dropped `ai_title`; Python fallback filled it in |
-| `routing_decision` tags=[…] | Confidence-based tag(s) applied |
-| `paperless_patch_rejected` body=… | Paperless 4xx with the response body verbatim |
-| `skip_already_processed` | Webhook + poller race; this fire is the duplicate |
+| `worker_started` | Service start (loop count, propagation and RAG on/off) |
+| `extraction_successful` | LLM call returned a valid extraction |
+| `extraction_deferred` | Transient LLM failure (timeout, connection, 429/5xx); retried on the next poll |
+| `extraction_failed` | Permanent failure; doc gets `ai-error` |
+| `fallbacks_applied` | The LLM dropped fields; synthesizers filled them (`fields=[…]`) |
+| `routing_decision` | Lifecycle tag(s) applied, with `reason=…` |
+| `active_llm_model_unreachable_using_env` | api unreachable at cold start; using `OLLAMA_MODEL` |
+| `auto_approve_rules_unreachable_fail_closed` | api unreachable at cold start; everything routes to `ai-pending` |
+| `paperless_patch_rejected` | Paperless 4xx with the response body verbatim |
+| `skip_already_processed` | Webhook + poller race; this one is the duplicate |
+| `skip_not_approved` | Propagation skipped a doc that no longer carries `ai-approved` |
 | `indexer_doc_indexed` | RAG chunks upserted into Qdrant |
+| `index_reconcile_completed` | Startup sweep that re-queues propagated docs with no chunks |
 
 ---
 
@@ -227,7 +239,7 @@ for these events:
 ### Inspect Paperless via API
 
 ```bash
-TOKEN=$(grep PAPERLESS_API_TOKEN docker/auto-tagger.env | cut -d= -f2)
+TOKEN=$(grep '^PAPERLESS_API_TOKEN=' docker/.env | cut -d= -f2-)
 BASE=http://localhost:8000
 
 # All tags (?name= is silently ignored — use ?name__iexact=)
@@ -236,29 +248,28 @@ curl -s -H "Authorization: Token $TOKEN" "$BASE/api/tags/?page_size=200" | pytho
 # All custom fields with their ids
 curl -s -H "Authorization: Token $TOKEN" "$BASE/api/custom_fields/?page_size=100" | python3 -m json.tool
 
-# Search documents (use document_type__id NOT document_type=)
+# Search documents (use document_type__id, not document_type=)
 curl -s -H "Authorization: Token $TOKEN" "$BASE/api/documents/?document_type__id=5&ordering=-created" | python3 -m json.tool
 ```
 
 ### Reprocess a single document
 
-The SPA's "Erneut verarbeiten" button, or the PATCH below, clears every
-lifecycle tag on that doc; the poller (or the auto-tagger webhook for the
-SPA's button) re-extracts it within 30 s.
+Use "Erneut verarbeiten" in the SPA (clears the lifecycle tags and pings the
+worker), or clear the tags yourself; the 30 s poller re-extracts it:
 
 ```bash
-TOKEN=$(grep PAPERLESS_API_TOKEN docker/auto-tagger.env | cut -d= -f2)
-curl -s -X PATCH "http://localhost:8000/api/documents/27/" \
+curl -s -X PATCH "http://localhost:8000/api/documents/<ID>/" \
   -H "Authorization: Token $TOKEN" -H "Content-Type: application/json" \
   -d '{"tags": []}'
 ```
 
-### Reprocess every document (re-run the AI on the full corpus)
+`{"tags": []}` removes every tag, including user tags such as `wichtig`.
+
+### Reprocess every document
 
 Useful after a prompt change. Cost: one LLM call per doc.
 
 ```bash
-TOKEN=$(grep PAPERLESS_API_TOKEN docker/auto-tagger.env | cut -d= -f2)
 for id in $(curl -s -H "Authorization: Token $TOKEN" \
               "http://localhost:8000/api/documents/?page_size=200" \
             | python3 -c "import sys,json; print(*[d['id'] for d in json.load(sys.stdin)['results']])"); do
@@ -268,82 +279,70 @@ for id in $(curl -s -H "Authorization: Token $TOKEN" \
 done
 ```
 
-### Switch LLM backend
+### Switch LLM backend or model
 
-Edit `docker/auto-tagger.env` AND `docker/aktenraum-api.env`:
+The backend is one setting in `docker/.env`, shared by both Node services:
 
 ```bash
-LLM_BACKEND=ollama                            # or anthropic
-OLLAMA_MODEL=qwen2.5:32b-instruct-q8_0        # recommended local model (see configuration.md)
-# or
-ANTHROPIC_API_KEY=sk-ant-...
+LLM_BACKEND=ollama                   # or anthropic
+ANTHROPIC_API_KEY=sk-ant-...         # when anthropic
 ANTHROPIC_MODEL=claude-sonnet-4-6
 ```
 
-Then recreate the containers (env-file changes need a recreate, not a restart):
+Then `task start` (or `DC up -d auto-tagger aktenraum-api`) to recreate the
+containers.
+
+With Ollama, the extraction and answer models are picked in the SPA under
+`/settings` and stored in the database — `OLLAMA_MODEL` is only the worker's
+fallback when the api is unreachable. `OLLAMA_ANSWER_MODEL` /
+`ANTHROPIC_ANSWER_MODEL` override the model for the `/ask` answer step only.
+See [configuration.md](configuration.md#llm-backend).
+
+### Backfill or rebuild the RAG index
+
+Newly propagated docs index automatically, and on every start the worker
+re-queues any propagated doc that has no chunks. For a manual pass:
 
 ```bash
-task start
-# or just those two:
-cd docker && docker compose up -d auto-tagger aktenraum-api
-```
-
-You can pair models: a fast 8B for filter extraction + a smarter 14B+
-for prose answers. Set `OLLAMA_ANSWER_MODEL` / `ANTHROPIC_ANSWER_MODEL` to
-override the model used by `/api/ai/answer/stream` only.
-
-### Backfill the RAG index
-
-After enabling Qdrant (or upgrading to a new chunker/embedder), the
-existing corpus needs a one-shot index pass — newly-propagated docs
-index automatically but old ones don't:
-
-```bash
-bash scripts/backfill-rag-index.sh           # idempotent, skips already-indexed
+bash scripts/backfill-rag-index.sh           # idempotent, skips already-indexed docs
 bash scripts/backfill-rag-index.sh --force   # re-index everything
+task rag:reembed                             # after changing EMBEDDING_MODEL: drop the collection + --force
 ```
 
 JSON-line events on stdout (`started → doc_indexed* → completed`).
-Resumable: re-running on a fully-indexed corpus is a fast no-op.
 
 ### Run the RAG eval harness
 
-Cases live in `evals/golden-questions.yaml` (bind-mounted into the api
-container at `/app/evals/`).
+Cases live in `evals/golden-questions.yaml`, bind-mounted read-only into the
+api container at `/repo/evals/`, so edits need no rebuild.
 
 ```bash
 bash scripts/run-rag-eval.sh              # text report
 bash scripts/run-rag-eval.sh --json       # CI-friendly JSON
 ```
 
-Output: per-case rank + hit/miss + aggregate `recall@K` and `MRR`. Exit
-code stays 0 regardless of metrics — the CI wrapper sets the threshold.
-
-The committed YAML is keyed to the maintainer's local Paperless ids;
-new collaborators copy it to a private location and re-pin against
-their own corpus.
+Output: per-case rank + hit/miss + aggregate `recall@K` and `MRR`. The exit
+code is 0 regardless of metrics. The committed YAML is keyed to the
+maintainer's Paperless ids; copy it and re-pin against your own corpus.
 
 ### Run a manual backup
 
 ```bash
-# Dockerised path (default): trigger a snapshot, then list snapshots
-MSYS_NO_PATHCONV=1 docker compose exec backup //usr/local/bin/entrypoint.sh
-MSYS_NO_PATHCONV=1 docker compose exec -e RESTIC_REPOSITORY=/repo backup restic snapshots --tag aktenraum
-
-# Host-side path (only if you opted into the systemd unit)
-export RESTIC_PASSWORD=...
-export PAPERLESS_DBUSER=paperless PAPERLESS_DBPASS=...
-bash scripts/backup.sh
+DC exec backup /usr/local/bin/entrypoint.sh
+DC exec -e RESTIC_REPOSITORY=/repo backup restic snapshots --tag aktenraum
+task backup:verify
 ```
 
-Restore is documented in [runbooks/restore.md](runbooks/restore.md).
+In Git Bash prefix each `exec` with `MSYS_NO_PATHCONV=1` and write
+`//usr/local/bin/entrypoint.sh`. Restore is documented in
+[runbooks/restore.md](runbooks/restore.md).
 
-### Rotate the JWT secret / API keys
+### Rotate secrets
 
-[runbooks/rotate-api-keys.md](runbooks/rotate-api-keys.md) covers
-Paperless API token, JWT signing secret, and webhook secret rotation —
-the safe order is critical (auto-tagger and aktenraum-api must share
-the Paperless token and the webhook secret).
+[runbooks/rotate-api-keys.md](runbooks/rotate-api-keys.md) covers the
+Paperless API token, the JWT signing secret and the webhook secret. All live
+in `docker/.env`; recreate the affected services afterwards
+(`task start`).
 
 ---
 
@@ -352,18 +351,15 @@ the Paperless token and the webhook secret).
 All non-trivial changes go through OpenSpec before code:
 
 ```bash
-openspec new change "<name>"            # scaffold proposal/design/specs/tasks
-openspec status --change "<name>"       # what's left
+openspec new change "<name>"                   # scaffold proposal/design/specs/tasks
+openspec status --change "<name>"              # what's left
 openspec instructions <id> --change "<name>"   # writing guide per artifact
 ```
 
-Artifacts under `openspec/changes/<name>/`:
-- `proposal.md` — what + why
-- `design.md` + `specs/` — how
-- `tasks.md` — execution checklist
-
-Completed changes are archived under `openspec/changes/_archived/`.
-The `/openspec-propose` and `/opsx:apply` Skills automate the scaffolding.
+Artifacts under `openspec/changes/<name>/`: `proposal.md` (what + why),
+`design.md` + `specs/` (how), `tasks.md` (execution checklist). Completed
+changes are archived under `openspec/changes/archive/` and `openspec/changes/archives/`. The
+`/openspec-propose` and `/opsx:apply` skills automate the scaffolding.
 
 ---
 
@@ -374,28 +370,26 @@ From the repo's `CLAUDE.md`:
 > - NEVER EVER commit anything before running tests locally.
 > - NEVER EVER commit after fixing a bug without me first confirming that the bug is fixed.
 
-Tests in this repo means `pnpm -r test` AND (when SPA touched)
-`pnpm --filter @aktenraum/web build`. CI runs both anyway, but local
-tests catch the obvious before the round-trip.
+"Tests" means `pnpm -r test` plus `pnpm -r lint`, and `pnpm -r build` +
+both typechecks when types or the SPA changed — the same steps CI runs.
 
-Conventional commit prefixes used in this repo: `feat`, `fix`, `refactor`,
-`docs`, `test`, `chore`. Scopes seen in the log: `auto-tagger`, `spa`,
-`api`, `compose`, `rag`. `git log --oneline -20` is the style guide.
+Conventional commit prefixes: `feat`, `fix`, `refactor`, `docs`, `test`,
+`chore`, with scopes such as `api`, `tagger`, `web`, `core`, `compose`,
+`rag`. `git log --oneline -20` is the style guide.
 
 ---
 
 ## Documentation cadence
 
-From `CLAUDE.md`: every working session ends with a daily summary at
-`docs/sessions/YYYY-MM-DD.md` (what shipped, by feature, with commit
-hashes + a "pick up next session" block + active roadmap progress).
+Every working session ends with a summary at `docs/sessions/YYYY-MM-DD.md`
+(what shipped, by feature, with commit hashes; a "pick up next session"
+block; active roadmap progress).
 
 - Architectural decisions → `docs/adr/NNN-name.md`
   (template at [`docs/adr/000-template.md`](adr/000-template.md))
 - Multi-phase initiatives → `docs/plans/<topic>.md`
 - When you change a feature, gotcha, or constraint, update `CLAUDE.md`
-  in the same commit so future sessions see current state without
-  trawling git log.
+  in the same commit.
 
 ---
 
@@ -405,20 +399,24 @@ Things that have cost a debugging session at least once. Most are also in `CLAUD
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `docker compose restart` doesn't pick up an env-file change | restart re-uses the container's existing env | `docker compose up -d <service>` to recreate |
-| Python source change has no effect after restart | Image is cached | `docker compose up -d --build <service>` |
-| `?name=foo` on `/api/tags/` returns the first page regardless | Paperless silently ignores it | Use `?name__iexact=foo` |
-| Custom-field PATCH 400s on a long value | `data_type=string` has a 128-char hard limit | `truncate_for_field` at the boundary; use `longtext` for fields that need more |
-| Custom-field `data_type=monetary` rejects German `149,99 EUR` | Wants `<ISO><amount>` (`EUR149.99`) | `_normalize_monetary` |
-| Custom-field `data_type=date` rejects `01.12.2024` | Wants strict `YYYY-MM-DD` | `_normalize_date` |
-| OCR fragments numbers ("28.02.24" → "2 8. 0 2.24") | Paperless OCR artefact | `SYSTEM_PROMPT` tells the LLM to recognise the pattern — keep the rule when editing |
-| Paperless picks a birthdate as `created_date` | The consumer's content-OCR date detector can't be disabled | Rely on `ai_issue_date` being correct so propagation overrides; or set `PAPERLESS_IGNORE_DATES` |
-| `data_type` can't be changed after a custom field is created | Paperless limitation | Plan field types up front; recreate to migrate |
-| `python` vs `python3` differs across platforms | Git Bash has `python`, macOS has `python3` | Scripts auto-detect: `command -v python3 \|\| command -v python` |
-| Ollama returns `---\n{...}` (YAML prefix) or `null` for empty list fields | Small model artefact | Handled by `ollama_backend._clean_json` + Pydantic `CoercedStr` / `CoercedList` |
-| `pydantic-settings` JSON-parses `list[str]` env values — comma-CSV fails | Default decode | Use `Annotated[list[str], NoDecode]` + `field_validator(mode="before")` |
-| Webhook + poller race-enqueue the same doc | Both are intentional safety nets | Worker re-checks lifecycle on dequeue; logs `skip_already_processed` |
-| Same content uploaded twice silently dropped | Paperless dedups by SHA1 | Working as intended; SPA shows "Paperless verarbeitet" → "✓ in der Inbox" only once |
-| `apache/tika` vs `ghcr.io/paperless-ngx/tika` | The ghcr one requires auth | Stay on `apache/tika` |
-| Port 80 already taken | Another local stack (traefik etc.) | Override `AKTENRAUM_WEB_PORT` in `docker/.env` |
-| Restic `--last` flag is deprecated | Restic CLI change | Use `--latest <N>` |
+| `docker compose restart` doesn't pick up a `docker/.env` change | restart reuses the container's existing env | `DC up -d <service>` to recreate |
+| Source change has no effect after restart | the image still holds the old `dist/` | `DC up -d --build <service>`, or use the dev overlay |
+| Compose complains `AKTENRAUM_DATA_DIR` must be set | compose was run without `--project-directory docker`, or the var is empty | run from the repo root with `DC`, and set an absolute path in `docker/.env` |
+| Every API call 401s after login | `COOKIE_SECURE=true` over plain HTTP | use the Tailscale HTTPS URL; `COOKIE_SECURE=false` only for `http://localhost` |
+| 401 storms from Paperless after a DB recreate | the API token is per-database | `task recover` |
+| `?name=foo` on `/api/tags/` returns the first page regardless | Paperless silently ignores it | use `?name__iexact=foo` |
+| Custom-field PATCH 400s on a long value | `data_type=string` has a 128-char limit | `truncateForField` at the boundary; use `longtext` (add to `LONGTEXT_FIELDS`) for fields that need more |
+| `data_type=monetary` rejects `149,99 EUR` | wants `<ISO><amount>` (`EUR149.99`) | `normalizeMonetary` |
+| `data_type=date` rejects `01.12.2024` | wants strict `YYYY-MM-DD` | `normalizeDate` |
+| OCR fragments numbers ("28.02.24" → "2 8. 0 2.24") | Paperless OCR artefact | `SYSTEM_PROMPT` tells the LLM to recognise it — keep the rule when editing |
+| Paperless picks a birthdate as `created_date` | the consumer's content-OCR date detector can't be disabled | rely on `ai_issue_date` so propagation overrides it, or set `PAPERLESS_IGNORE_DATES` |
+| `data_type` can't be changed after a custom field is created | Paperless limitation | plan field types up front; recreate to migrate |
+| Ollama returns `---\n{...}` or `null` for empty lists | small-model artefact | handled by `cleanJson` in `ollamaBackend.ts` and the `CoercedStrSchema` / `CoercedListSchema` preprocessors |
+| `model '<name>' not found (404)` on extraction | the DB model setting names a model that isn't pulled | `ollama pull <name>` or pick another model in `/settings` |
+| Long documents extracted badly on Ollama | server-default context window truncates the prompt | keep `OLLAMA_NUM_CTX` (default 24576) |
+| Webhook + poller race-enqueue the same doc | both are intentional safety nets | worker re-checks lifecycle tags on dequeue; logs `skip_already_processed` |
+| Same content uploaded twice is silently dropped | Paperless dedups by SHA1 | working as intended |
+| `ghcr.io/paperless-ngx/tika` returns 403 | it requires auth | stay on `apache/tika` |
+| Port 8080 already taken | another local stack | set `AKTENRAUM_WEB_PORT` in `docker/.env` |
+| `python` vs `python3` in shell helpers | Git Bash has `python`, macOS `python3` | scripts auto-detect: `command -v python3 \|\| command -v python` |
+| Restic `--last` flag is deprecated | restic CLI change | use `--latest <N>` |

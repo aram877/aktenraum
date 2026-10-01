@@ -40,9 +40,9 @@ tasks:
         fi
 
   build:
-    desc: "Rebuild and restart the SPA (nginx) and both Node services after a code change"
+    desc: "Rebuild every image and restart what changed; removes containers of services that no longer exist"
     cmds:
-      - "{{.COMPOSE}} up -d --build nginx auto-tagger aktenraum-api"
+      - "{{.COMPOSE}} up -d --build --remove-orphans"
       - 'echo "✓ Rebuilt. Open http://localhost:8080"'
 
   web:dev:

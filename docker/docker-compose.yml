@@ -5,12 +5,13 @@ services:
     # paperless.version.__version__ at change time). Bump deliberately,
     # never by accident: floating :latest hid this behaviour for months.
     image: ghcr.io/paperless-ngx/paperless-ngx:2.20.15@sha256:6c86cad803970ea782683a8e80e7403444c5bf3cf70de63b4d3c8e87500db92f
+    mem_limit: ${PAPERLESS_MEM_LIMIT:-4g}
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
       gotenberg:
         condition: service_started
       tika:
@@ -38,7 +39,7 @@ services:
       - internal
 
   postgres:
-    image: postgres:15
+    image: postgres:15@sha256:c2ca90969ca293925ab474466e837689cc712321afdd9e4640bd0cf942fdca3a
     restart: unless-stopped
     volumes:
       - ${AKTENRAUM_DATA_DIR:?must be set to an absolute path in docker/.env (see .env.example) - unset/empty risks silent data loss}/pgdata:/var/lib/postgresql/data
@@ -58,8 +59,13 @@ services:
       - internal
 
   redis:
-    image: redis:7
+    image: redis:7@sha256:33d7c9a245edd95e6703a0addbeaa48fe40c3b3b4783627a72085155462ebfdb
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - internal
 
@@ -84,6 +90,7 @@ services:
     # ghcr.io/paperless-ngx/tika — that one requires auth and 403s).
     image: apache/tika:latest@sha256:2a565f1ea1290bdcb74a7d35957d16a989ed44ef98790dcdcc28121d728fa583
     restart: unless-stopped
+    mem_limit: ${TIKA_MEM_LIMIT:-2g}
     networks:
       - internal
 
@@ -95,7 +102,7 @@ services:
     # /dashboard is reachable from the dev machine without exposing the
     # vector store to the LAN. Override AKTENRAUM_QDRANT_PORT in docker/.env
     # if 6333 is already in use locally.
-    image: qdrant/qdrant:v1.17.1
+    image: qdrant/qdrant:v1.17.1@sha256:94728574965d17c6485dd361aa3c0818b325b9016dac5ea6afec7b4b2700865f
     restart: unless-stopped
     volumes:
       - ${AKTENRAUM_DATA_DIR:?must be set to an absolute path in docker/.env (see .env.example) - unset/empty risks silent data loss}/qdrant:/qdrant/storage
@@ -139,6 +146,13 @@ services:
     env_file:
       - path: .env
         required: false
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     expose:
       # HTTP listener for paperless's post_consume hook. Internal-network only;
       # never published to the host.
@@ -174,9 +188,15 @@ services:
         required: false
     environment:
       # Built from PAPERLESS_DB* above so the DSN is always consistent.
-      DATABASE_URL: postgresql+asyncpg://${PAPERLESS_DBUSER:-paperless}:${PAPERLESS_DBPASS}@postgres:5432/aktenraum
+      DATABASE_URL: postgresql://${PAPERLESS_DBUSER:-paperless}:${PAPERLESS_DBPASS}@postgres:5432/aktenraum
       HF_HOME: /home/appuser/.cache/huggingface
       HUGGINGFACE_HUB_CACHE: /home/appuser/.cache/huggingface/hub
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8002/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     expose:
       - "8002"
     networks:
@@ -188,7 +208,13 @@ services:
       dockerfile: docker/nginx/Dockerfile
     restart: unless-stopped
     depends_on:
-      - aktenraum-api
+      aktenraum-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     ports:
       # Host 8080 → container 80. Port 80 is often taken on dev machines (eg.
       # by another project's traefik); 8080 is the conventional alternate.

@@ -27,7 +27,7 @@ jobs:
           cache: pnpm
 
       - name: Install
-        run: pnpm install --frozen-lockfile=false
+        run: pnpm install --frozen-lockfile
 
       - name: Lint
         run: pnpm -r lint
@@ -43,3 +43,31 @@ jobs:
 
       - name: Test
         run: pnpm -r test
+
+  images:
+    name: docker images + compose config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Validate compose files
+        env:
+          AKTENRAUM_DATA_DIR: /tmp/aktenraum
+          PAPERLESS_DBPASS: ci
+        run: |
+          cp docker/.env.example docker/.env
+          docker compose --project-directory docker -f docker/docker-compose.yml config -q
+          docker compose --project-directory docker -f docker/docker-compose.yml -f docker/docker-compose.dev.yml config -q
+
+      - name: Build images
+        run: |
+          for spec in services/aktenraum-api/Dockerfile:aktenraum-api services/auto-tagger/Dockerfile:auto-tagger docker/nginx/Dockerfile:nginx docker/backup/Dockerfile:backup; do
+            file="${spec%%:*}"
+            name="${spec##*:}"
+            context=.
+            if [ "$name" = backup ]; then context=docker/backup; fi
+            docker build --load -f "$file" -t "aktenraum-$name:ci" "$context"
+          done
+
+      - name: nginx config syntax
+        run: docker run --rm aktenraum-nginx:ci nginx -t

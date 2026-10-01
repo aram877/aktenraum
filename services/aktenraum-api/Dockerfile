@@ -1,7 +1,7 @@
 # Debian, not Alpine: transformers.js pulls onnxruntime-node, whose prebuilt
 # native binding is glibc-linked (`ld-linux-aarch64.so.1`). On a musl base it
 # builds fine and then dies at require() time with ERR_DLOPEN_FAILED.
-FROM node:22-slim AS builder
+FROM node:22-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d3a30b772c AS builder
 
 RUN corepack enable
 
@@ -11,7 +11,7 @@ COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
 COPY packages/aktenraum-core/package.json packages/aktenraum-core/package.json
 COPY services/aktenraum-api/package.json services/aktenraum-api/package.json
 
-RUN pnpm install --frozen-lockfile=false --filter @aktenraum/core... --filter @aktenraum/api...
+RUN pnpm install --frozen-lockfile --filter @aktenraum/core... --filter @aktenraum/api...
 
 COPY packages/aktenraum-core/ packages/aktenraum-core/
 COPY services/aktenraum-api/ services/aktenraum-api/
@@ -20,7 +20,7 @@ RUN pnpm --filter @aktenraum/core build \
     && pnpm --filter @aktenraum/api build \
     && pnpm prune --prod
 
-FROM node:22-slim AS runtime
+FROM node:22-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d3a30b772c AS runtime
 
 RUN groupadd --system appuser && useradd --system --gid appuser --create-home appuser
 

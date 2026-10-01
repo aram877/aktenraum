@@ -23,6 +23,7 @@ import { processApprovedDocument } from "./propagate.js";
 import type { RuleSet } from "./routing.js";
 import { isTransientLlmError, TransientFailureTracker } from "./transient.js";
 import { apiTypeFieldsSaver } from "./type-fields.js";
+import { retryUntilSuccess } from "./loops.js";
 
 class FakePaperless {
   readonly docs = new Map<number, PaperlessDocument>();
@@ -482,5 +483,36 @@ describe("type-specific pass", () => {
     expect(init.method).toBe("PATCH");
     expect((init.headers as Record<string, string>)["X-Aktenraum-Secret"]).toBe("s3cret");
     expect(JSON.parse(String(init.body))).toEqual({ document_type: "Rechnung", fields: { gesamtbetrag: "EUR1.00" } });
+  });
+});
+
+describe("retryUntilSuccess", () => {
+  it("retries a failing startup task until it succeeds", async () => {
+    let calls = 0;
+    const result = await retryUntilSuccess({
+      name: "t",
+      run: async () => {
+        calls += 1;
+        if (calls < 3) throw new Error("paperless not up");
+        return 7;
+      },
+      attempts: 5,
+      delayMs: 1,
+      signal: new AbortController().signal,
+    });
+    expect(result).toBe(7);
+    expect(calls).toBe(3);
+  });
+
+  it("gives up after the attempt budget and on abort", async () => {
+    const failing = async (): Promise<number> => {
+      throw new Error("down");
+    };
+    expect(
+      await retryUntilSuccess({ name: "t", run: failing, attempts: 2, delayMs: 1, signal: new AbortController().signal }),
+    ).toBeNull();
+    const aborted = new AbortController();
+    aborted.abort();
+    expect(await retryUntilSuccess({ name: "t", run: failing, attempts: 5, delayMs: 1, signal: aborted.signal })).toBeNull();
   });
 });

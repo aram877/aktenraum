@@ -83,3 +83,25 @@ export async function runInterval(options: {
   }
   logger.info("loop_stopped", { loop: name });
 }
+
+export async function retryUntilSuccess<T>(options: {
+  name: string;
+  run: () => Promise<T>;
+  attempts: number;
+  delayMs: number;
+  signal: AbortSignal;
+}): Promise<T | null> {
+  for (let attempt = 1; attempt <= options.attempts && !options.signal.aborted; attempt++) {
+    try {
+      return await options.run();
+    } catch (error: unknown) {
+      logger.warn(`${options.name}_failed`, {
+        attempt,
+        max_attempts: options.attempts,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      if (attempt < options.attempts) await sleep(options.delayMs, options.signal);
+    }
+  }
+  return null;
+}

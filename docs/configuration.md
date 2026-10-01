@@ -50,6 +50,8 @@ Read by Compose when it renders `docker-compose.yml`, not by any service.
 | `AKTENRAUM_QDRANT_PORT` | commented out | `6333` | Host port for the Qdrant REST API (`127.0.0.1` only). |
 | `AUTO_TAGGER_MEM_LIMIT` | `3g` | `3g` | `mem_limit` of the auto-tagger container. |
 | `AKTENRAUM_API_MEM_LIMIT` | `6g` | `4g` | `mem_limit` of the aktenraum-api container (reranker + concurrent requests). |
+| `PAPERLESS_MEM_LIMIT` | — | `4g` | `mem_limit` of the paperless container (OCR of large scans is the peak). |
+| `TIKA_MEM_LIMIT` | — | `2g` | `mem_limit` of the tika container. |
 
 ---
 

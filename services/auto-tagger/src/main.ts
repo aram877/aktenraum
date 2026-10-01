@@ -9,7 +9,7 @@ import {
 import { ActiveModelConfig } from "./active-model.js";
 import { AutoApproveConfig } from "./auto-approve-config.js";
 import { loadSettings } from "./config.js";
-import { runInterval, runQueueConsumer } from "./loops.js";
+import { retryUntilSuccess, runInterval, runQueueConsumer } from "./loops.js";
 import { ProcessingState } from "./processing-state.js";
 import { AsyncQueue } from "./queue.js";
 import { lifecycleTagsOn, processDocument } from "./extract.js";
@@ -170,13 +170,15 @@ export async function bootstrap(): Promise<void> {
         },
       }),
     );
-    void enqueueUnindexedDocuments(paperless, vectorStore, indexingQueue)
-      .then((count) => logger.info("index_reconcile_completed", { enqueued: count }))
-      .catch((error: unknown) => {
-        logger.warn("index_reconcile_failed", {
-          error: error instanceof Error ? error.message : String(error),
-        });
-      });
+    void retryUntilSuccess({
+      name: "index_reconcile",
+      run: () => enqueueUnindexedDocuments(paperless, vectorStore, indexingQueue),
+      attempts: 10,
+      delayMs: 30_000,
+      signal: controller.signal,
+    }).then((count) => {
+      if (count !== null) logger.info("index_reconcile_completed", { enqueued: count });
+    });
   }
 
   if (settings.ENABLE_HTTP_SERVER) {

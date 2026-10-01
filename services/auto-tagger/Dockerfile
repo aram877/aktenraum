@@ -1,7 +1,7 @@
 # Debian, not Alpine: the worker imports @aktenraum/core, which pulls
 # onnxruntime-node transitively. Its prebuilt native binding is glibc-linked
 # (`ld-linux-aarch64.so.1`) and dies at require() time on a musl base.
-FROM node:22-slim AS builder
+FROM node:22-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d3a30b772c AS builder
 
 RUN corepack enable
 
@@ -11,7 +11,7 @@ COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
 COPY packages/aktenraum-core/package.json packages/aktenraum-core/package.json
 COPY services/auto-tagger/package.json services/auto-tagger/package.json
 
-RUN pnpm install --frozen-lockfile=false --filter @aktenraum/core... --filter @aktenraum/worker...
+RUN pnpm install --frozen-lockfile --filter @aktenraum/core... --filter @aktenraum/worker...
 
 COPY packages/aktenraum-core/ packages/aktenraum-core/
 COPY services/auto-tagger/ services/auto-tagger/
@@ -20,7 +20,7 @@ RUN pnpm --filter @aktenraum/core build \
     && pnpm --filter @aktenraum/worker build \
     && pnpm prune --prod
 
-FROM node:22-slim AS runtime
+FROM node:22-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d3a30b772c AS runtime
 
 RUN groupadd --system appuser && useradd --system --gid appuser --create-home appuser
 

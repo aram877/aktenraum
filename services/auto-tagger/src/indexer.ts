@@ -19,6 +19,11 @@ export interface IndexingDeps {
   embedder: Embedder;
 }
 
+export interface IndexJob {
+  kind: "full" | "metadata";
+  docId: number;
+}
+
 export interface PayloadMeta {
   docType: string | null;
   correspondent: string | null;
@@ -138,15 +143,15 @@ export async function indexDocument(docId: number, deps: IndexingDeps): Promise<
   const meta = await resolvePayloadMetadata(deps.paperless, doc);
 
   try {
-    await deps.vectorStore.deleteByDocId(docId);
-
     if (chunks.length === 0) {
+      await deps.vectorStore.deleteByDocId(docId);
       logger.info("indexer_no_content", { doc_id: docId, chars: content.length });
       await clearIndexErrorTagIfPresent(deps.paperless, doc);
       return;
     }
 
     const embeddings = await deps.embedder.embedDense(chunks.map((c) => c.text));
+    await deps.vectorStore.deleteByDocId(docId);
     const written = await deps.vectorStore.upsertChunks(chunks, embeddings, {
       docId,
       docType: meta.docType,
@@ -176,4 +181,41 @@ export async function indexDocument(docId: number, deps: IndexingDeps): Promise<
       });
     }
   }
+}
+
+export async function reindexMetadata(docId: number, deps: IndexingDeps): Promise<void> {
+  const existing = await deps.vectorStore.countChunksForDoc(docId);
+  if (existing === 0) {
+    await indexDocument(docId, deps);
+    return;
+  }
+  const doc = await deps.paperless.getDocument(docId);
+  const meta = await resolvePayloadMetadata(deps.paperless, doc);
+  await deps.vectorStore.updateMetadataByDocId(docId, {
+    docType: meta.docType,
+    correspondent: meta.correspondent,
+    tags: meta.tags,
+    createdDate: meta.createdDate,
+  });
+  logger.info("indexer_metadata_refreshed", { doc_id: docId, chunks: existing });
+}
+
+export async function enqueueUnindexedDocuments(
+  paperless: PaperlessClient,
+  vectorStore: QdrantVectorStore,
+  queue: { push(job: IndexJob): void },
+  pageSize = 100,
+): Promise<number> {
+  let enqueued = 0;
+  for (let page = 1; ; page++) {
+    const batch = await paperless.getDocumentsWithTag("ai-propagated", pageSize, "id", { page });
+    for (const doc of batch) {
+      if ((await vectorStore.countChunksForDoc(doc.id)) === 0) {
+        queue.push({ kind: "full", docId: doc.id });
+        enqueued += 1;
+      }
+    }
+    if (batch.length < pageSize) break;
+  }
+  return enqueued;
 }

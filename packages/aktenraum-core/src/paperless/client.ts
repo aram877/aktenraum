@@ -36,6 +36,20 @@ export const LIFECYCLE_TAGS = [
   "ai-error",
 ] as const;
 
+const AI_FIELD_NAMES = [
+  "ai_document_type",
+  "ai_correspondent",
+  "ai_title",
+  "ai_issue_date",
+  "ai_reference_numbers",
+  "ai_suggested_tags",
+  "ai_summary_de",
+  "ai_confidence",
+  "ai_confidence_reason",
+  "ai_backend",
+  "ai_model",
+] as const;
+
 export class PaperlessHttpError extends Error {
   constructor(
     public readonly status: number,
@@ -56,6 +70,7 @@ interface CacheEntry<T> {
 
 interface PaperlessListResponse<T> {
   results: T[];
+  next?: string | null;
 }
 
 export interface PaperlessClientOptions {
@@ -247,8 +262,18 @@ export class PaperlessClient {
       });
     }
 
+    const managedIds = new Set(
+      AI_FIELD_NAMES.map((name) => fieldMap[name]).filter((id): id is number => id !== undefined),
+    );
+    const doc = await this.getDocument(docId);
+    const existing = (doc.custom_fields as { field: number; value: unknown }[] | undefined) ?? [];
+    const merged = [
+      ...existing.filter((cf) => !managedIds.has(cf.field)),
+      ...customFields.filter((cf): cf is { field: number; value: unknown } => cf !== null),
+    ];
+
     const resp = await this.request("PATCH", `/api/documents/${docId}/`, {
-      json: { custom_fields: customFields.filter((cf) => cf !== null) },
+      json: { custom_fields: merged },
     });
     if (resp.status >= 400) {
       // Paperless validation failures return useful detail in the body —
@@ -322,12 +347,15 @@ export class PaperlessClient {
     if (cached && nowSeconds() - cached.when <= this.cacheTtlSeconds) {
       return cached.value;
     }
-    const data = await this.getJson<PaperlessListResponse<{ id: number; name: string }>>(
-      endpoint,
-      { page_size: 200 },
-    );
     const result: Record<number, string> = {};
-    for (const x of data.results ?? []) result[x.id] = x.name;
+    for (let page = 1; ; page++) {
+      const data = await this.getJson<PaperlessListResponse<{ id: number; name: string }>>(
+        endpoint,
+        { page_size: 200, page },
+      );
+      for (const x of data.results ?? []) result[x.id] = x.name;
+      if (!data.next || (data.results ?? []).length === 0) break;
+    }
     this.entityNameMapCache.set(endpoint, { when: nowSeconds(), value: result });
     return result;
   }

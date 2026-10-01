@@ -7,7 +7,7 @@ const CACHE_TTL_SECONDS = 60;
 interface WireRule {
   document_type: string;
   enabled: boolean;
-  min_confidence: number;
+  min_confidence: number | string | null;
 }
 
 export function buildFailClosedRuleSet(): RuleSet {
@@ -24,10 +24,13 @@ export function parseRuleSet(rules: readonly WireRule[]): RuleSet {
   for (const rule of rules) {
     if (!known.has(rule.document_type)) continue;
     const type = rule.document_type as DocumentType;
+    const minConfidence =
+      typeof rule.min_confidence === "number" ? rule.min_confidence : Number(rule.min_confidence ?? NaN);
+    const valid = Number.isFinite(minConfidence);
     byType.set(type, {
       documentType: type,
-      enabled: Boolean(rule.enabled),
-      minConfidence: Number(rule.min_confidence),
+      enabled: Boolean(rule.enabled) && valid,
+      minConfidence: valid ? minConfidence : 1,
     });
   }
   return { byType, failClosed: false };

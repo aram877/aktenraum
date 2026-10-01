@@ -4,7 +4,7 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import type { ChatMessage, LLMBackend } from "./base.js";
 
 const STREAM_MAX_TOKENS = 1024;
-const COMPLETE_MAX_TOKENS = 1024;
+const COMPLETE_MAX_TOKENS = 4096;
 
 export class AnthropicBackend implements LLMBackend {
   private readonly client: Anthropic;
@@ -31,12 +31,14 @@ export class AnthropicBackend implements LLMBackend {
       input_schema: schema as unknown as Anthropic.Tool.InputSchema,
     };
 
+    const { system, rest } = splitSystem(messages);
     const response = await this.client.messages.create({
       model: this.modelName,
       max_tokens: COMPLETE_MAX_TOKENS,
       tools: [toolDef],
       tool_choice: { type: "tool", name: "extract_document" },
-      messages: messages as Anthropic.MessageParam[],
+      messages: rest as Anthropic.MessageParam[],
+      ...(system ? { system } : {}),
     });
 
     for (const block of response.content) {
@@ -75,7 +77,7 @@ export class AnthropicBackend implements LLMBackend {
  * callers in this codebase put the prompt as a system role, so this adapter
  * normalises that shape.
  */
-function splitSystem(messages: ChatMessage[]): { system: string | null; rest: ChatMessage[] } {
+export function splitSystem(messages: ChatMessage[]): { system: string | null; rest: ChatMessage[] } {
   let system: string | null = null;
   const rest: ChatMessage[] = [];
   for (const msg of messages) {

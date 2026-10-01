@@ -8,6 +8,7 @@ import {
 } from "@aktenraum/core";
 
 import { formatError } from "./extract.js";
+import type { IndexJob } from "./indexer.js";
 import type { AsyncQueue } from "./queue.js";
 
 const DUPLICATE_CANDIDATE_CAP = 200;
@@ -99,13 +100,16 @@ export async function findDuplicateIds(
 export async function processApprovedDocument(
   doc: PaperlessDocument,
   paperless: PaperlessClient,
-  options: { indexingQueue?: AsyncQueue<number> | null } = {},
+  options: { indexingQueue?: AsyncQueue<IndexJob> | null } = {},
 ): Promise<void> {
   const docId = doc.id;
-  logger.info("propagation_started", { doc_id: docId });
-
   const currentTags = (doc.tags as number[] | undefined) ?? [];
   const approvedId = await paperless.getTagId("ai-approved");
+  if (approvedId === null || !currentTags.includes(approvedId)) {
+    logger.info("skip_not_approved", { doc_id: docId });
+    return;
+  }
+  logger.info("propagation_started", { doc_id: docId });
 
   try {
     const aiFields = await paperless.getAiCustomFieldValues(docId);
@@ -186,7 +190,7 @@ export async function processApprovedDocument(
       tags_added: suggestedTagIds.length,
     });
 
-    options.indexingQueue?.push(docId);
+    options.indexingQueue?.push({ kind: "full", docId });
   } catch (error: unknown) {
     logger.error("propagation_failed", {
       doc_id: docId,

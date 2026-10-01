@@ -8,6 +8,7 @@ import {
 import { DocumentExtractionSchema, LIFECYCLE_TAGS } from "@aktenraum/core";
 
 import type { Settings } from "./config.js";
+import { isTransientLlmError, type TransientFailureTracker } from "./transient.js";
 import { routeLifecycleTags, UNTRUSTED_SOURCE_TAGS, type RuleSet } from "./routing.js";
 import {
   extractReferenceNumbersFromText,
@@ -71,7 +72,8 @@ export async function applyTags(
 ): Promise<void> {
   const targetIds: number[] = [];
   for (const name of tagNames) targetIds.push(await paperless.getOrCreateTag(name));
-  const merged = new Set([...((doc.tags as number[] | undefined) ?? []), ...targetIds]);
+  const current = await paperless.getDocument(doc.id);
+  const merged = new Set([...((current.tags as number[] | undefined) ?? []), ...targetIds]);
   await paperless.patchDocumentNativeFields(doc.id, { tags: [...merged].sort((a, b) => a - b) });
 }
 
@@ -122,6 +124,7 @@ export interface ExtractDeps {
   backend: LLMBackend;
   settings: Settings;
   getRules: () => Promise<RuleSet>;
+  transientFailures?: TransientFailureTracker;
 }
 
 export async function processDocument(
@@ -176,6 +179,20 @@ export async function processDocument(
       DocumentExtractionSchema,
     )) as DocumentExtraction;
   } catch (error: unknown) {
+    const tracker = deps.transientFailures;
+    if (tracker && isTransientLlmError(error)) {
+      const attempt = tracker.record(docId);
+      if (attempt < tracker.maxAttempts) {
+        logger.warn("extraction_deferred", {
+          doc_id: docId,
+          attempt,
+          max_attempts: tracker.maxAttempts,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
+    }
+    tracker?.clear(docId);
     logger.error("extraction_failed", {
       doc_id: docId,
       error: error instanceof Error ? error.message : String(error),
@@ -188,6 +205,7 @@ export async function processDocument(
     return;
   }
 
+  deps.transientFailures?.clear(docId);
   logger.info("extraction_successful", {
     doc_id: docId,
     document_type: extraction.document_type,

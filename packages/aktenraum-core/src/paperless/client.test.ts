@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DocumentExtractionSchema } from "../models/extraction.js";
 import { LIFECYCLE_TAGS, PaperlessClient } from "./client.js";
 
 // Mirrors services/auto-tagger/tests/test_paperless.py's TestSetErrorMessage
@@ -141,5 +142,67 @@ describe("setErrorMessage", () => {
     });
 
     await expect(client.setErrorMessage(42, "Boom")).resolves.toBeUndefined();
+  });
+});
+
+describe("patchDocumentAiFields", () => {
+  const extraction = DocumentExtractionSchema.parse({
+    document_type: "Rechnung",
+    correspondent: "Stadtwerke",
+  });
+
+  it("keeps custom fields the worker does not manage", async () => {
+    let patched: { custom_fields: { field: number; value: unknown }[] } | undefined;
+    const client = clientWithHandler(({ method, url, body }) => {
+      if (url.pathname === "/api/custom_fields/") {
+        return {
+          status: 200,
+          json: { results: [...CUSTOM_FIELDS_PAGE.results, { id: 50, name: "Vertragsende" }] },
+        };
+      }
+      if (method === "GET" && url.pathname === "/api/documents/42/") {
+        return {
+          status: 200,
+          json: {
+            id: 42,
+            custom_fields: [
+              { field: 50, value: "2027-01-01" },
+              { field: 99, value: "earlier failure" },
+              { field: 1, value: "Vertrag" },
+              { field: 15, value: "Alter Titel" },
+            ],
+          },
+        };
+      }
+      if (method === "PATCH") {
+        patched = body as typeof patched;
+        return { status: 200, json: {} };
+      }
+      return { status: 404 };
+    });
+
+    await client.patchDocumentAiFields(42, extraction, "ollama", "m");
+
+    const byField = new Map(patched?.custom_fields.map((cf) => [cf.field, cf.value]));
+    expect(byField.get(50)).toBe("2027-01-01");
+    expect(byField.get(99)).toBe("earlier failure");
+    expect(byField.get(1)).toBe("Rechnung");
+    expect(byField.get(2)).toBe("Stadtwerke");
+    expect(byField.has(15)).toBe(false);
+    expect(patched?.custom_fields.filter((cf) => cf.field === 1)).toHaveLength(1);
+  });
+});
+
+describe("getEntityNameMap", () => {
+  it("follows pagination past the first page", async () => {
+    const client = clientWithHandler(({ url }) => {
+      const page = Number(url.searchParams.get("page") ?? "1");
+      if (page === 1) {
+        return { status: 200, json: { next: "p2", results: [{ id: 1, name: "a" }] } };
+      }
+      return { status: 200, json: { next: null, results: [{ id: 2, name: "wichtig" }] } };
+    });
+
+    expect(await client.getEntityNameMap("/api/tags/")).toEqual({ 1: "a", 2: "wichtig" });
   });
 });

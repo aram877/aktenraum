@@ -6,14 +6,21 @@ import {
   QdrantVectorStore,
 } from "@aktenraum/core";
 
+import { ActiveModelConfig } from "./active-model.js";
 import { AutoApproveConfig } from "./auto-approve-config.js";
 import { loadSettings } from "./config.js";
 import { runInterval, runQueueConsumer } from "./loops.js";
 import { ProcessingState } from "./processing-state.js";
 import { AsyncQueue } from "./queue.js";
 import { lifecycleTagsOn, processDocument } from "./extract.js";
-import { indexDocument } from "./indexer.js";
+import {
+  enqueueUnindexedDocuments,
+  indexDocument,
+  reindexMetadata,
+  type IndexJob,
+} from "./indexer.js";
 import { processApprovedDocument } from "./propagate.js";
+import { TransientFailureTracker } from "./transient.js";
 import { createWebhookServer } from "./webhook.js";
 
 export async function bootstrap(): Promise<void> {
@@ -26,17 +33,28 @@ export async function bootstrap(): Promise<void> {
   const processingState = new ProcessingState();
   const extractionQueue = new AsyncQueue<number>();
   const propagationQueue = new AsyncQueue<number>();
-  const indexingQueue = new AsyncQueue<number>();
+  const ragEnabled = Boolean(settings.QDRANT_URL);
+  const indexingQueue = ragEnabled ? new AsyncQueue<IndexJob>() : null;
+  const transientFailures = new TransientFailureTracker();
   const autoApprove = new AutoApproveConfig(
     settings.AKTENRAUM_API_URL,
     settings.WEBHOOK_SECRET,
   );
-  const backend = createBackend(settings.LLM_BACKEND, {
-    anthropicApiKey: settings.ANTHROPIC_API_KEY,
-    anthropicModel: settings.ANTHROPIC_MODEL,
-    ollamaBaseUrl: settings.OLLAMA_BASE_URL,
-    ollamaModel: settings.OLLAMA_MODEL,
-  });
+  const activeModel = new ActiveModelConfig(
+    settings.AKTENRAUM_API_URL,
+    settings.WEBHOOK_SECRET,
+    settings.OLLAMA_MODEL,
+  );
+  const buildBackend = (ollamaModel: string) =>
+    createBackend(settings.LLM_BACKEND, {
+      anthropicApiKey: settings.ANTHROPIC_API_KEY,
+      anthropicModel: settings.ANTHROPIC_MODEL,
+      ollamaBaseUrl: settings.OLLAMA_BASE_URL,
+      ollamaModel,
+      ollamaCompleteTimeoutMs: settings.LLM_TIMEOUT_SECONDS * 1000,
+      ollamaNumCtx: settings.OLLAMA_NUM_CTX > 0 ? settings.OLLAMA_NUM_CTX : undefined,
+    });
+  const staticBackend = settings.LLM_BACKEND === "ollama" ? null : buildBackend(settings.OLLAMA_MODEL);
 
   const controller = new AbortController();
   const shutdown = (signal: string): void => {
@@ -44,7 +62,7 @@ export async function bootstrap(): Promise<void> {
     controller.abort();
     extractionQueue.close();
     propagationQueue.close();
-    indexingQueue.close();
+    indexingQueue?.close();
   };
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
@@ -65,11 +83,13 @@ export async function bootstrap(): Promise<void> {
           logger.info("skip_already_processed", { doc_id: docId, tags: lifecycleOnDoc });
           return;
         }
+        const backend = staticBackend ?? buildBackend(await activeModel.getModel());
         await processDocument(doc, {
           paperless,
           backend,
           settings,
           getRules: () => autoApprove.getRules(),
+          transientFailures,
         });
       },
     }),
@@ -119,29 +139,39 @@ export async function bootstrap(): Promise<void> {
     );
   }
 
-  if (settings.QDRANT_URL) {
+  if (indexingQueue !== null) {
     const vectorStore = new QdrantVectorStore(settings.QDRANT_URL);
     await vectorStore.ensureCollection().catch((error: unknown) => {
       logger.warn("qdrant_ensure_collection_failed", {
         error: error instanceof Error ? error.message : String(error),
       });
     });
+    const indexingDeps = {
+      paperless,
+      vectorStore,
+      embedder: new OllamaEmbedder(settings.OLLAMA_BASE_URL, settings.EMBEDDING_MODEL),
+    };
     loops.push(
-      runQueueConsumer({
+      runQueueConsumer<IndexJob>({
         name: "indexer",
         queue: indexingQueue,
         slot: "indexer",
         processingState,
         signal: controller.signal,
-        handle: async (docId) => {
-          await indexDocument(docId, {
-            paperless,
-            vectorStore,
-            embedder: new OllamaEmbedder(settings.OLLAMA_BASE_URL, settings.EMBEDDING_MODEL),
-          });
+        docIdOf: (job) => job.docId,
+        handle: async (job) => {
+          if (job.kind === "metadata") await reindexMetadata(job.docId, indexingDeps);
+          else await indexDocument(job.docId, indexingDeps);
         },
       }),
     );
+    void enqueueUnindexedDocuments(paperless, vectorStore, indexingQueue)
+      .then((count) => logger.info("index_reconcile_completed", { enqueued: count }))
+      .catch((error: unknown) => {
+        logger.warn("index_reconcile_failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
   }
 
   if (settings.ENABLE_HTTP_SERVER) {
@@ -160,7 +190,7 @@ export async function bootstrap(): Promise<void> {
   logger.info("worker_started", {
     loops: loops.length,
     propagation: settings.ENABLE_PROPAGATION,
-    rag: Boolean(settings.QDRANT_URL),
+    rag: ragEnabled,
   });
   await Promise.all(loops);
   logger.info("worker_stopped");

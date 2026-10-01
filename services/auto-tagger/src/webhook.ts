@@ -3,6 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 
 import { logger } from "@aktenraum/core";
 
+import type { IndexJob } from "./indexer.js";
 import type { AsyncQueue } from "./queue.js";
 import type { ProcessingState } from "./processing-state.js";
 
@@ -28,16 +29,23 @@ export function parseDocumentId(body: string): number | null {
   }
 }
 
-async function readBody(req: IncomingMessage): Promise<string> {
+export const MAX_BODY_BYTES = 64 * 1024;
+
+async function readBody(req: IncomingMessage): Promise<string | null> {
   const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
+  let total = 0;
+  for await (const chunk of req) {
+    total += (chunk as Buffer).length;
+    if (total > MAX_BODY_BYTES) return null;
+    chunks.push(chunk as Buffer);
+  }
   return Buffer.concat(chunks).toString("utf8");
 }
 
 export interface WebhookDeps {
   extractionQueue: AsyncQueue<number>;
   propagationQueue: AsyncQueue<number>;
-  indexingQueue: AsyncQueue<number>;
+  indexingQueue: AsyncQueue<IndexJob> | null;
   processingState: ProcessingState;
   webhookSecret: string;
 }
@@ -52,12 +60,6 @@ export function createWebhookServer(deps: WebhookDeps): Server {
     });
   });
 }
-
-const TRIGGER_QUEUES: Record<Trigger, keyof Pick<WebhookDeps, "extractionQueue" | "propagationQueue" | "indexingQueue">> = {
-  extract: "extractionQueue",
-  propagate: "propagationQueue",
-  "reindex-metadata": "indexingQueue",
-};
 
 async function handle(
   req: IncomingMessage,
@@ -95,13 +97,23 @@ async function handle(
       json(401, { detail: "Bad secret" });
       return;
     }
-    const docId = parseDocumentId(await readBody(req));
+    const body = await readBody(req);
+    if (body === null) {
+      json(413, { detail: "Body too large" });
+      return;
+    }
+    const docId = parseDocumentId(body);
     if (docId === null) {
       json(400, { detail: "document_id is required" });
       return;
     }
     const trigger = match[1] as Trigger;
-    deps[TRIGGER_QUEUES[trigger]].push(docId);
+    if (trigger === "extract") deps.extractionQueue.push(docId);
+    else if (trigger === "propagate") deps.propagationQueue.push(docId);
+    else if (deps.indexingQueue === null) {
+      json(503, { detail: "RAG indexing is disabled" });
+      return;
+    } else deps.indexingQueue.push({ kind: "metadata", docId });
     logger.info("webhook_enqueued", { trigger, doc_id: docId });
     json(200, { queued: docId, trigger });
     return;

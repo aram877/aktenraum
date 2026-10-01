@@ -132,6 +132,8 @@ is unreachable AND no cache is populated yet, every doc routes to
 | `HTTP_PORT` | `8001` | In-network port for `POST /trigger/extract`. |
 | `WEBHOOK_SECRET` | empty | Shared secret with Paperless's `post_consume_script`. Must match the value in `docker/.env`. Empty disables auth. |
 | `MAX_TOKENS_INPUT` | `8000` | Token ceiling for document text (characters / 4 estimate). Longer docs are truncated with `[Dokument wurde aufgrund der Länge gekürzt.]`. |
+| `OLLAMA_NUM_CTX` | `24576` | Context window requested for extraction calls. `0` leaves Ollama's server default (4–8k), which truncates long prompts. ~5 GB KV cache for a 14B model. |
+| `LLM_TIMEOUT_SECONDS` | `300` | Abort an extraction LLM call after this long. Timeouts and connection/5xx errors defer the doc to the next poll; the third consecutive transient failure tags `ai-error`. |
 
 ### RAG indexing
 

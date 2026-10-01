@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { getTableName } from "drizzle-orm";
+import { getTableName, type Table } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import * as schema from "./schema.js";
@@ -17,15 +17,15 @@ describe("schema.sql", () => {
   it("creates every table the Drizzle schema declares", async () => {
     const sql = await read("schema.sql");
     const declared = Object.values(schema)
-      .filter((value): value is Parameters<typeof getTableName>[0] => {
+      .filter((value) => {
         try {
-          getTableName(value as Parameters<typeof getTableName>[0]);
+          getTableName(value as Table);
           return true;
         } catch {
           return false;
         }
       })
-      .map((table) => getTableName(table));
+      .map((table) => getTableName(table as Table));
 
     expect(declared.length).toBeGreaterThan(0);
     for (const table of declared) {
@@ -55,8 +55,9 @@ describe("schema.sql", () => {
     const sql = await read("schema.sql");
     const columnsOf = (text: string, table: string): string[] => {
       const match = new RegExp(`CREATE TABLE(?: IF NOT EXISTS)? "${table}" \\(([^;]*?)\\n\\);`, "s").exec(text);
-      if (!match) return [];
-      return [...match[1].matchAll(/^\s*"([a-z_]+)"/gm)].map((m) => m[1]);
+      const body = match?.[1];
+      if (body === undefined) return [];
+      return [...body.matchAll(/^\s*"([a-z_]+)"/gm)].map((m) => m[1] ?? "");
     };
     for (const table of ["users", "document_type_fields", "app_settings", "auto_approve_rules"]) {
       const fromIntrospection = columnsOf(introspected, table);

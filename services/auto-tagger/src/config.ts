@@ -53,6 +53,8 @@ export const settingsSchema = z.object({
   ANTHROPIC_MODEL: str("claude-sonnet-4-6"),
   OLLAMA_BASE_URL: str("http://localhost:11434"),
   OLLAMA_MODEL: str("llama3.1:8b"),
+  OLLAMA_NUM_CTX: num(24576, 0),
+  LLM_TIMEOUT_SECONDS: num(300, 10),
 
   POLL_INTERVAL_SECONDS: num(30, 5),
   BATCH_SIZE: num(5, 1),

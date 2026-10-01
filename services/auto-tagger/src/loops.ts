@@ -24,22 +24,25 @@ export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
  * consumer, or a single malformed PDF stops the whole pipeline until the
  * container restarts. Mirrors the Python worker's per-doc try/except.
  */
-export async function runQueueConsumer(options: {
+export async function runQueueConsumer<T = number>(options: {
   name: string;
-  queue: AsyncQueue<number>;
+  queue: AsyncQueue<T>;
   slot: Slot;
   processingState: ProcessingState;
-  handle: (docId: number) => Promise<void>;
+  handle: (item: T) => Promise<void>;
   signal: AbortSignal;
+  docIdOf?: (item: T) => number;
 }): Promise<void> {
   const { name, queue, slot, processingState, handle, signal } = options;
+  const docIdOf = options.docIdOf ?? ((item: T) => item as unknown as number);
   logger.info("loop_started", { loop: name });
   while (!signal.aborted) {
-    const docId = await queue.pop();
-    if (docId === null) break;
+    const item = await queue.pop();
+    if (item === null) break;
+    const docId = docIdOf(item);
     processingState.set(slot, docId);
     try {
-      await handle(docId);
+      await handle(item);
     } catch (error: unknown) {
       logger.error("loop_doc_failed", {
         loop: name,

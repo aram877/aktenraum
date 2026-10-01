@@ -18,13 +18,35 @@ const NUM_PREDICT = 4096;
 // truncations. Three attempts in total keeps the worst case bounded.
 const MAX_ATTEMPTS = 3;
 
+const DEFAULT_COMPLETE_TIMEOUT_MS = 300_000;
+
+export interface OllamaBackendOptions {
+  completeTimeoutMs?: number;
+  numCtx?: number;
+}
+
+export function fetchWithTimeout(timeoutMs: number, fetchFn: typeof fetch = fetch): typeof fetch {
+  return (input, init) => {
+    const timeout = AbortSignal.timeout(timeoutMs);
+    const signal = init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
+    return fetchFn(input, { ...init, signal });
+  };
+}
+
 export class OllamaBackend implements LLMBackend {
   private readonly client: Ollama;
+  private readonly completeClient: Ollama;
   private readonly modelName: string;
+  private readonly numCtx: number | undefined;
 
-  constructor(baseUrl: string, model = "llama3.1:8b") {
+  constructor(baseUrl: string, model = "llama3.1:8b", options: OllamaBackendOptions = {}) {
     this.client = new Ollama({ host: baseUrl });
+    this.completeClient = new Ollama({
+      host: baseUrl,
+      fetch: fetchWithTimeout(options.completeTimeoutMs ?? DEFAULT_COMPLETE_TIMEOUT_MS),
+    });
     this.modelName = model;
+    this.numCtx = options.numCtx;
   }
 
   get name(): string {
@@ -51,11 +73,14 @@ export class OllamaBackend implements LLMBackend {
 
     let lastError: unknown = null;
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-      const response = await this.client.chat({
+      const response = await this.completeClient.chat({
         model: this.modelName,
         messages: augmented,
         format: "json",
-        options: { num_predict: NUM_PREDICT },
+        options: {
+          num_predict: NUM_PREDICT,
+          ...(this.numCtx !== undefined ? { num_ctx: this.numCtx } : {}),
+        },
         stream: false,
       });
 

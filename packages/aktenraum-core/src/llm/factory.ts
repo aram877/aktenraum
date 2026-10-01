@@ -7,6 +7,8 @@ export interface CreateBackendOptions {
   anthropicModel?: string;
   ollamaBaseUrl?: string;
   ollamaModel?: string;
+  ollamaCompleteTimeoutMs?: number;
+  ollamaNumCtx?: number;
 }
 
 export function createBackend(name: string, options: CreateBackendOptions = {}): LLMBackend {
@@ -15,6 +17,8 @@ export function createBackend(name: string, options: CreateBackendOptions = {}):
     anthropicModel = "claude-sonnet-4-6",
     ollamaBaseUrl = "http://localhost:11434",
     ollamaModel = "llama3.1:8b",
+    ollamaCompleteTimeoutMs,
+    ollamaNumCtx,
   } = options;
 
   if (name === "anthropic") {
@@ -24,7 +28,10 @@ export function createBackend(name: string, options: CreateBackendOptions = {}):
     return new AnthropicBackend(anthropicApiKey, anthropicModel);
   }
   if (name === "ollama") {
-    return new OllamaBackend(ollamaBaseUrl, ollamaModel);
+    return new OllamaBackend(ollamaBaseUrl, ollamaModel, {
+      completeTimeoutMs: ollamaCompleteTimeoutMs,
+      numCtx: ollamaNumCtx,
+    });
   }
   throw new Error(`Unknown LLM backend: ${JSON.stringify(name)}`);
 }

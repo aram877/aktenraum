@@ -29,6 +29,7 @@ export interface LibraryQuery {
   date_to?: string | null;
   text?: string | null;
   tags?: string[] | null;
+  status?: string | null;
   page?: number | null;
   page_size?: number | null;
   ordering?: string | null;
@@ -53,6 +54,31 @@ export function useLibrary(query: MaybeRefOrGetter<LibraryQuery>) {
     },
     staleTime: 15_000,
   }));
+}
+
+/**
+ * Poll fallback for the nav error badge when the live stream has not pushed
+ * yet. Keyed under "library" so any library invalidation refreshes it.
+ */
+export function useErrorCount(enabled: MaybeRefOrGetter<boolean> = true) {
+  const api = useApi();
+  return useQuery(() => ({
+    queryKey: ["library", "error-count"],
+    queryFn: () => api.get<LibraryList>("/library/?status=error&page_size=1"),
+    enabled: toValue(enabled),
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+  }));
+}
+
+/** Every document has exactly one type, unlike the AI's free-form tags. */
+export function useTypeFacet() {
+  const api = useApi();
+  return useQuery({
+    queryKey: ["library-types"],
+    queryFn: () => api.get<TagFacetList>("/library/types"),
+    staleTime: 60_000,
+  });
 }
 
 export function useTagFacet() {

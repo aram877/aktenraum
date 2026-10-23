@@ -4,6 +4,8 @@ export interface LiveCounts {
   inbox: number;
   in_flight: number;
   trash: number;
+  /** Absent when talking to an API older than the field. */
+  errors?: number;
 }
 
 export const LIVE_COUNTS_KEY = ["live", "counts"] as const;

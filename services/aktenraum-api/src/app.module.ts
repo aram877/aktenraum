@@ -9,6 +9,7 @@ import { DocumentsModule } from "./documents/documents.module.js";
 import { EventsModule } from "./events/events.module.js";
 import { HealthModule } from "./health/health.module.js";
 import { InboxModule } from "./inbox/inbox.module.js";
+import { IngestModule } from "./ingest/ingest.module.js";
 import { LibraryModule } from "./library/library.module.js";
 import { PaperlessModule } from "./paperless/paperless.module.js";
 import { RagModule } from "./rag/rag.module.js";
@@ -35,6 +36,7 @@ import { UploadModule } from "./upload/upload.module.js";
     TrashModule,
     TypeFieldsModule,
     EventsModule,
+    IngestModule,
   ],
 })
 export class AppModule {}

@@ -103,3 +103,37 @@ describe("AppNav", () => {
     expect(wrapper.find('[data-testid="nav-drawer"]').exists()).toBe(true);
   });
 });
+
+describe("AppNav error pill", () => {
+  beforeEach(() => {
+    useNuxtApp().$queryClient.clear();
+    get.mockReset();
+    get.mockImplementation(() => new Promise(() => undefined));
+    useNuxtApp().$queryClient.setQueryData(ME_KEY, { username: "admin" });
+  });
+
+  it("links the live error count to the failed-documents filter", async () => {
+    useNuxtApp().$queryClient.setQueryData(LIVE_COUNTS_KEY, { inbox: 0, in_flight: 0, trash: 0, errors: 4 });
+    const wrapper = await mountSuspended(AppNav);
+    const pill = wrapper.find('[data-testid="error-pill"]');
+    expect(pill.text()).toBe("4 Fehler");
+    expect(pill.attributes("href")).toBe("/library?status=error");
+  });
+
+  it("falls back to the polled count when the stream predates the field", async () => {
+    get.mockImplementation((path: string) =>
+      path === "/library/?status=error&page_size=1"
+        ? Promise.resolve({ results: [], total: 2, page: 1, page_size: 1 })
+        : new Promise(() => undefined),
+    );
+    useNuxtApp().$queryClient.setQueryData(LIVE_COUNTS_KEY, { inbox: 0, in_flight: 0, trash: 0 });
+    const wrapper = await mountSuspended(AppNav);
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="error-pill"]').text()).toBe("2 Fehler"));
+  });
+
+  it("hides the pill when nothing failed", async () => {
+    useNuxtApp().$queryClient.setQueryData(LIVE_COUNTS_KEY, { inbox: 0, in_flight: 0, trash: 0, errors: 0 });
+    const wrapper = await mountSuspended(AppNav);
+    expect(wrapper.find('[data-testid="error-pill"]').exists()).toBe(false);
+  });
+});

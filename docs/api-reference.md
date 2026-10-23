@@ -142,6 +142,7 @@ double-downloading.
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
 | POST | `/api/documents/upload` | 🔒 | Multipart `files` (one or many). Streams each through to Paperless's `/api/documents/post_document/`. Per-file failure is isolated. Returns `{results: [{filename, status, task_id, detail}]}`. |
+| POST | `/api/documents/reprocess-failed` | 🔒 | Reprocesses every document in the error state (same semantics as single reprocess), sequentially, up to 200 per call. Per-document failures are collected, not fatal. Returns `{requested, reprocessed, failed: [{doc_id, detail}], remaining}`. |
 | POST | `/api/documents/{id}/reprocess` | 🔒 | Clears every lifecycle tag and pings the auto-tagger webhook. Falls back to the 30s poller if the webhook is unreachable. Returns `ReprocessResponse`. |
 | GET  | `/api/documents/{id}/detail` | 🔒 | Full review payload (same shape as `/api/inbox/{id}`) — works on any doc, not just `ai-pending`. |
 | PATCH | `/api/documents/{id}/fields` | 🔒 | Partial update of the 12 AI fields. Body `InboxFieldUpdate`. |
@@ -185,7 +186,8 @@ gotcha and is handled by `mergeCustomFields`.
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
 | GET | `/api/library/` | 🔒 | Paginated list of non-pending docs. Server-side excludes `ai-pending`. |
-| GET | `/api/library/tags` | 🔒 | Tag facet — `{name, count}` over the current corpus, used for the tag chip cloud. |
+| GET | `/api/library/tags` | 🔒 | Tag facet — `{name, count}` over the current corpus, used for the tag chip cloud. Pipeline markers (`ai-*`, incl. `ai-duplicate` / `ai-duplicate-dismissed` / `ai-index-error`) are excluded. |
+| GET | `/api/library/types` | 🔒 | Document-type facet — `{results: [{name, count}]}` from Paperless `document_count`, largest first, empty types omitted. Counts match `?document_type=` results. |
 
 `GET /api/library/` query params:
 
@@ -196,6 +198,7 @@ gotcha and is handled by `mergeCustomFields`.
 | `date_from` / `date_to` | date | ISO YYYY-MM-DD. |
 | `text` | string | Full-text content search. |
 | `tags` | string[] | AND semantics. |
+| `status` | enum | Processing state: `error` (any of `ai-error` / `ai-propagation-error` / `ai-index-error`), `unprocessed` (no lifecycle tag), `approved`, `done` (`ai-propagated`), `rejected`. Other values → 422. A status whose tag does not exist yet returns an empty page. Disables the page-1 in-flight pin. |
 | `page` | int ≥ 1 | |
 | `page_size` | int 1..100 | Default 25. |
 | `ordering` | enum | `-created` (default), `created`, `-modified`, `modified`, `title`, `-title`. Other values rejected with 422. |
@@ -248,7 +251,24 @@ short TTL cache, secret-gated via `WEBHOOK_SECRET` when set.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| GET | `/api/events/counts` | 🔒 | Server-Sent Events stream of `{inbox, in_flight, trash}` counts (unnamed `data:` events). Polls Paperless every 3s server-side; emits on connect, on every change, and at least every 25s as a heartbeat so nginx does not reap the connection. Emits `event: error` / `data: paperless_auth` when the Paperless token is rejected. Drives every Nav badge. |
+| GET | `/api/events/counts` | 🔒 | Server-Sent Events stream of `{inbox, in_flight, trash, errors}` counts (`errors` = docs carrying any error tag) (unnamed `data:` events). Polls Paperless every 3s server-side; emits on connect, on every change, and at least every 25s as a heartbeat so nginx does not reap the connection. Emits `event: error` / `data: paperless_auth` when the Paperless token is rejected. Drives every Nav badge. |
+
+---
+
+## Import activity — `/api/ingest/*`
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| GET | `/api/ingest/activity?days=N` | 🔒 | What Paperless imported in the last `N` days (1–30, default 7; out-of-range values are clamped). Read-through over Paperless `/api/tasks/?task_name=consume_file` and `/api/processed_mail/`; no aktenraum storage except `upload_tasks`. 502 when Paperless fails. |
+
+Response: `{days, items, mails, summary, truncated}`.
+
+- `items[]` (newest first, max 500 → `truncated`): `{task_id, file_name, created, done, source, outcome, document, duplicate_of, message}`.
+  - `source`: `upload` (task id recorded in `upload_tasks` by the upload endpoint), `folder` (task has no owner — consume folder), else `email` (mail-rule owner).
+  - `outcome`: `new` (SUCCESS → `document`), `duplicate` (Paperless "It is a duplicate of … (#N)" → `duplicate_of`), `failed` (other FAILURE → `message`, filename prefix stripped), `running`.
+  - `document` / `duplicate_of`: `{id, title, lifecycle_tags, missing}`, resolved live via `id__in` so the badge reflects the current pipeline state; `missing` = trashed or deleted.
+- `mails[]`: `{id, subject, received, processed, status, error_summary}` — `error_summary` is the last line of Paperless's Celery traceback. A mail is `FAILED` as soon as one attachment fails, including a duplicate.
+- `summary`: `{new, duplicate, failed, running, by_source: {email, upload, folder}}`.
 
 ---
 

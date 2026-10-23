@@ -6,6 +6,7 @@ const authenticated = computed(() => Boolean(me.data.value));
 const inFlight = useInFlightCount(authenticated);
 const trash = useTrashList(authenticated);
 const inbox = useInboxList({ pageSize: 1 }, authenticated);
+const errorList = useErrorCount(authenticated);
 const live = useLiveCounts();
 const logout = useLogout();
 
@@ -15,6 +16,8 @@ const inFlightCount = computed(() =>
   Math.max(0, (live.data.value?.in_flight ?? inFlight.data.value?.count ?? 0) - inboxCount.value),
 );
 
+const errorCount = computed(() => live.data.value?.errors ?? errorList.data.value?.total ?? 0);
+
 const menuOpen = ref(false);
 
 const links = [
@@ -22,6 +25,7 @@ const links = [
   { to: "/ask", label: "Ask AI", exact: false },
   { to: "/library", label: "Bibliothek", exact: false },
   { to: "/upload", label: "Hochladen", exact: false },
+  { to: "/activity", label: "Aktivität", exact: false },
   { to: "/trash", label: "Papierkorb", exact: false },
   { to: "/settings", label: "Einstellungen", exact: false },
 ];
@@ -76,6 +80,16 @@ async function onLogout(): Promise<void> {
       </div>
 
       <div class="ml-auto flex items-center gap-3">
+        <NuxtLink
+          v-if="errorCount > 0"
+          to="/library?status=error"
+          data-testid="error-pill"
+          title="Dokumente mit Verarbeitungsfehler"
+          class="rounded-full bg-red-500/10 px-2.5 py-0.5 text-[11px] font-medium text-red-600 hover:bg-red-500/20"
+          @click="closeMenu"
+        >
+          {{ errorCount }} Fehler
+        </NuxtLink>
         <span
           v-if="inFlightCount > 0"
           data-testid="in-flight-pill"

@@ -45,6 +45,11 @@ CREATE TABLE auto_approve_rules (
   updated_at timestamp with time zone,
   updated_by varchar(255)
 );
+CREATE TABLE upload_tasks (
+  task_id varchar(64) PRIMARY KEY,
+  file_name varchar(255),
+  created_at timestamp with time zone NOT NULL DEFAULT now()
+);
 INSERT INTO app_settings (id) VALUES (1);
 `;
 

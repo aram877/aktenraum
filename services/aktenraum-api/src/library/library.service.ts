@@ -5,6 +5,7 @@ import { AutoTaggerClient } from "../auto-tagger/auto-tagger.client.js";
 import { customFieldValues, parseDate } from "../inbox/inbox.service.js";
 import type { PaperlessDocument, PaperlessGateway, QueryParams } from "../paperless/paperless.gateway.js";
 import { PaperlessGatewayProvider } from "../paperless/paperless.module.js";
+import { statusFilter, type LibraryStatus } from "../paperless/status-tags.js";
 import { collectTagIds } from "../paperless/tag-ids.js";
 import type { LibraryItem, LibraryList, TagFacetList } from "./library.schemas.js";
 
@@ -14,10 +15,14 @@ const BADGE_TAGS: ReadonlySet<string> = new Set([
   "ai-duplicate",
 ]);
 
+// Pipeline markers, never shown as user tags or in the tag cloud.
 const INTERNAL_TAGS: ReadonlySet<string> = new Set([
   ...LIFECYCLE_TAGS,
   "ai-low-confidence",
   "ai-auto-approved",
+  "ai-duplicate",
+  "ai-duplicate-dismissed",
+  "ai-index-error",
 ]);
 
 const FACET_SAMPLE_SIZE = 500;
@@ -30,6 +35,7 @@ export interface LibraryQuery {
   dateTo?: string;
   text?: string;
   tags?: string[];
+  status?: LibraryStatus;
   page: number;
   pageSize: number;
   ordering: string;
@@ -98,15 +104,27 @@ export class LibraryService {
     if (query.dateFrom !== undefined) params.created__date__gte = query.dateFrom;
     if (query.dateTo !== undefined) params.created__date__lte = query.dateTo;
     if (text) params.query = text;
-    if (pendingId !== undefined) params.tags__id__none = pendingId;
+
+    const empty: LibraryList = { results: [], total: 0, page: query.page, page_size: query.pageSize };
+    const noneIds = new Set<number>(pendingId !== undefined ? [pendingId] : []);
+    const allIds: number[] = [];
+    if (query.status !== undefined) {
+      const filter = statusFilter(query.status, tagNameToId);
+      if (filter === null) return empty;
+      Object.assign(params, filter.params);
+      for (const id of filter.noneIds) noneIds.add(id);
+      allIds.push(...filter.allIds);
+    }
+    if (noneIds.size > 0) params.tags__id__none = [...noneIds].join(",");
 
     const requestedTagIds = resolveTagIds(query.tags, tagNameToId);
     const requestedNonEmpty = (query.tags ?? []).filter((t) => t.trim() !== "");
     if (requestedNonEmpty.length > 0 && requestedTagIds.length < requestedNonEmpty.length) {
-      return { results: [], total: 0, page: query.page, page_size: query.pageSize };
+      return empty;
     }
-    if (requestedTagIds.length > 0) {
-      params.tags__id__all = requestedTagIds.join(",");
+    for (const id of requestedTagIds) if (!allIds.includes(id)) allIds.push(id);
+    if (allIds.length > 0) {
+      params.tags__id__all = allIds.join(",");
     }
 
     const payload = await gateway.searchDocuments(params, { pageSize: query.pageSize });
@@ -123,7 +141,8 @@ export class LibraryService {
       this.project(doc, correspondentById, documentTypeById, tagNameById, fieldIdToName),
     );
 
-    if (query.page === 1) {
+    // Pinned in-flight rows would not match a status filter.
+    if (query.page === 1 && query.status === undefined) {
       const inFlightIds = await this.fetchInFlightIds();
       if (inFlightIds.length > 0) {
         const pinnedRows: LibraryItem[] = [];
@@ -173,6 +192,14 @@ export class LibraryService {
       .filter(([, count]) => count >= FACET_MIN_COUNT)
       .sort((a, b) => b[1] - a[1])
       .map(([name, count]) => ({ name, count }));
+    return { results };
+  }
+
+  async listTypeFacet(): Promise<TagFacetList> {
+    const counts = await this.gateway().listDocumentTypeCounts();
+    const results = counts
+      .filter((entry) => entry.count > 0)
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "de"));
     return { results };
   }
 

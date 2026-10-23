@@ -35,6 +35,7 @@ import {
   type DocumentStatusResponse,
   type InFlightCount,
   type ProcessingStateResponse,
+  type ReprocessFailedResponse,
   type ReprocessResponse,
   type TaskStatusResponse,
 } from "./documents.service.js";
@@ -61,6 +62,12 @@ export class DocumentsController {
   @Get("task/:task_id")
   taskStatus(@Param("task_id") taskId: string): Promise<TaskStatusResponse> {
     return this.documentsService.taskStatus(taskId);
+  }
+
+  @Post("reprocess-failed")
+  @HttpCode(HttpStatus.OK)
+  reprocessFailed(): Promise<ReprocessFailedResponse> {
+    return this.documentsService.reprocessFailed();
   }
 
   @Get(":doc_id/status")

@@ -34,6 +34,10 @@ services:
       PAPERLESS_TIKA_ENDPOINT: http://tika:9998
       PAPERLESS_TIKA_GOTENBERG_ENDPOINT: http://gotenberg:3000
       PAPERLESS_POST_CONSUME_SCRIPT: /usr/src/paperless/scripts/post_consume.sh
+      # Without this a rejected duplicate stays in consume/ and is re-queued
+      # (and rejected again) on every Paperless start. It is byte-identical
+      # (SHA1) to an archived document, so deleting it loses nothing.
+      PAPERLESS_CONSUMER_DELETE_DUPLICATES: "true"
       AKTENRAUM_WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
     networks:
       - internal

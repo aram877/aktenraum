@@ -1,11 +1,13 @@
 import { Injectable } from "@nestjs/common";
 
 import { PaperlessGatewayProvider } from "../paperless/paperless.module.js";
+import { errorTagIds } from "../paperless/status-tags.js";
 
 export interface LiveCounts {
   inbox: number;
   in_flight: number;
   trash: number;
+  errors: number;
 }
 
 // In-flight = docs the worker or propagator is currently handling. Mirrors
@@ -23,7 +25,7 @@ export class EventsService {
   constructor(private readonly gatewayProvider: PaperlessGatewayProvider) {}
 
   /**
-   * One pass: inbox + in-flight + trash counts. All three queries run
+   * One pass: inbox + in-flight + trash + error counts. All queries run
    * concurrently so the poll cadence is bounded by the slowest single
    * request rather than their sum.
    */
@@ -35,7 +37,9 @@ export class EventsService {
       (id): id is number => id !== undefined,
     );
 
-    const [inbox, inFlight, trash] = await Promise.all([
+    const errorIds = errorTagIds(tags);
+
+    const [inbox, inFlight, trash, errors] = await Promise.all([
       pendingId === undefined
         ? Promise.resolve(0)
         : gateway
@@ -47,8 +51,13 @@ export class EventsService {
             .searchDocuments({ tags__id__in: flightIds.join(",") }, { pageSize: 1 })
             .then(countOf),
       gateway.listTrashedDocuments({ page: 1, pageSize: 1 }).then(countOf),
+      errorIds.length === 0
+        ? Promise.resolve(0)
+        : gateway
+            .searchDocuments({ tags__id__in: errorIds.join(",") }, { pageSize: 1 })
+            .then(countOf),
     ]);
 
-    return { inbox, in_flight: inFlight, trash };
+    return { inbox, in_flight: inFlight, trash, errors };
   }
 }

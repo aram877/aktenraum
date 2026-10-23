@@ -16,7 +16,7 @@ const POLL_INTERVAL_MS = 3_000;
 const HEARTBEAT_MS = 25_000;
 
 function sameCounts(a: LiveCounts | null, b: LiveCounts): boolean {
-  return a !== null && a.inbox === b.inbox && a.in_flight === b.in_flight && a.trash === b.trash;
+  return a !== null && a.inbox === b.inbox && a.in_flight === b.in_flight && a.trash === b.trash && a.errors === b.errors;
 }
 
 @Controller("events")
@@ -24,7 +24,7 @@ export class EventsController {
   constructor(private readonly eventsService: EventsService) {}
 
   /**
-   * Server-Sent Events stream of {inbox, in_flight, trash}.
+   * Server-Sent Events stream of {inbox, in_flight, trash, errors}.
    *
    * One event on connect, then one per change, plus a heartbeat. Replaces
    * three independent polling timers in the SPA with a single push stream.

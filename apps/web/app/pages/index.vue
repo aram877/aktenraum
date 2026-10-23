@@ -1,6 +1,12 @@
 <script setup lang="ts">
 definePageMeta({ middleware: "auth" });
 
+const recent = useIngestActivity(1);
+const live = useLiveCounts();
+const errorList = useErrorCount();
+const summary = computed(() => recent.data.value?.summary ?? null);
+const errorCount = computed(() => live.data.value?.errors ?? errorList.data.value?.total ?? 0);
+
 const cards = [
   {
     to: "/ask",
@@ -42,7 +48,31 @@ const cards = [
           Dein KI-gestütztes Dokumentenarchiv. Hochladen, finden, verstehen.
         </p>
 
-        <div class="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div
+          class="mt-8 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-hairline bg-surface px-4 py-3 text-xs"
+          data-testid="home-activity"
+        >
+          <NuxtLink to="/activity" class="text-ink hover:text-accent">
+            <span class="font-medium">Letzte 24 h:</span>
+            <template v-if="summary">
+              {{ summary.new }} neu · {{ summary.duplicate }} Duplikate · {{ summary.failed }} Importfehler
+              <template v-if="summary.running > 0"> · {{ summary.running }} laufen</template>
+            </template>
+            <template v-else-if="recent.isError.value"> nicht verfügbar</template>
+            <template v-else> …</template>
+            →
+          </NuxtLink>
+          <NuxtLink
+            v-if="errorCount > 0"
+            to="/library?status=error"
+            data-testid="home-errors"
+            class="font-medium text-red-600 hover:text-red-700"
+          >
+            {{ errorCount }} Dokument(e) mit Verarbeitungsfehler →
+          </NuxtLink>
+        </div>
+
+        <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <NuxtLink
             v-for="card in cards"
             :key="card.to"

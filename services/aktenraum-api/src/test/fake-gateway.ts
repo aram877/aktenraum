@@ -12,6 +12,8 @@ export const TAGS: Record<string, number> = {
   Versicherung: 8,
   "ai-duplicate": 20,
   "ai-duplicate-dismissed": 21,
+  "ai-error": 30,
+  "ai-propagation-error": 31,
 };
 
 export const CUSTOM_FIELDS: Record<string, number> = {
@@ -50,6 +52,13 @@ export function makeDoc(overrides: Partial<PaperlessDocument> = {}): PaperlessDo
 export interface FakeGatewayOptions {
   docs?: PaperlessDocument[];
   trashed?: PaperlessDocument[];
+  tasks?: Record<string, unknown>[];
+  processedMail?: Record<string, unknown>[];
+}
+
+function idList(raw: unknown): number[] {
+  if (raw === undefined || raw === null || raw === "") return [];
+  return String(raw).split(",").map(Number);
 }
 
 export class FakeGateway {
@@ -57,15 +66,34 @@ export class FakeGateway {
   readonly trashed = new Map<number, PaperlessDocument>();
   readonly uploads: { filename: string; contentType?: string }[] = [];
   emptyTrashCalls: number[][] = [];
+  readonly tasks: Record<string, unknown>[];
+  readonly processedMail: Record<string, unknown>[];
+  /** Doc ids whose tag PATCH fails, to exercise per-document error paths. */
+  readonly failTagPatchFor = new Set<number>();
+  tasksError: Error | null = null;
 
   constructor(options: FakeGatewayOptions = {}) {
     for (const doc of options.docs ?? [makeDoc()]) this.docs.set(doc.id, doc);
     for (const doc of options.trashed ?? []) this.trashed.set(doc.id, doc);
+    this.tasks = options.tasks ?? [];
+    this.processedMail = options.processedMail ?? [];
   }
+
+  listConsumeTasks = async (): Promise<Record<string, unknown>[]> => {
+    if (this.tasksError !== null) throw this.tasksError;
+    return this.tasks;
+  };
+
+  listProcessedMail = async (): Promise<Record<string, unknown>[]> => this.processedMail;
 
   listCorrespondents = async (): Promise<Record<string, number>> => CORRESPONDENTS;
   listDocumentTypes = async (): Promise<Record<string, number>> => DOCUMENT_TYPES;
   listTags = async (): Promise<Record<string, number>> => TAGS;
+  listDocumentTypeCounts = async (): Promise<{ name: string; count: number }[]> =>
+    Object.entries(DOCUMENT_TYPES).map(([name, id]) => ({
+      name,
+      count: [...this.docs.values()].filter((d) => d.document_type === id).length,
+    }));
   listTagsCovering = async (): Promise<Record<string, number>> => TAGS;
   getCustomFieldIds = async (): Promise<Record<string, number>> => CUSTOM_FIELDS;
 
@@ -77,8 +105,15 @@ export class FakeGateway {
 
   searchDocuments = async (
     params: Record<string, unknown>,
+    options: { pageSize?: number } = {},
   ): Promise<Record<string, unknown>> => {
     let results = [...this.docs.values()];
+    const ids = idList(params.id__in);
+    if (ids.length > 0) results = results.filter((d) => ids.includes(d.id));
+    const anyOf = idList(params.tags__id__in);
+    if (anyOf.length > 0) {
+      results = results.filter((d) => ((d.tags as number[]) ?? []).some((t) => anyOf.includes(t)));
+    }
     const docType = params.document_type__id;
     if (docType !== undefined) {
       results = results.filter((d) => d.document_type === Number(docType));
@@ -87,9 +122,9 @@ export class FakeGateway {
     if (only !== undefined) {
       results = results.filter((d) => ((d.tags as number[]) ?? []).includes(Number(only)));
     }
-    const none = params.tags__id__none;
-    if (none !== undefined) {
-      results = results.filter((d) => !((d.tags as number[]) ?? []).includes(Number(none)));
+    const none = idList(params.tags__id__none);
+    if (none.length > 0) {
+      results = results.filter((d) => !((d.tags as number[]) ?? []).some((t) => none.includes(t)));
     }
     const all = params.tags__id__all;
     if (typeof all === "string" && all !== "") {
@@ -98,7 +133,9 @@ export class FakeGateway {
         wanted.every((t) => ((d.tags as number[]) ?? []).includes(t)),
       );
     }
-    return { count: results.length, results };
+    const count = results.length;
+    if (options.pageSize !== undefined) results = results.slice(0, options.pageSize);
+    return { count, results };
   };
 
   patchDocumentCustomFields = async (
@@ -121,6 +158,7 @@ export class FakeGateway {
     options: { remove: string[]; add: string[] },
   ): Promise<number[]> => {
     const doc = await this.getDocument(docId);
+    if (this.failTagPatchFor.has(docId)) throw new Error(`Paperless rejected PATCH for ${docId}`);
     const removeIds = new Set(
       options.remove.map((name) => TAGS[name]).filter((id): id is number => id !== undefined),
     );

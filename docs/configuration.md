@@ -93,7 +93,9 @@ example `PAPERLESS_ALLOWED_HOSTS` or `PAPERLESS_IGNORE_DATES`) can be added to
 | `PAPERLESS_ENABLE_COMPRESSION` | `true` | gzip Paperless responses. |
 
 Compose additionally sets `PAPERLESS_REDIS`, `PAPERLESS_DBHOST`, the Tika and
-Gotenberg endpoints, `PAPERLESS_POST_CONSUME_SCRIPT` and
+Gotenberg endpoints, `PAPERLESS_POST_CONSUME_SCRIPT`,
+`PAPERLESS_CONSUMER_DELETE_DUPLICATES=true` (a rejected duplicate is deleted
+from `consume/` instead of being re-imported on every Paperless start) and
 `AKTENRAUM_WEBHOOK_SECRET` (copied from `WEBHOOK_SECRET`, sent by
 `post_consume.sh` as `X-Aktenraum-Secret`). Do not set these in `docker/.env`.
 

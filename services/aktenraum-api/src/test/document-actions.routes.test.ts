@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 
 import { hashPassword } from "../auth/passwords.js";
@@ -12,6 +12,10 @@ let gateway: FakeGateway;
 let agent: ReturnType<typeof request.agent>;
 
 beforeEach(async () => {
+  // Star/unstar pings the auto-tagger's reindex-metadata over global fetch; the
+  // test env falls back to http://auto-tagger:8001, whose DNS lookup can
+  // outlast the test timeout.
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 202 })));
   gateway = new FakeGateway({
     docs: [makeDoc({ id: 42, tags: [TAGS["ai-propagated"] as number, TAGS["ai-duplicate"] as number] })],
   });
@@ -24,6 +28,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.unstubAllGlobals();
   await harness?.close();
   harness = null;
 });

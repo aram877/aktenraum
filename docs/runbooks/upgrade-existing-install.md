@@ -90,6 +90,13 @@ docker compose --project-directory docker up -d --build --remove-orphans
 
 (Equivalent to `task build`.) Takes a few minutes the first time.
 
+**Note:** since 2026-10-23 Paperless runs with
+`PAPERLESS_CONSUMER_DELETE_DUPLICATES=true`. On this first start it deletes any
+leftover files in `$AKTENRAUM_DATA_DIR/consume/` that are duplicates of
+documents already in the archive (byte-identical, so nothing is lost). Files
+that are *not* duplicates are imported as usual. To see what is there
+beforehand: `ls "$AKTENRAUM_DATA_DIR/consume" | wc -l`.
+
 **Expected:** ends with every container `Started` / `Running`, no error.
 `--remove-orphans` also removes containers of services that no longer exist
 (e.g. an old `docker-aktenraum-api-node-1`); that is intended.

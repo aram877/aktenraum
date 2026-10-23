@@ -8,6 +8,7 @@ import {
 } from "@nestjs/common";
 
 import { AuthGuard } from "../auth/auth.guard.js";
+import { isLibraryStatus, LIBRARY_STATUSES } from "../paperless/status-tags.js";
 import type { LibraryList, TagFacetList } from "./library.schemas.js";
 import { LibraryService } from "./library.service.js";
 
@@ -60,11 +61,19 @@ export class LibraryController {
     @Query("page") page?: string,
     @Query("page_size") pageSize?: string,
     @Query("ordering") ordering?: string,
+    @Query("status") status?: string,
   ): Promise<LibraryList> {
     const resolvedOrdering = ordering ?? "-created";
     if (!ALLOWED_ORDERING.includes(resolvedOrdering)) {
       throw new HttpException(
         `ordering must be one of ${JSON.stringify(ALLOWED_ORDERING)}`,
+        HttpStatus.UNPROCESSABLE_ENTITY,
+      );
+    }
+    const resolvedStatus = status === undefined || status === "" ? undefined : status;
+    if (resolvedStatus !== undefined && !isLibraryStatus(resolvedStatus)) {
+      throw new HttpException(
+        `status must be one of ${JSON.stringify(LIBRARY_STATUSES)}`,
         HttpStatus.UNPROCESSABLE_ENTITY,
       );
     }
@@ -75,6 +84,7 @@ export class LibraryController {
       dateTo: optionalDate(dateTo),
       text,
       tags: toArray(tags),
+      status: resolvedStatus,
       page: clampInt(page, 1, 1, Number.MAX_SAFE_INTEGER),
       pageSize: clampInt(pageSize, 25, 1, 100),
       ordering: resolvedOrdering,
@@ -84,5 +94,10 @@ export class LibraryController {
   @Get("tags")
   listTagFacet(): Promise<TagFacetList> {
     return this.libraryService.listTagFacet();
+  }
+
+  @Get("types")
+  listTypeFacet(): Promise<TagFacetList> {
+    return this.libraryService.listTypeFacet();
   }
 }

@@ -199,6 +199,24 @@ export class PaperlessGateway {
     return mapping;
   }
 
+  /**
+   * `{name, count}` per native document type. Uncached: counts change with
+   * every propagation. Paperless counts the native FK only, which is also
+   * what `document_type__id` filters on, so counts match the library filter.
+   */
+  async listDocumentTypeCounts(): Promise<{ name: string; count: number }[]> {
+    const resp = await this.request("GET", "/api/document_types/", { params: { page_size: 200 } });
+    this.raiseAuth(resp);
+    await this.raiseForStatus(resp);
+    const payload = (await resp.json()) as {
+      results?: { name: string; document_count?: number }[];
+    };
+    return (payload.results ?? []).map((entry) => ({
+      name: entry.name,
+      count: typeof entry.document_count === "number" ? entry.document_count : 0,
+    }));
+  }
+
   async listTags(): Promise<Record<string, number>> {
     const cached = this.readCache(this.tagsCache);
     if (cached !== null) return cached;
@@ -503,6 +521,34 @@ export class PaperlessGateway {
     this.raiseAuth(resp);
     await this.raiseForStatus(resp);
     return resp.json();
+  }
+
+  /**
+   * Every consume task Paperless still remembers. The endpoint is
+   * unpaginated; `task_name` is honoured, date filters are silently ignored
+   * (Paperless 2.20), so callers window by `date_created` themselves.
+   */
+  async listConsumeTasks(): Promise<Record<string, unknown>[]> {
+    const resp = await this.request("GET", "/api/tasks/", {
+      params: { task_name: "consume_file" },
+    });
+    this.raiseAuth(resp);
+    await this.raiseForStatus(resp);
+    const payload = (await resp.json()) as unknown;
+    if (Array.isArray(payload)) return payload as Record<string, unknown>[];
+    const results = (payload as { results?: unknown }).results;
+    return Array.isArray(results) ? (results as Record<string, unknown>[]) : [];
+  }
+
+  /** Mails handled by Paperless mail rules. Date filters are ignored here too. */
+  async listProcessedMail(options: { pageSize?: number } = {}): Promise<Record<string, unknown>[]> {
+    const resp = await this.request("GET", "/api/processed_mail/", {
+      params: { page_size: options.pageSize ?? 200 },
+    });
+    this.raiseAuth(resp);
+    await this.raiseForStatus(resp);
+    const payload = (await resp.json()) as { results?: unknown };
+    return Array.isArray(payload.results) ? (payload.results as Record<string, unknown>[]) : [];
   }
 
   async searchDocuments(

@@ -2,8 +2,11 @@ import { readFile, unlink } from "node:fs/promises";
 
 import { logger } from "@aktenraum/core";
 import { Inject, Injectable } from "@nestjs/common";
+import { lt } from "drizzle-orm";
 
 import { SETTINGS, type Settings } from "../config/settings.js";
+import { DB, type Database } from "../db/db.module.js";
+import { uploadTasks } from "../db/schema.js";
 import { PaperlessAuthError } from "../paperless/errors.js";
 import { PaperlessGatewayProvider } from "../paperless/paperless.module.js";
 
@@ -46,6 +49,9 @@ async function readContent(file: IncomingFile): Promise<Buffer> {
   return Buffer.alloc(0);
 }
 
+// The activity page only looks back 30 days; older rows are dead weight.
+const UPLOAD_TASK_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
 async function removeTempFiles(files: IncomingFile[]): Promise<void> {
   await Promise.all(
     files.map((file) => (file.path ? unlink(file.path).catch(() => undefined) : undefined)),
@@ -57,6 +63,7 @@ export class UploadService {
   constructor(
     private readonly gatewayProvider: PaperlessGatewayProvider,
     @Inject(SETTINGS) private readonly settings: Settings,
+    @Inject(DB) private readonly db: Database,
   ) {}
 
   async uploadAll(files: IncomingFile[], title?: string): Promise<UploadResponse> {
@@ -102,6 +109,7 @@ export class UploadService {
           title,
         });
         results.push({ filename, status: "accepted", task_id: taskId });
+        await this.recordTask(taskId, filename);
       } catch (error: unknown) {
         if (error instanceof PaperlessAuthError) throw error;
         logger.warn("upload_failed", {
@@ -117,5 +125,26 @@ export class UploadService {
     }
 
     return { results };
+  }
+
+  /**
+   * Best-effort: lets /api/ingest/activity tell uploads from e-mail. A
+   * failure here must never turn an accepted upload into an error.
+   */
+  private async recordTask(taskId: string | null | undefined, filename: string): Promise<void> {
+    if (!taskId) return;
+    try {
+      await this.db
+        .insert(uploadTasks)
+        .values({ taskId, fileName: filename.slice(0, 255) })
+        .onConflictDoNothing();
+      const cutoff = new Date(Date.now() - UPLOAD_TASK_RETENTION_MS).toISOString();
+      await this.db.delete(uploadTasks).where(lt(uploadTasks.createdAt, cutoff));
+    } catch (error: unknown) {
+      logger.warn("upload_task_record_failed", {
+        task_id: taskId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 }

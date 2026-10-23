@@ -37,3 +37,9 @@ export const autoApproveRules = pgTable("auto_approve_rules", {
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }),
 	updatedBy: varchar("updated_by", { length: 255 }),
 });
+
+export const uploadTasks = pgTable("upload_tasks", {
+	taskId: varchar("task_id", { length: 64 }).primaryKey().notNull(),
+	fileName: varchar("file_name", { length: 255 }),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+});

@@ -39,6 +39,25 @@ export const ORDERING_OPTIONS = [
 
 export const DEFAULT_ORDERING = "-created";
 
+// Processing-state filter. "review" is not a server status: pending docs live
+// in the review tab, so picking it switches tabs instead of filtering.
+export const REVIEW_STATUS = "review";
+export const STATUS_OPTIONS = [
+  { value: "", label: "Alle" },
+  { value: "error", label: "Fehler" },
+  { value: "unprocessed", label: "Wartet auf KI" },
+  { value: REVIEW_STATUS, label: "In Prüfung" },
+  { value: "approved", label: "Wird übertragen" },
+  { value: "done", label: "Fertig" },
+  { value: "rejected", label: "Abgelehnt" },
+] as const;
+
+const SERVER_STATUSES: ReadonlySet<string> = new Set(["error", "unprocessed", "approved", "done", "rejected"]);
+
+export function libraryStatusParam(value: string): string {
+  return SERVER_STATUSES.has(value) ? value : "";
+}
+
 export function toQueryString(query: Record<string, unknown>): string {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {

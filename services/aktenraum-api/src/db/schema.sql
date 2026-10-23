@@ -43,6 +43,14 @@ CREATE TABLE IF NOT EXISTS "auto_approve_rules" (
 	"updated_by" varchar(255)
 );
 
+-- Paperless task ids of uploads made through aktenraum, so the import
+-- activity page can tell uploads from e-mail (both carry a task owner).
+CREATE TABLE IF NOT EXISTS "upload_tasks" (
+	"task_id" varchar(64) PRIMARY KEY NOT NULL,
+	"file_name" varchar(255),
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+
 INSERT INTO "alembic_version" ("version_num")
 SELECT '0006'
 WHERE NOT EXISTS (SELECT 1 FROM "alembic_version");

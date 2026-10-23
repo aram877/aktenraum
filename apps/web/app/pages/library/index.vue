@@ -17,6 +17,7 @@ const filters = computed(() => {
     text: firstParam(q.text),
     ordering: firstParam(q.ordering) || DEFAULT_ORDERING,
     tags: allParams(q.tags),
+    status: libraryStatusParam(firstParam(q.status)),
     page: Number.isFinite(page) && page > 0 ? page : 1,
   };
 });
@@ -30,6 +31,7 @@ const query = computed<LibraryQuery>(() => ({
   date_to: filters.value.date_to || null,
   text: filters.value.text || null,
   tags: filters.value.tags.length > 0 ? filters.value.tags : null,
+  status: filters.value.status || null,
   ordering: filters.value.ordering,
   page: filters.value.page,
   page_size: PAGE_SIZE,
@@ -37,6 +39,10 @@ const query = computed<LibraryQuery>(() => ({
 
 const library = useLibrary(query);
 const facet = useTagFacet();
+const typeFacet = useTypeFacet();
+const reprocessFailed = useReprocessFailed();
+const bulkConfirm = ref(false);
+const bulkResult = ref<string | null>(null);
 
 const text = ref("");
 const correspondent = ref("");
@@ -64,7 +70,10 @@ const errorText = computed(() =>
 );
 const hasActiveFilters = computed(() => {
   const f = filters.value;
-  return Boolean(f.document_type || f.correspondent || f.date_from || f.date_to || f.text) || f.tags.length > 0;
+  return (
+    Boolean(f.document_type || f.correspondent || f.date_from || f.date_to || f.text || f.status) ||
+    f.tags.length > 0
+  );
 });
 
 function userTags(item: LibraryItem): string[] {
@@ -79,12 +88,43 @@ function onFilterChange(patch: Record<string, unknown>): void {
   syncUrl({ ...patch, page: 1 });
 }
 
+function onStatusChange(value: string): void {
+  bulkConfirm.value = false;
+  bulkResult.value = null;
+  if (value === REVIEW_STATUS) {
+    switchTab("review");
+    return;
+  }
+  onFilterChange({ status: value });
+}
+
+async function onBulkReprocess(): Promise<void> {
+  if (!bulkConfirm.value) {
+    bulkConfirm.value = true;
+    return;
+  }
+  bulkConfirm.value = false;
+  try {
+    const result = await reprocessFailed.mutateAsync();
+    const parts = [`${result.reprocessed} neu gestartet`];
+    if (result.failed.length > 0) parts.push(`${result.failed.length} fehlgeschlagen`);
+    if (result.remaining > 0) parts.push(`${result.remaining} weitere – erneut klicken`);
+    bulkResult.value = parts.join(" · ");
+  } catch (error: unknown) {
+    bulkResult.value = detailFrom(error, "Erneut verarbeiten fehlgeschlagen.");
+  }
+}
+
 function onTextInput(): void {
   if (debounceHandle !== null) clearTimeout(debounceHandle);
   debounceHandle = setTimeout(() => {
     debounceHandle = null;
     syncUrl({ text: text.value, page: 1 });
   }, DEBOUNCE_MS);
+}
+
+function toggleType(name: string): void {
+  syncUrl({ document_type: filters.value.document_type === name ? "" : name, page: 1 });
 }
 
 function toggleTag(name: string): void {
@@ -159,6 +199,18 @@ function valueOf(event: Event): string {
               </label>
 
               <label class="block text-xs font-medium text-ink-muted">
+                Status
+                <select
+                  name="status"
+                  :value="filters.status"
+                  class="mt-1 w-full rounded-lg border border-hairline bg-surface px-3 py-2 text-sm text-ink"
+                  @change="onStatusChange(valueOf($event))"
+                >
+                  <option v-for="opt in STATUS_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                </select>
+              </label>
+
+              <label class="block text-xs font-medium text-ink-muted">
                 Dokumenttyp
                 <select
                   name="document_type"
@@ -217,6 +269,22 @@ function valueOf(event: Event): string {
                 </select>
               </label>
 
+              <div v-if="typeFacet.data.value?.results?.length" data-testid="type-facet">
+                <p class="text-xs font-medium text-ink-muted">Dokumenttypen</p>
+                <div class="mt-2 flex flex-wrap gap-1.5">
+                  <button
+                    v-for="dt in typeFacet.data.value.results"
+                    :key="dt.name"
+                    type="button"
+                    class="rounded-full border px-2.5 py-1 text-[11px] font-medium"
+                    :class="filters.document_type === dt.name ? 'border-accent bg-accent/10 text-accent' : 'border-hairline text-ink'"
+                    @click="toggleType(dt.name)"
+                  >
+                    {{ dt.name }} ({{ dt.count }})
+                  </button>
+                </div>
+              </div>
+
               <div v-if="facet.data.value?.results?.length">
                 <p class="text-xs font-medium text-ink-muted">Tags</p>
                 <div class="mt-2 flex flex-wrap gap-1.5">
@@ -244,6 +312,24 @@ function valueOf(event: Event): string {
             </aside>
 
             <section>
+              <div
+                v-if="filters.status === 'error' && (total > 0 || bulkResult)"
+                class="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2"
+              >
+                <button
+                  v-if="total > 0"
+                  type="button"
+                  data-testid="bulk-reprocess"
+                  :disabled="reprocessFailed.isPending.value"
+                  class="rounded-lg border border-red-300 bg-surface px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
+                  @click="onBulkReprocess"
+                >
+                  <template v-if="reprocessFailed.isPending.value">Wird gestartet…</template>
+                  <template v-else-if="bulkConfirm">Wirklich {{ total }} Dokument(e) neu verarbeiten?</template>
+                  <template v-else>Alle fehlerhaften erneut verarbeiten ({{ total }})</template>
+                </button>
+                <p v-if="bulkResult" data-testid="bulk-result" class="text-xs text-red-800">{{ bulkResult }}</p>
+              </div>
               <p v-if="errorText" class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                 {{ errorText }}
               </p>

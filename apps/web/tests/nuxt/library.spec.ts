@@ -164,3 +164,85 @@ describe("review tab", () => {
     expect(wrapper.find('[data-testid="load-more"]').exists()).toBe(false);
   });
 });
+
+describe("status filter", () => {
+  it("sends status from the URL and resets paging when it changes", async () => {
+    const wrapper = await mountSuspended(LibraryPage, { route: "/library?status=error&page=3" });
+    await vi.waitFor(() => expect(wrapper.text()).toContain("Dokument 1"));
+    expect(libraryCalls()[0]).toContain("status=error");
+    expect((wrapper.find('select[name="status"]').element as HTMLSelectElement).value).toBe("error");
+
+    await wrapper.find('select[name="status"]').setValue("done");
+    await vi.waitFor(() => expect(useRoute().query).toEqual({ status: "done" }));
+  });
+
+  it("switches to the review tab for 'In Prüfung'", async () => {
+    const wrapper = await mountSuspended(LibraryPage, { route: "/library" });
+    await vi.waitFor(() => expect(wrapper.text()).toContain("Dokument 1"));
+    await wrapper.find('select[name="status"]').setValue("review");
+    await vi.waitFor(() => expect(useRoute().query).toEqual({ tab: "review" }));
+  });
+
+  it("ignores an unknown status in the URL", async () => {
+    const wrapper = await mountSuspended(LibraryPage, { route: "/library?status=bogus" });
+    await vi.waitFor(() => expect(wrapper.text()).toContain("Dokument 1"));
+    expect(libraryCalls()[0]).not.toContain("status=");
+  });
+
+  it("asks for confirmation before reprocessing every failed document", async () => {
+    post.mockResolvedValue({ requested: 60, reprocessed: 59, failed: [{ doc_id: 9, detail: "x" }], remaining: 0 });
+    const invalidate = vi.spyOn(useNuxtApp().$queryClient, "invalidateQueries");
+    const wrapper = await mountSuspended(LibraryPage, { route: "/library?status=error" });
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="bulk-reprocess"]').exists()).toBe(true));
+    expect(wrapper.find('[data-testid="bulk-reprocess"]').text()).toContain("(60)");
+
+    await wrapper.find('[data-testid="bulk-reprocess"]').trigger("click");
+    expect(post).not.toHaveBeenCalled();
+    expect(wrapper.find('[data-testid="bulk-reprocess"]').text()).toContain("Wirklich 60");
+
+    await wrapper.find('[data-testid="bulk-reprocess"]').trigger("click");
+    await flushPromises();
+    expect(post).toHaveBeenCalledWith("/documents/reprocess-failed", {});
+    expect(wrapper.find('[data-testid="bulk-result"]').text()).toBe("59 neu gestartet · 1 fehlgeschlagen");
+    const keys = invalidate.mock.calls.map((c) => (c[0] as { queryKey?: unknown } | undefined)?.queryKey);
+    expect(keys).toContainEqual(["library"]);
+  });
+
+  it("does not offer bulk reprocess outside the Fehler filter", async () => {
+    const wrapper = await mountSuspended(LibraryPage, { route: "/library" });
+    await vi.waitFor(() => expect(wrapper.text()).toContain("Dokument 1"));
+    expect(wrapper.find('[data-testid="bulk-reprocess"]').exists()).toBe(false);
+  });
+});
+
+describe("document type chips", () => {
+  beforeEach(() => {
+    get.mockImplementation((path: string) => {
+      if (path === "/auth/me") return Promise.resolve({ username: "admin" });
+      if (path === "/library/types") {
+        return Promise.resolve({ results: [{ name: "Gehaltsabrechnung", count: 83 }, { name: "Rechnung", count: 48 }] });
+      }
+      if (path === "/library/tags") return Promise.resolve({ results: [] });
+      if (path.startsWith("/library/")) {
+        return Promise.resolve({ results: [libraryItem(1)], total: 1, page: 1, page_size: 25 });
+      }
+      return new Promise(() => undefined);
+    });
+  });
+
+  it("shows each type with its count and filters by it on click", async () => {
+    const wrapper = await mountSuspended(LibraryPage, { route: "/library?page=2" });
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="type-facet"]').exists()).toBe(true));
+    const chip = wrapper.findAll('[data-testid="type-facet"] button')[0]!;
+    expect(chip.text()).toBe("Gehaltsabrechnung (83)");
+    await chip.trigger("click");
+    await vi.waitFor(() => expect(useRoute().query).toEqual({ document_type: "Gehaltsabrechnung" }));
+  });
+
+  it("clears the type filter when the active chip is clicked again", async () => {
+    const wrapper = await mountSuspended(LibraryPage, { route: "/library?document_type=Rechnung" });
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="type-facet"]').exists()).toBe(true));
+    await wrapper.findAll('[data-testid="type-facet"] button')[1]!.trigger("click");
+    await vi.waitFor(() => expect(useRoute().query).toEqual({}));
+  });
+});

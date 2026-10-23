@@ -43,6 +43,26 @@ export function useToggleStar(id: MaybeRefOrGetter<number | null>) {
   });
 }
 
+export interface ReprocessFailedResult {
+  requested: number;
+  reprocessed: number;
+  failed: { doc_id: number; detail: string }[];
+  remaining: number;
+}
+
+export function useReprocessFailed() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<ReprocessFailedResult>("/documents/reprocess-failed", {}),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["library"] });
+      void queryClient.invalidateQueries({ queryKey: ["in-flight"] });
+      void queryClient.invalidateQueries({ queryKey: INGEST_KEY });
+    },
+  });
+}
+
 export function useDeleteDocument() {
   const api = useApi();
   const queryClient = useQueryClient();

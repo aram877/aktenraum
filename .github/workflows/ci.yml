@@ -54,6 +54,7 @@ jobs:
         env:
           AKTENRAUM_DATA_DIR: /tmp/aktenraum
           PAPERLESS_DBPASS: ci
+          QDRANT_API_KEY: ci
         run: |
           cp docker/.env.example docker/.env
           docker compose --project-directory docker -f docker/docker-compose.yml config -q

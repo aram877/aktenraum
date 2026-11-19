@@ -4,26 +4,19 @@ import {
   Controller,
   Get,
   Header,
-  Headers,
   HttpException,
   HttpStatus,
-  Inject,
   NotFoundException,
   Param,
   ParseIntPipe,
   Patch,
-  Req,
-  UnauthorizedException,
   UseGuards,
 } from "@nestjs/common";
-import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 
 import { AuthGuard } from "../auth/auth.guard.js";
-import type { AuthenticatedRequest } from "../auth/auth.guard.js";
-import { AuthService } from "../auth/auth.service.js";
+import { UserOrInternalGuard } from "../auth/internal.guard.js";
 import { ZodValidationPipe } from "../common/zod-validation.pipe.js";
-import { SETTINGS, type Settings } from "../config/settings.js";
 import { TypeFieldsService, validateFieldNames } from "./type-fields.service.js";
 
 export const typeFieldsPatchSchema = z.object({
@@ -37,20 +30,9 @@ export interface TypeFieldsResponse {
   fields: Record<string, string>;
 }
 
-function secretsMatch(provided: string, expected: string): boolean {
-  const a = Buffer.from(provided);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
-}
-
 @Controller()
 export class TypeFieldsController {
-  constructor(
-    private readonly typeFieldsService: TypeFieldsService,
-    private readonly authService: AuthService,
-    @Inject(SETTINGS) private readonly settings: Settings,
-  ) {}
+  constructor(private readonly typeFieldsService: TypeFieldsService) {}
 
   @Get("document-types/schema")
   @UseGuards(AuthGuard)
@@ -77,14 +59,13 @@ export class TypeFieldsController {
     return { document_type: row.documentType, fields: row.fields };
   }
 
+  // The worker (secret) and the library/inbox detail pages (session) both write here.
   @Patch("documents/:doc_id/type-fields")
+  @UseGuards(UserOrInternalGuard)
   async patchTypeFields(
     @Param("doc_id", ParseIntPipe) docId: number,
     @Body(new ZodValidationPipe(typeFieldsPatchSchema)) body: TypeFieldsPatch,
-    @Headers("x-aktenraum-secret") secret: string | undefined,
-    @Req() request: AuthenticatedRequest,
   ): Promise<TypeFieldsResponse> {
-    await this.requireUserOrSecret(request, secret);
     const docTypeStr =
       body.document_type ?? (await this.typeFieldsService.inferDocumentType(docId));
     const unknown = validateFieldNames(docTypeStr, body.fields);
@@ -97,22 +78,4 @@ export class TypeFieldsController {
     const row = await this.typeFieldsService.upsert(docId, body.fields, docTypeStr);
     return { document_type: row.documentType, fields: row.fields };
   }
-
-  private async requireUserOrSecret(
-    request: AuthenticatedRequest,
-    secret: string | undefined,
-  ): Promise<void> {
-    if (secret !== undefined) {
-      if (this.settings.WEBHOOK_SECRET && secretsMatch(secret, this.settings.WEBHOOK_SECRET)) return;
-      throw new UnauthorizedException("Invalid secret");
-    }
-    const token: unknown = request.cookies?.[this.settings.COOKIE_NAME];
-    if (typeof token !== "string" || token === "") {
-      throw new UnauthorizedException("Not authenticated");
-    }
-    if ((await this.authService.verifySession(token)) === null) {
-      throw new UnauthorizedException("Invalid session");
-    }
-  }
-
 }

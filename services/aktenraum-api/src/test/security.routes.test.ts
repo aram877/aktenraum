@@ -68,21 +68,27 @@ describe("login hardening", () => {
 });
 
 describe("internal secret", () => {
-  it("only lets the CSRF check be skipped with the correct secret value", async () => {
+  it("never exempts a cross-site request from the CSRF check, even with the correct secret", async () => {
     const { server } = await boot({ env: { WEBHOOK_SECRET: "s3cret" } });
     const agent = await loggedIn(server);
 
-    const forged = await agent
-      .post("/api/documents/42/star")
-      .set("Sec-Fetch-Site", "cross-site")
-      .set("X-Aktenraum-Secret", "guess");
-    expect(forged.status).toBe(403);
+    for (const secret of ["guess", "s3cret"]) {
+      const response = await agent
+        .post("/api/documents/42/star")
+        .set("Sec-Fetch-Site", "cross-site")
+        .set("X-Aktenraum-Secret", secret);
+      expect(response.status).toBe(403);
+      expect(response.body).toEqual({ detail: "Cross-site request blocked" });
+    }
+  });
 
-    const internal = await agent
-      .post("/api/documents/42/star")
-      .set("Sec-Fetch-Site", "cross-site")
-      .set("X-Aktenraum-Secret", "s3cret");
-    expect(internal.status).toBe(200);
+  it("lets an internal caller without Sec-Fetch-Site through to the guard", async () => {
+    const { server } = await boot({ env: { WEBHOOK_SECRET: "s3cret" } });
+    const response = await request(server)
+      .patch("/api/documents/42/type-fields")
+      .set("X-Aktenraum-Secret", "s3cret")
+      .send({ document_type: "Rechnung", fields: { gesamtbetrag: "10,00 EUR" } });
+    expect(response.status).toBe(200);
   });
 });
 

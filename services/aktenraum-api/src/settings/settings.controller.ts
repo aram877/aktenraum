@@ -1,20 +1,9 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Headers,
-  Inject,
-  Patch,
-  Put,
-  UnauthorizedException,
-  UseGuards,
-} from "@nestjs/common";
-import { timingSafeEqual } from "node:crypto";
+import { Body, Controller, Get, Patch, Put, UseGuards } from "@nestjs/common";
 
 import { AuthGuard, CurrentUser } from "../auth/auth.guard.js";
 import type { AuthUser } from "../auth/auth.service.js";
+import { InternalGuard } from "../auth/internal.guard.js";
 import { ZodValidationPipe } from "../common/zod-validation.pipe.js";
-import { SETTINGS, type Settings } from "../config/settings.js";
 import {
   autoApproveRulesUpdateSchema,
   llmSettingsUpdateSchema,
@@ -27,29 +16,9 @@ import {
 } from "./settings.schemas.js";
 import { SettingsService } from "./settings.service.js";
 
-function secretsMatch(provided: string, expected: string): boolean {
-  const a = Buffer.from(provided);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
-}
-
 @Controller("settings")
 export class SettingsController {
-  constructor(
-    private readonly settingsService: SettingsService,
-    @Inject(SETTINGS) private readonly settings: Settings,
-  ) {}
-
-  private requireSecret(provided: string | undefined): void {
-    if (
-      !this.settings.WEBHOOK_SECRET ||
-      provided === undefined ||
-      !secretsMatch(provided, this.settings.WEBHOOK_SECRET)
-    ) {
-      throw new UnauthorizedException("Bad secret");
-    }
-  }
+  constructor(private readonly settingsService: SettingsService) {}
 
   @Get("llm")
   @UseGuards(AuthGuard)
@@ -86,10 +55,8 @@ export class SettingsController {
   }
 
   @Get("active-llm-model")
-  async getActiveLlmModelInternal(
-    @Headers("x-aktenraum-secret") secret?: string,
-  ): Promise<ActiveModelResponse> {
-    this.requireSecret(secret);
+  @UseGuards(InternalGuard)
+  async getActiveLlmModelInternal(): Promise<ActiveModelResponse> {
     return { ollama_model: await this.settingsService.getActiveModel() };
   }
 
@@ -109,10 +76,8 @@ export class SettingsController {
   }
 
   @Get("active-auto-approve-rules")
-  async getActiveAutoApproveRulesInternal(
-    @Headers("x-aktenraum-secret") secret?: string,
-  ): Promise<AutoApproveRulesResponse> {
-    this.requireSecret(secret);
+  @UseGuards(InternalGuard)
+  async getActiveAutoApproveRulesInternal(): Promise<AutoApproveRulesResponse> {
     return { rules: await this.settingsService.listRules() };
   }
 }

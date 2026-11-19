@@ -1,6 +1,6 @@
 # ADR-003: CSRF Defence — `Sec-Fetch-Site` Middleware
 
-**Status**: Accepted
+**Status**: Accepted — amended 2026-11-19 (internal-secret bypass removed, see "Amendment")
 
 ## Context
 
@@ -21,7 +21,7 @@ We will add a Starlette middleware (`aktenraum_api.middleware.CSRFMiddleware`) t
 - Every state-changing method (`POST`, `PUT`, `PATCH`, `DELETE`) is checked.
 - Every `GET` whose path ends in `/preview` or `/download` is checked.
 - The check passes when `Sec-Fetch-Site` is `same-origin`, `same-site`, `none`, or missing (non-browser clients like curl never send the header, and they aren't subject to the CSRF threat model — they need real credentials anyway).
-- Requests carrying `X-Aktenraum-Secret` bypass the check (internal callers — auto-tagger webhook, paperless `post_consume` hook). The secret value is verified by the route handlers themselves; here we only use the *presence* of the header as a "this is a server-to-server call" signal, which an attacker page cannot set on a cross-site fetch without a CORS preflight (and we never reply to such preflights).
+- ~~Requests carrying `X-Aktenraum-Secret` bypass the check.~~ Removed on 2026-11-19 — see "Amendment" below.
 
 A companion `SecurityHeadersMiddleware` sets `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and `Referrer-Policy: no-referrer` on every response so the JSON endpoints don't rely on the SPA-tier nginx headers alone.
 
@@ -45,3 +45,12 @@ The strict CSP for HTML responses stays in nginx (`docker/nginx/nginx.conf`) —
 
 - We won't add a double-submit CSRF token. `Sec-Fetch-Site` is sent by every browser we target (Chrome 76+, Firefox 90+, Safari 16+), is impossible for attacker JS to forge (the browser owns the header), and keeps the SPA free of token-juggling code.
 - We won't gate on `Origin` header alone. Origin matching breaks when the same product is served on multiple ports during dev (5173 hot reload vs 8080 nginx), and Lax already provides the cookie-level Origin check.
+
+## Amendment (2026-11-19): no internal-secret bypass
+
+OpenSpec change `pre-auth-cleanup` (ADR-010 implementation step 1) removed the bypass. The middleware now decides only from method, path and `Sec-Fetch-Site`; `createCsrfMiddleware()` takes no secret.
+
+- **No caller needed it.** Node's `fetch` (the worker → api calls) sends `sec-fetch-mode` but no `Sec-Fetch-Site` (verified on Node 22.23 in the worker image), and a missing header already passes. Paperless's `post_consume` hook calls the worker, which has no CSRF middleware.
+- **It coupled two unrelated things.** Internal identity is a guard's job (`InternalGuard`, `UserOrInternalGuard` in `services/aktenraum-api/src/auth/internal.guard.ts`); browser CSRF protection is the middleware's. With the bypass, a leaked secret would also have switched CSRF protection off for a browser session.
+- **The Tauri note no longer applies.** ADR-010 signs the desktop shell in through the system browser, so no WebView needs to send the secret.
+- A future internal caller that does send `Sec-Fetch-Site: cross-site` should authenticate with a bearer service credential (ADR-010 step 5), which isn't cookie-based and therefore not a CSRF target.

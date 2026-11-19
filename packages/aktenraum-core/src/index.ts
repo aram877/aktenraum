@@ -13,3 +13,4 @@ export * from "./rag/embedder.js";
 export * from "./rag/vectorStore.js";
 export * from "./rag/reranker.js";
 export * from "./dedup.js";
+export * from "./secrets.js";

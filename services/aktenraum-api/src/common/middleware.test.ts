@@ -2,13 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { isCsrfAllowed, needsCsrfCheck } from "./middleware.js";
 
-function allowed(
-  method: string,
-  path: string,
-  secFetchSite?: string,
-  hasInternalSecret = false,
-): boolean {
-  return isCsrfAllowed({ method, path, secFetchSite, hasInternalSecret });
+function allowed(method: string, path: string, secFetchSite?: string): boolean {
+  return isCsrfAllowed({ method, path, secFetchSite });
 }
 
 describe("needsCsrfCheck", () => {
@@ -51,10 +46,6 @@ describe("isCsrfAllowed", () => {
 
   it("allows a request with no Sec-Fetch-Site at all (curl, server-to-server)", () => {
     expect(allowed("POST", "/api/inbox/1/approve", undefined)).toBe(true);
-  });
-
-  it("lets an internal caller through even when marked cross-site", () => {
-    expect(allowed("POST", "/api/settings/active-llm-model", "cross-site", true)).toBe(true);
   });
 
   it("never blocks a plain GET regardless of site", () => {

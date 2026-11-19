@@ -133,10 +133,21 @@ is not.
 ## CSRF compatibility
 
 `csrfMiddleware` rejects state-changing methods (and `/preview` + `/download`)
-when `Sec-Fetch-Site: cross-site` is present. Internal callers — the worker's
-webhook, Paperless's `post_consume` — bypass it by sending
-`X-Aktenraum-Secret`. See ADR-003. Any new internal-to-internal endpoint must
-send that header or it will be blocked in a browser-adjacent context.
+when `Sec-Fetch-Site: cross-site` is present. It decides from that header
+alone — `X-Aktenraum-Secret` does **not** exempt a request (removed
+2026-11-19, ADR-003 amendment). Internal callers pass because Node's `fetch`
+sends no `Sec-Fetch-Site`.
+
+Internal identity is a guard's job, never a controller's:
+
+- `@UseGuards(InternalGuard)` — service-only routes (worker → api); `401 Bad secret`
+- `@UseGuards(UserOrInternalGuard)` — routes both the worker and a logged-in
+  user call; a present-but-wrong secret is `401 Invalid secret` and never falls
+  back to the cookie
+- both use `secretMatches` from `@aktenraum/core`; don't write another comparison
+
+Both live in `src/auth/internal.guard.ts` and are exported from `AuthModule`.
+ADR-010 replaces the shared secret with per-caller service credentials later.
 
 ---
 

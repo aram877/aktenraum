@@ -1,21 +1,12 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { timingSafeEqual } from "node:crypto";
 
-import { logger } from "@aktenraum/core";
+import { logger, secretMatches } from "@aktenraum/core";
 
 import type { IndexJob } from "./indexer.js";
 import type { AsyncQueue } from "./queue.js";
 import type { ProcessingState } from "./processing-state.js";
 
 export type Trigger = "extract" | "propagate" | "reindex-metadata";
-
-export function secretMatches(provided: string | undefined, expected: string): boolean {
-  if (!expected || provided === undefined) return false;
-  const a = Buffer.from(provided);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
-}
 
 export function parseDocumentId(body: string): number | null {
   try {
@@ -77,8 +68,7 @@ async function handle(
   }
 
   if (url.pathname === "/processing" && req.method === "GET") {
-    const secret = req.headers["x-aktenraum-secret"];
-    if (!secretMatches(typeof secret === "string" ? secret : undefined, deps.webhookSecret)) {
+    if (!secretMatches(req.headers["x-aktenraum-secret"], deps.webhookSecret)) {
       json(401, { detail: "Bad secret" });
       return;
     }
@@ -91,8 +81,7 @@ async function handle(
 
   const match = /^\/trigger\/(extract|propagate|reindex-metadata)$/.exec(url.pathname);
   if (match !== null && req.method === "POST") {
-    const secret = req.headers["x-aktenraum-secret"];
-    if (!secretMatches(typeof secret === "string" ? secret : undefined, deps.webhookSecret)) {
+    if (!secretMatches(req.headers["x-aktenraum-secret"], deps.webhookSecret)) {
       json(401, { detail: "Bad secret" });
       return;
     }

@@ -151,7 +151,7 @@ export async function createHarness(options: {
   app.setGlobalPrefix("api");
   app.use(cookieParser());
   app.use(securityHeadersMiddleware);
-  app.use(createCsrfMiddleware(settings.WEBHOOK_SECRET));
+  app.use(createCsrfMiddleware());
   app.useGlobalFilters(new FastApiErrorShapeFilter());
   await app.init();
 

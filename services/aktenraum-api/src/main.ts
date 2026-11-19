@@ -28,7 +28,7 @@ export async function bootstrap(): Promise<void> {
   app.setGlobalPrefix("api");
   app.use(cookieParser());
   app.use(securityHeadersMiddleware);
-  app.use(createCsrfMiddleware(settings.WEBHOOK_SECRET));
+  app.use(createCsrfMiddleware());
   app.useGlobalFilters(new FastApiErrorShapeFilter());
 
   await app.listen(settings.PORT, "0.0.0.0");

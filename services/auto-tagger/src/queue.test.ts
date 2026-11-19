@@ -1,8 +1,9 @@
+import { secretMatches } from "@aktenraum/core";
 import { describe, expect, it } from "vitest";
 
 import { AsyncQueue } from "./queue.js";
 import { ProcessingState } from "./processing-state.js";
-import { parseDocumentId, secretMatches } from "./webhook.js";
+import { parseDocumentId } from "./webhook.js";
 
 describe("AsyncQueue", () => {
   it("returns items in FIFO order", async () => {

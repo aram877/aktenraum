@@ -55,7 +55,7 @@
 
 ## 9. Live migration (maintainer present, explicit OK per step)
 
-- [ ] 9.1 `task backup:verify` + manual snapshot
-- [ ] 9.2 `task build`, then `scripts/migrate-tenancy.sh --dry-run`; review the plan together
-- [ ] 9.3 Real run (maintainer OK), verification output reviewed
+- [x] 9.1 `task backup:verify` + manual snapshot
+- [x] 9.2 `task build`, then `scripts/migrate-tenancy.sh --dry-run`; review the plan together
+- [x] 9.3 Real run (maintainer OK), verification output reviewed
 - [ ] 9.4 Browser check: library, detail, Ask, upload of a new document (gets a home space before extraction)

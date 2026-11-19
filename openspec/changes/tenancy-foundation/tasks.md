@@ -16,10 +16,10 @@
 
 ## 3. Paperless mapping
 
-- [ ] 3.1 Gateway: create/find Paperless user (spike permission set) and group; set document `owner` + `set_permissions`; create tags/types/correspondents with `owner: null`
-- [ ] 3.2 Core `PaperlessClient.getOrCreateNamed` creates with `owner: null`; `bootstrap-paperless.sh` likewise
-- [ ] 3.3 Fake Paperless (`test/fake-gateway.ts`) + core fake: users, groups, owner/permissions
-- [ ] 3.4 Tests: provisioning idempotent, permission payload shape, `owner: null` on every create path
+- [x] 3.1 Gateway: create/find Paperless user (spike permission set) and group; set document `owner` + `set_permissions`; create tags/types/correspondents with `owner: null`
+- [x] 3.2 Core `PaperlessClient.getOrCreateNamed` creates with `owner: null`; `bootstrap-paperless.sh` likewise
+- [x] 3.3 Fake Paperless (`test/fake-gateway.ts`) + core fake: users, groups, owner/permissions
+- [x] 3.4 Tests: provisioning idempotent, permission payload shape, `owner: null` on every create path
 
 ## 4. Home space for new documents
 

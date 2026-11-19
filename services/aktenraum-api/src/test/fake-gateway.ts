@@ -1,4 +1,11 @@
-import type { PaperlessDocument } from "../paperless/paperless.gateway.js";
+import type {
+  DocumentPermissions,
+  OwnedEntity,
+  PaperlessDocument,
+  PaperlessGroup,
+  PaperlessUser,
+  SharedVocabularyEndpoint,
+} from "../paperless/paperless.gateway.js";
 import { PaperlessNotFoundError } from "../paperless/errors.js";
 
 export const TAGS: Record<string, number> = {
@@ -219,4 +226,120 @@ export class FakeGateway {
   };
 
   ensureTag = async (name: string): Promise<number> => TAGS[name] ?? 99;
+
+  // ---------------------------------------------------------------- tenancy mirror
+
+  /** Paperless users by id; id 3 is the service superuser, as on the live install. */
+  readonly users = new Map<number, PaperlessUser>([
+    [3, { id: 3, username: "admin", groups: [], user_permissions: [], is_superuser: true }],
+  ]);
+  readonly groups = new Map<number, PaperlessGroup>();
+  /** Owner + explicit permissions per document id; missing = superuser-owned, no grants. */
+  readonly permissions = new Map<number, DocumentPermissions>();
+  /** Shared-vocabulary entities with owners (tags, correspondents, document types). */
+  readonly vocabulary: Record<SharedVocabularyEndpoint, OwnedEntity[]> = {
+    "/api/tags/": Object.entries(TAGS).map(([name, id]) => ({ id, name, owner: 3 })),
+    "/api/correspondents/": Object.entries(CORRESPONDENTS).map(([name, id]) => ({ id, name, owner: 3 })),
+    "/api/document_types/": Object.entries(DOCUMENT_TYPES).map(([name, id]) => ({ id, name, owner: 3 })),
+  };
+  /** Every tenancy write, in order, so tests can assert idempotency. */
+  readonly tenancyWrites: { op: string; target: number | string; payload?: unknown }[] = [];
+  private nextUserId = 100;
+  private nextGroupId = 500;
+
+  private user(userId: number): PaperlessUser {
+    const user = this.users.get(userId);
+    if (user === undefined) throw new Error(`fake paperless: no user ${userId}`);
+    return user;
+  }
+
+  findUserByUsername = async (username: string): Promise<PaperlessUser | null> =>
+    [...this.users.values()].find((u) => u.username === username) ?? null;
+
+  getUser = async (userId: number): Promise<PaperlessUser> => structuredClone(this.user(userId));
+
+  createUser = async (options: {
+    username: string;
+    password: string;
+    permissions: readonly string[];
+  }): Promise<PaperlessUser> => {
+    const user: PaperlessUser = {
+      id: this.nextUserId++,
+      username: options.username,
+      groups: [],
+      user_permissions: [...options.permissions],
+      is_superuser: false,
+    };
+    this.users.set(user.id, user);
+    this.tenancyWrites.push({ op: "createUser", target: options.username, payload: options.permissions });
+    return structuredClone(user);
+  };
+
+  updateUser = async (
+    userId: number,
+    patch: { groups?: number[]; user_permissions?: readonly string[] },
+  ): Promise<PaperlessUser> => {
+    const user = this.user(userId);
+    if (patch.groups !== undefined) user.groups = [...patch.groups];
+    if (patch.user_permissions !== undefined) user.user_permissions = [...patch.user_permissions];
+    this.tenancyWrites.push({ op: "updateUser", target: userId, payload: patch });
+    return structuredClone(user);
+  };
+
+  findGroupByName = async (name: string): Promise<PaperlessGroup | null> =>
+    [...this.groups.values()].find((g) => g.name === name) ?? null;
+
+  createGroup = async (name: string): Promise<PaperlessGroup> => {
+    const group = { id: this.nextGroupId++, name };
+    this.groups.set(group.id, group);
+    this.tenancyWrites.push({ op: "createGroup", target: name });
+    return { ...group };
+  };
+
+  getDocumentPermissions = async (docId: number): Promise<DocumentPermissions> => {
+    await this.getDocument(docId);
+    return structuredClone(
+      this.permissions.get(docId) ?? {
+        owner: 3,
+        permissions: { view: { users: [], groups: [] }, change: { users: [], groups: [] } },
+      },
+    );
+  };
+
+  setDocumentPermissions = async (docId: number, target: DocumentPermissions): Promise<void> => {
+    await this.getDocument(docId);
+    this.permissions.set(docId, structuredClone(target));
+    this.tenancyWrites.push({ op: "setDocumentPermissions", target: docId, payload: target });
+  };
+
+  bulkSetDocumentPermissions = async (docIds: number[], target: DocumentPermissions): Promise<void> => {
+    for (const id of docIds) await this.getDocument(id);
+    for (const id of docIds) this.permissions.set(id, structuredClone(target));
+    this.tenancyWrites.push({ op: "bulkSetDocumentPermissions", target: docIds.join(","), payload: target });
+  };
+
+  listOwnedEntities = async (endpoint: SharedVocabularyEndpoint): Promise<OwnedEntity[]> =>
+    this.vocabulary[endpoint].map((e) => ({ ...e }));
+
+  clearOwner = async (endpoint: SharedVocabularyEndpoint, id: number): Promise<void> => {
+    const entity = this.vocabulary[endpoint].find((e) => e.id === id);
+    if (entity === undefined) throw new Error(`fake paperless: no ${endpoint}${id}`);
+    entity.owner = null;
+    this.tenancyWrites.push({ op: "clearOwner", target: `${endpoint}${id}` });
+  };
+
+  /** Documents a Paperless user can list: owner, or view via user/group grant. */
+  visibleTo = (userId: number): number[] => {
+    const user = this.user(userId);
+    return [...this.docs.keys()].filter((id) => {
+      if (user.is_superuser) return true;
+      const perms = this.permissions.get(id);
+      if (perms === undefined) return false;
+      return (
+        perms.owner === userId ||
+        perms.permissions.view.users.includes(userId) ||
+        perms.permissions.view.groups.some((g) => user.groups.includes(g))
+      );
+    });
+  };
 }

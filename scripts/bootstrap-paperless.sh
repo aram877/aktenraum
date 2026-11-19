@@ -86,15 +86,29 @@ ensure_tag() {
   if [ "${existing}" -gt 0 ]; then
     echo "  [skip] tag already exists: ${name}"
   else
-    local body="{\"name\": \"${name}\"}"
+    # owner: null — tags are one household-wide vocabulary (ADR-009); a tag
+    # owned by the admin is invisible to every member's Paperless user.
+    local body="{\"name\": \"${name}\", \"owner\": null}"
     if [ -n "${color}" ]; then
-      body="{\"name\": \"${name}\", \"color\": \"${color}\"}"
+      body="{\"name\": \"${name}\", \"color\": \"${color}\", \"owner\": null}"
     fi
-    curl -sf -X POST \
+    local created
+    created=$(curl -sf -X POST \
       -H "${AUTH_HEADER}" \
       -H "${JSON_HEADER}" \
       -d "${body}" \
-      "${PAPERLESS_URL}/api/tags/" > /dev/null
+      "${PAPERLESS_URL}/api/tags/" \
+      | "${PYTHON}" -c "import sys,json; t=json.load(sys.stdin); print(t['id'], '' if t.get('owner') is None else t['owner'])")
+    local created_id="${created%% *}"
+    local created_owner="${created#* }"
+    # Should Paperless default the owner to the calling user anyway, clear it.
+    if [ -n "${created_owner}" ]; then
+      curl -sf -X PATCH \
+        -H "${AUTH_HEADER}" \
+        -H "${JSON_HEADER}" \
+        -d '{"owner": null}' \
+        "${PAPERLESS_URL}/api/tags/${created_id}/" > /dev/null
+    fi
     echo "  [created] tag: ${name}"
   fi
 }

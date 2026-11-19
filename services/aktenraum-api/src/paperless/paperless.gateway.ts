@@ -20,6 +20,39 @@ interface CacheEntry<T> {
   value: T;
 }
 
+/** Who may see / change a document besides its owner (Paperless `set_permissions`). */
+export interface ObjectPermissions {
+  view: { users: number[]; groups: number[] };
+  change: { users: number[]; groups: number[] };
+}
+
+export interface DocumentPermissions {
+  owner: number | null;
+  permissions: ObjectPermissions;
+}
+
+export interface PaperlessUser {
+  id: number;
+  username: string;
+  groups: number[];
+  user_permissions: string[];
+  is_superuser: boolean;
+}
+
+export interface PaperlessGroup {
+  id: number;
+  name: string;
+}
+
+/** A tag, correspondent or document type with its owner. */
+export interface OwnedEntity {
+  id: number;
+  name: string;
+  owner: number | null;
+}
+
+export type SharedVocabularyEndpoint = "/api/tags/" | "/api/correspondents/" | "/api/document_types/";
+
 export interface PaperlessGatewayOptions {
   ttlSeconds?: number;
   fetchFn?: typeof fetch;
@@ -299,7 +332,7 @@ export class PaperlessGateway {
       }
     }
 
-    const created = await this.request("POST", "/api/tags/", { json: { name } });
+    const created = await this.request("POST", "/api/tags/", { json: { name, owner: null } });
     this.raiseAuth(created);
     if (created.status >= 400) {
       const retry = await this.request("GET", "/api/tags/", { params: { name__iexact: name } });
@@ -316,7 +349,16 @@ export class PaperlessGateway {
       throw new PaperlessRequestError(created.status, body, created.url);
     }
     this.tagsCache = null;
-    const payload = (await created.json()) as { id: number };
+    const payload = (await created.json()) as { id: number; owner?: number | null };
+    if (payload.owner !== null && payload.owner !== undefined) {
+      // Shared vocabulary (ADR-009): should Paperless default the owner to the
+      // service user, clear it. Not fatal — the migration reports leftovers.
+      try {
+        await this.clearOwner("/api/tags/", payload.id);
+      } catch (error: unknown) {
+        logger.warn("paperless_clear_owner_failed", { endpoint: "/api/tags/", id: payload.id, error: String(error) });
+      }
+    }
     return payload.id;
   }
 
@@ -581,6 +623,138 @@ export class PaperlessGateway {
     await this.raiseForStatus(resp);
     const payload = (await resp.json()) as { results?: unknown };
     return Array.isArray(payload.results) ? (payload.results as Record<string, unknown>[]) : [];
+  }
+
+  // ------------------------------------------------------------------
+  // Tenancy mirror (ADR-009): users, groups, document owner + permissions,
+  // shared vocabulary. Called with the service (superuser) token only.
+  // ------------------------------------------------------------------
+
+  private async getJson<T>(path: string, params?: QueryParams): Promise<T> {
+    const resp = await this.request("GET", path, { params });
+    this.raiseAuth(resp);
+    await this.raiseForStatus(resp);
+    return (await resp.json()) as T;
+  }
+
+  private async sendJson<T>(method: "POST" | "PATCH", path: string, json: unknown): Promise<T> {
+    const resp = await this.request(method, path, { json });
+    this.raiseAuth(resp);
+    if (resp.status >= 400) {
+      const body = await resp.text();
+      logger.error("paperless_tenancy_write_rejected", { method, path, status: resp.status, body });
+      throw new PaperlessRequestError(resp.status, body, resp.url);
+    }
+    const text = await resp.text();
+    return (text === "" ? {} : JSON.parse(text)) as T;
+  }
+
+  async findUserByUsername(username: string): Promise<PaperlessUser | null> {
+    const payload = await this.getJson<{ results?: PaperlessUser[] }>("/api/users/", {
+      username__iexact: username,
+    });
+    return (payload.results ?? []).find((u) => u.username === username) ?? null;
+  }
+
+  async getUser(userId: number): Promise<PaperlessUser> {
+    return this.getJson<PaperlessUser>(`/api/users/${userId}/`);
+  }
+
+  async createUser(options: {
+    username: string;
+    password: string;
+    permissions: readonly string[];
+  }): Promise<PaperlessUser> {
+    return this.sendJson<PaperlessUser>("POST", "/api/users/", {
+      username: options.username,
+      password: options.password,
+      is_active: true,
+      is_staff: false,
+      is_superuser: false,
+      user_permissions: options.permissions,
+    });
+  }
+
+  async updateUser(
+    userId: number,
+    patch: { groups?: number[]; user_permissions?: readonly string[] },
+  ): Promise<PaperlessUser> {
+    return this.sendJson<PaperlessUser>("PATCH", `/api/users/${userId}/`, patch);
+  }
+
+  async findGroupByName(name: string): Promise<PaperlessGroup | null> {
+    const payload = await this.getJson<{ results?: PaperlessGroup[] }>("/api/groups/", {
+      name__iexact: name,
+    });
+    return (payload.results ?? []).find((g) => g.name === name) ?? null;
+  }
+
+  async createGroup(name: string): Promise<PaperlessGroup> {
+    return this.sendJson<PaperlessGroup>("POST", "/api/groups/", { name, permissions: [] });
+  }
+
+  /** Owner + explicit permissions (`?full_perms=true` returns ids, not booleans). */
+  async getDocumentPermissions(docId: number): Promise<DocumentPermissions> {
+    const resp = await this.request("GET", `/api/documents/${docId}/`, {
+      params: { full_perms: true },
+    });
+    if (resp.status === 404) throw new PaperlessNotFoundError(docId);
+    this.raiseAuth(resp);
+    await this.raiseForStatus(resp);
+    const doc = (await resp.json()) as {
+      owner?: number | null;
+      permissions?: Partial<ObjectPermissions>;
+    };
+    return {
+      owner: doc.owner ?? null,
+      permissions: {
+        view: {
+          users: doc.permissions?.view?.users ?? [],
+          groups: doc.permissions?.view?.groups ?? [],
+        },
+        change: {
+          users: doc.permissions?.change?.users ?? [],
+          groups: doc.permissions?.change?.groups ?? [],
+        },
+      },
+    };
+  }
+
+  /** Replaces owner and permissions of one document (`set_permissions` is not a merge). */
+  async setDocumentPermissions(docId: number, target: DocumentPermissions): Promise<void> {
+    await this.sendJson("PATCH", `/api/documents/${docId}/`, {
+      owner: target.owner,
+      set_permissions: target.permissions,
+    });
+  }
+
+  /** The same for many documents in one call (`bulk_edit` → `set_permissions`, no merge). */
+  async bulkSetDocumentPermissions(docIds: number[], target: DocumentPermissions): Promise<void> {
+    if (docIds.length === 0) return;
+    await this.sendJson("POST", "/api/documents/bulk_edit/", {
+      documents: docIds,
+      method: "set_permissions",
+      parameters: { set_permissions: target.permissions, owner: target.owner, merge: false },
+    });
+  }
+
+  /** Every entity of a shared-vocabulary endpoint with its owner, across all pages. */
+  async listOwnedEntities(endpoint: SharedVocabularyEndpoint): Promise<OwnedEntity[]> {
+    const entities: OwnedEntity[] = [];
+    for (let page = 1; page <= MAX_NAMED_PAGES; page += 1) {
+      const payload = await this.getJson<{ results?: OwnedEntity[]; next?: string | null }>(
+        endpoint,
+        { page_size: 200, page },
+      );
+      const results = payload.results ?? [];
+      for (const e of results) entities.push({ id: e.id, name: e.name, owner: e.owner ?? null });
+      if (!payload.next || results.length === 0) break;
+    }
+    return entities;
+  }
+
+  async clearOwner(endpoint: SharedVocabularyEndpoint, id: number): Promise<void> {
+    await this.sendJson("PATCH", `${endpoint}${id}/`, { owner: null });
   }
 
   async searchDocuments(

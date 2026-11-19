@@ -554,13 +554,14 @@ export class PaperlessClient {
     if (existing !== null) return { tagId: existing, created: false };
     const body: Record<string, unknown> = { name };
     if (color) body["color"] = color;
-    const resp = await this.request("POST", "/api/tags/", { json: body });
+    const resp = await this.request("POST", "/api/tags/", { json: { ...body, owner: null } });
     if (resp.status >= 400) {
       const bodyText = await resp.text();
       logger.error("paperless_create_tag_rejected", { name, status: resp.status, body: bodyText });
       raiseForStatus(resp, bodyText);
     }
-    const created = (await resp.json()) as { id: number };
+    const created = (await resp.json()) as { id: number; owner?: number | null };
+    await this.ensureShared("/api/tags/", created);
     this.tagIdCache.delete(name);
     return { tagId: created.id, created: true };
   }
@@ -594,7 +595,7 @@ export class PaperlessClient {
     const found = data.results.find((x) => x.name === name)?.id;
     if (found !== undefined) return found;
 
-    const resp = await this.request("POST", endpoint, { json: { name } });
+    const resp = await this.request("POST", endpoint, { json: { name, owner: null } });
     if (resp.status >= 400) {
       // Most likely cause is a parallel create. Re-GET; if the row is now
       // visible, return its id and only log at info level.
@@ -611,13 +612,29 @@ export class PaperlessClient {
       logger.error("paperless_create_rejected", { endpoint, name, status: resp.status, body });
       raiseForStatus(resp, body);
     }
-    const createdBody = (await resp.json()) as { id: number };
+    const createdBody = (await resp.json()) as { id: number; owner?: number | null };
+    await this.ensureShared(endpoint, createdBody);
     // Invalidate the relevant caches so the freshly-created row is visible
     // to the next read in this process. Cheap: just drop the cache entry,
     // the next access repopulates.
     if (endpoint === "/api/tags/") this.tagIdCache.delete(name);
     this.entityNameMapCache.delete(endpoint);
     return createdBody.id;
+  }
+
+  /**
+   * Tags, correspondents and document types are one household-wide vocabulary
+   * (ADR-009): `owner = null`, visible to every Paperless user. Creates send
+   * `owner: null`; should Paperless still default the owner to the calling
+   * user, one PATCH clears it. A failed clear is logged, never fatal — the
+   * tenancy migration's metadata step reports and fixes leftovers.
+   */
+  private async ensureShared(endpoint: string, created: { id: number; owner?: number | null }): Promise<void> {
+    if (created.owner === null || created.owner === undefined) return;
+    const resp = await this.request("PATCH", `${endpoint}${created.id}/`, { json: { owner: null } });
+    if (!resp.ok) {
+      logger.warn("paperless_clear_owner_failed", { endpoint, id: created.id, status: resp.status });
+    }
   }
 
   async getTagId(name: string): Promise<number | null> {

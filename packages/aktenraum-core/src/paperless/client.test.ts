@@ -206,3 +206,51 @@ describe("getEntityNameMap", () => {
     expect(await client.getEntityNameMap("/api/tags/")).toEqual({ 1: "a", 2: "wichtig" });
   });
 });
+
+describe("shared vocabulary (owner = null on every create)", () => {
+  type Call = { method: string; path: string; body?: unknown };
+
+  function recording(createdOwner: number | null) {
+    const calls: Call[] = [];
+    const client = clientWithHandler(({ method, url, body }) => {
+      calls.push({ method, path: url.pathname, body });
+      if (method === "GET") return { status: 200, json: { results: [] } };
+      if (method === "POST") return { status: 201, json: { id: 77, name: "x", owner: createdOwner } };
+      return { status: 200, json: { id: 77, owner: null } };
+    });
+    return { client, calls };
+  }
+
+  for (const [label, create, endpoint] of [
+    ["tag", (c: PaperlessClient) => c.getOrCreateTag("Steuer"), "/api/tags/"],
+    ["correspondent", (c: PaperlessClient) => c.getOrCreateCorrespondent("Finanzamt"), "/api/correspondents/"],
+    ["document type", (c: PaperlessClient) => c.getOrCreateDocumentType("Bescheid"), "/api/document_types/"],
+    ["tag with colour (ensureTag)", (c: PaperlessClient) => c.ensureTag("wichtig", "#f59e0b"), "/api/tags/"],
+  ] as const) {
+    it(`creates a ${label} with owner: null and needs no fix-up when Paperless honours it`, async () => {
+      const { client, calls } = recording(null);
+      await create(client);
+      const post = calls.find((c) => c.method === "POST");
+      expect(post?.path).toBe(endpoint);
+      expect(post?.body).toMatchObject({ owner: null });
+      expect(calls.some((c) => c.method === "PATCH")).toBe(false);
+    });
+
+    it(`clears the owner of a new ${label} when Paperless defaulted it to the caller`, async () => {
+      const { client, calls } = recording(3);
+      await create(client);
+      expect(calls.filter((c) => c.method === "PATCH")).toEqual([
+        { method: "PATCH", path: `${endpoint}77/`, body: { owner: null } },
+      ]);
+    });
+  }
+
+  it("keeps the created id when clearing the owner fails", async () => {
+    const client = clientWithHandler(({ method }) => {
+      if (method === "GET") return { status: 200, json: { results: [] } };
+      if (method === "POST") return { status: 201, json: { id: 5, name: "x", owner: 3 } };
+      return { status: 500, json: { detail: "boom" } };
+    });
+    expect(await client.getOrCreateCorrespondent("Finanzamt")).toBe(5);
+  });
+});

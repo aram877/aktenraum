@@ -603,3 +603,128 @@ describe("swapLifecycleTag with an unknown tag", () => {
     ).resolves.toEqual([5]);
   });
 });
+
+describe("tenancy mirror requests", () => {
+  const PERMS = {
+    owner: 101,
+    permissions: { view: { users: [], groups: [501] }, change: { users: [], groups: [501] } },
+  };
+
+  it("creates a member user as a non-superuser with the given permissions", async () => {
+    const { gateway, requests } = gatewayWithHandler(() => ({
+      status: 201,
+      json: { id: 101, username: "ak-1", groups: [], user_permissions: ["view_document"], is_superuser: false },
+    }));
+    const user = await gateway.createUser({ username: "ak-1", password: "pw", permissions: ["view_document"] });
+    expect(user.id).toBe(101);
+    expect(requests[0]).toMatchObject({
+      method: "POST",
+      body: {
+        username: "ak-1",
+        password: "pw",
+        is_active: true,
+        is_staff: false,
+        is_superuser: false,
+        user_permissions: ["view_document"],
+      },
+    });
+    expect(requests[0]?.url.pathname).toBe("/api/users/");
+  });
+
+  it("finds users and groups by exact name (iexact + equality re-check)", async () => {
+    const { gateway, requests } = gatewayWithHandler(({ url }) =>
+      url.pathname === "/api/users/"
+        ? { status: 200, json: { results: [{ id: 1, username: "AK-1" }, { id: 2, username: "ak-1" }] } }
+        : { status: 200, json: { results: [{ id: 9, name: "space-1x" }] } },
+    );
+    expect((await gateway.findUserByUsername("ak-1"))?.id).toBe(2);
+    expect(await gateway.findGroupByName("space-1")).toBeNull();
+    expect(requests[0]?.url.searchParams.get("username__iexact")).toBe("ak-1");
+    expect(requests[1]?.url.searchParams.get("name__iexact")).toBe("space-1");
+  });
+
+  it("reads document permissions with full_perms and fills missing parts", async () => {
+    const { gateway, requests } = gatewayWithHandler(() => ({
+      status: 200,
+      json: { id: 5, owner: 3, permissions: { view: { users: [7], groups: [] } } },
+    }));
+    expect(await gateway.getDocumentPermissions(5)).toEqual({
+      owner: 3,
+      permissions: { view: { users: [7], groups: [] }, change: { users: [], groups: [] } },
+    });
+    expect(requests[0]?.url.searchParams.get("full_perms")).toBe("true");
+  });
+
+  it("writes owner + set_permissions for one document and in bulk (no merge)", async () => {
+    const { gateway, requests } = gatewayWithHandler(() => ({ status: 200, json: {} }));
+    await gateway.setDocumentPermissions(5, PERMS);
+    await gateway.bulkSetDocumentPermissions([5, 6], PERMS);
+    await gateway.bulkSetDocumentPermissions([], PERMS);
+    expect(requests).toHaveLength(2);
+    expect(requests[0]).toMatchObject({
+      method: "PATCH",
+      body: { owner: 101, set_permissions: PERMS.permissions },
+    });
+    expect(requests[0]?.url.pathname).toBe("/api/documents/5/");
+    expect(requests[1]).toMatchObject({
+      method: "POST",
+      body: {
+        documents: [5, 6],
+        method: "set_permissions",
+        parameters: { set_permissions: PERMS.permissions, owner: 101, merge: false },
+      },
+    });
+    expect(requests[1]?.url.pathname).toBe("/api/documents/bulk_edit/");
+  });
+
+  it("surfaces a rejected permission write as an error", async () => {
+    const { gateway } = gatewayWithHandler(() => ({ status: 400, text: "bad" }));
+    await expect(gateway.setDocumentPermissions(5, PERMS)).rejects.toThrow();
+  });
+
+  it("lists owned vocabulary across pages and clears an owner", async () => {
+    const { gateway, requests } = gatewayWithHandler(({ method, url }) => {
+      if (method === "PATCH") return { status: 200, json: { id: 2, owner: null } };
+      return url.searchParams.get("page") === "1"
+        ? { status: 200, json: { results: [{ id: 1, name: "a", owner: 3 }], next: "p2" } }
+        : { status: 200, json: { results: [{ id: 2, name: "b" }], next: null } };
+    });
+    expect(await gateway.listOwnedEntities("/api/correspondents/")).toEqual([
+      { id: 1, name: "a", owner: 3 },
+      { id: 2, name: "b", owner: null },
+    ]);
+    await gateway.clearOwner("/api/correspondents/", 2);
+    expect(requests.at(-1)).toMatchObject({ method: "PATCH", body: { owner: null } });
+    expect(requests.at(-1)?.url.pathname).toBe("/api/correspondents/2/");
+  });
+});
+
+describe("ensureTag creates shared vocabulary", () => {
+  function server(createdOwner: number | null) {
+    return gatewayWithHandler(({ method, url }) => {
+      if (method === "GET" && url.pathname === "/api/tags/") {
+        return url.searchParams.has("name__iexact")
+          ? { status: 200, json: { results: [] } }
+          : { status: 200, json: TAGS_PAGE };
+      }
+      if (method === "POST") return { status: 201, json: { id: 77, owner: createdOwner } };
+      if (method === "PATCH") return { status: 200, json: { id: 77, owner: null } };
+      return { status: 500 };
+    });
+  }
+
+  it("sends owner: null and needs no fix-up when Paperless honours it", async () => {
+    const { gateway, requests } = server(null);
+    expect(await gateway.ensureTag("neu")).toBe(77);
+    expect(requests.find((r) => r.method === "POST")?.body).toEqual({ name: "neu", owner: null });
+    expect(requests.some((r) => r.method === "PATCH")).toBe(false);
+  });
+
+  it("clears an owner Paperless defaulted to the service user", async () => {
+    const { gateway, requests } = server(3);
+    expect(await gateway.ensureTag("neu")).toBe(77);
+    const patch = requests.find((r) => r.method === "PATCH");
+    expect(patch?.url.pathname).toBe("/api/tags/77/");
+    expect(patch?.body).toEqual({ owner: null });
+  });
+});

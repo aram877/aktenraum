@@ -41,7 +41,10 @@ bash scripts/bootstrap-secrets.sh
 
 **Expected:** either `All secrets already populated` or a list of generated /
 carried-over values (e.g. `Qdrant API key: generated ✓`,
+`aktenraum-api token encryption key: generated ✓`,
 `RESTIC_PASSWORD ← backup.env`). Existing values are never changed.
+Since the household-members upgrade the api refuses to start without
+`AKTENRAUM_SECRET_KEY`; this step adds it.
 
 **If it fails** with `RESTIC_PASSWORD is missing … a restic repository already
 exists`: the backup passphrase is not in `docker/.env` or in any old

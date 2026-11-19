@@ -27,9 +27,9 @@
 
 ## 5. Docs + verify
 
-- [ ] 5.1 ADR-010 amendment (interim password invites), CLAUDE.md (gateway rule, secret, invites, gotchas, counts), upgrade runbook (new secret → `task build`), configuration.md, api-reference.md, session note
-- [ ] 5.2 `pnpm -r lint`, `pnpm -r build`, api + web typecheck, `pnpm -r test`
-- [ ] 5.3 e2e stack: `bash scripts/e2e-worker.sh` still 20/20; invite + redeem a second member against the real Paperless and check isolation both ways through the api
+- [x] 5.1 ADR-010 amendment (interim password invites), CLAUDE.md (gateway rule, secret, invites, gotchas, counts), upgrade runbook (new secret → `task build`), configuration.md, api-reference.md, session note
+- [x] 5.2 `pnpm -r lint`, `pnpm -r build`, api + web typecheck, `pnpm -r test`
+- [x] 5.3 e2e stack: `bash scripts/e2e-worker.sh` still 20/20; invite + redeem a second member against the real Paperless and check isolation both ways through the api
 
 ## 6. Live (maintainer present, explicit OK per step)
 

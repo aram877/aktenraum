@@ -230,6 +230,7 @@ Validated in [`services/aktenraum-api/src/config/settings.ts`](../services/akten
 | Var | Template | Code default | Purpose |
 |---|---|---|---|
 | `JWT_SECRET` | empty (**required**, generated) | none (**required**) | HS256 signing key. Missing or empty aborts startup. |
+| `AKTENRAUM_SECRET_KEY` | empty (**required**, generated) | none (**required**) | 32 random bytes, base64 (`openssl rand -base64 32`; `bootstrap-secrets.sh` fills it). Encrypts the members' Paperless API tokens at rest (AES-256-GCM). Missing or not 32 bytes aborts startup. Changing it is harmless — the tokens are re-minted on next use. |
 | `JWT_EXPIRES_SECONDS` | `28800` | `28800` (min 60) | Session lifetime (8 h). |
 | `BOOTSTRAP_USERNAME` | `admin` | empty | First-run user, inserted only while the `users` table is empty. |
 | `BOOTSTRAP_PASSWORD` | empty (**required**, generated) | empty | Password for that user. |

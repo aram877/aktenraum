@@ -40,6 +40,28 @@ schema files listed under "Shape references" are the source of truth.**
 
 ---
 
+## Household — `/api/household/*` and `/api/invites/*`
+
+Household admin only (`household:admin`), session cookie:
+
+| Method | Path | Result |
+| --- | --- | --- |
+| GET | `/api/household/members` | `[{id, username, role: "admin"\|"member", joined_at}]` |
+| GET | `/api/household/invites` | pending invites `[{id, created_at, expires_at}]` |
+| POST | `/api/household/invites` | `201 {id, token, expires_at}` — the token is shown only here; the SPA turns it into `<origin>/invite/<token>` |
+| DELETE | `/api/household/invites/{id}` | `204`; `404` when not pending |
+
+Public (no session; throttled per client address, 10 failures / 15 min → `429` + `Retry-After`):
+
+| Method | Path | Result |
+| --- | --- | --- |
+| GET | `/api/invites/{token}` | `{expires_at}`; **every** invalid state (unknown, expired, revoked, used) → `404 {"detail": "Einladung ungültig oder abgelaufen"}` |
+| POST | `/api/invites/{token}/redeem` | body `{username (3–64, letters/digits/._-), password (≥ 8)}` → `200 {username}` + session cookie; `409` username taken (invite stays valid); `404` as above |
+
+`GET /api/auth/me` returns `{username, household_role}`.
+
+**Member scoping**: every member-facing endpoint below reaches Paperless with the calling member's own Paperless token, so lists, counts and by-id access only cover documents that member may see; another member's document answers `404`. Exceptions: worker-only internal routes, and `/api/ingest/activity` for the household admin (household-wide imports).
+
 ## AI features — `/api/ai/*`
 
 When `PAPERLESS_API_TOKEN` is unset, every route here returns 503.

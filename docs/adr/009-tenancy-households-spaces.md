@@ -140,6 +140,17 @@ Steps 5's "new documents with the target member as owner" is done by the worker,
 
 Rehearsal on the e2e stack (2026-11-19, Paperless 2.20.15): worker e2e 20/20 on the new code; seeded pre-tenancy shape (210 tags, owned + ownerless documents) → dry run matched the plan and wrote nothing, a run without a backup was refused, the real run verified 6/6 through `ak-1`'s own token, a re-run had nothing to do; the permission spikes gave the same results as before. Observed on the real API: a POST without `owner` makes the caller the owner, a POST with `owner: null` keeps it null; `full_perms` + `fields` and `bulk_edit` with `owner` both work.
 
+#### As built (`tenancy-shared-spaces`, 2026-11-19) — live deploy pending
+
+- **Single owner per shared space** (maintainer decision): the creator is the one `owner` row, never added or removed through the API; handing ownership over and several owners are deferred. Only the owner manages members, deletes documents and moves them out. A shared space is deleted only when no `document_spaces` row points at it (trashed documents keep theirs; a hard delete drops it).
+- **Two Paperless groups per shared space**: writer `space-<id>` (owner + editors, view + change) and viewer `space-<id>-view` (viewers, view only; id in `space_paperless_groups`). Shared documents get `view = [writer, viewer]`, `change = [writer]`, owner = the space owner. Membership changes only edit users' `groups` (`syncSpaceMembership` / `removeFromSpaceGroups`), so no document is rewritten and revocation is immediate. Personal spaces keep the one-group target, so nothing on an existing install changes at deploy.
+- **Moves** (`owner` of the source, `owner`/`editor` of the target): conditional `document_spaces` update → mirror with the service gateway → Qdrant `setSpaceByDocId`, undone on failure (502); the worker's startup reconcile re-sets chunk spaces that disagree with `document_spaces` in case the undo failed too.
+- **Upload picker**: `space_id` is checked before upload, recorded in `upload_task_spaces` and used by the home-space assignment while the uploader is still owner/editor there (else personal space). Mail and consume-folder imports still land in the household admin's personal space.
+- **Review inbox** skips documents of spaces where the member is only a viewer.
+- **`id__in`** (library `?space=`): measured on Paperless 2.20.15 — 8,000 ids (~56k chars) fine, 16,000 (~112k chars) → 414. The api sends up to 1,000 ids per request and chunks above that.
+- The SPA shows every space feature (nav "Akten", upload picker, library column/filter/bulk move, "Verschieben") only once `household_member_count ≥ 2`.
+- Rehearsed on the e2e stack (Paperless 2.20.15): worker e2e 20/20; shared-space flow 29/29 (invite, viewer can't upload, upload into the space, viewer reads through their own token but can't edit, inbox excludes it, Paperless permissions, move in/out, editor edits but can't delete, removal → 404, delete only when empty).
+
 ### Spike results (2026-11-19)
 
 Run against the throwaway e2e Paperless (2.20.15, project `aktenraum-e2e`), never the live stack. Scripts: `scripts/spikes/paperless-perm-spike.mjs` (38 checks) and `scripts/spikes/paperless-perm-spike-2.mjs` (metadata/count/task follow-up). Re-run after every Paperless upgrade.

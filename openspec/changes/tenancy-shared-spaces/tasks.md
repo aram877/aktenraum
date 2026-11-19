@@ -18,7 +18,7 @@
 
 - [x] 3.1 Upload `space_id` (validated before sending, 403), `upload_task_spaces`; `HomeSpaceService` uses it, falls back to personal when revoked; tests
 - [x] 3.2 Library rows + detail payloads carry `home_space`; `?space=` filter (member's spaces only)
-- [ ] 3.3 Measure the `id__in` request-line limit on the e2e Paperless; implement the chunked fallback above the threshold; tests
+- [x] 3.3 Measure the `id__in` request-line limit on the e2e Paperless; implement the chunked fallback above the threshold; tests
 - [x] 3.4 Inbox list + live-counts inbox number exclude viewer-space documents; tests (viewer, editor, single member unchanged)
 
 ## 4. Web
@@ -32,5 +32,5 @@
 
 ## 5. Docs + verify
 
-- [ ] 5.1 Worker e2e (`bash scripts/e2e-worker.sh`) + a shared-space rehearsal on the e2e stack (create space, add viewer, upload into it, move in/out, isolation through both members' tokens)
-- [ ] 5.2 ADR-009 "as built" note, CLAUDE.md (spaces, gotchas, counts), api-reference.md, session note
+- [x] 5.1 Worker e2e (`bash scripts/e2e-worker.sh`) + a shared-space rehearsal on the e2e stack (create space, add viewer, upload into it, move in/out, isolation through both members' tokens)
+- [x] 5.2 ADR-009 "as built" note, CLAUDE.md (spaces, gotchas, counts), api-reference.md, session note

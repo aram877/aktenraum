@@ -60,6 +60,26 @@ Public (no session; throttled per client address, 10 failures / 15 min → `429`
 
 `GET /api/auth/me` returns `{username, household_role}`.
 
+Any member (`spaces:manage`): `GET /api/household/directory` → `[{id, username}]` — member ids for the space member picker, nothing else.
+
+## Spaces ("Akten") — `/api/spaces/*`
+
+Every member (`spaces:manage`). A space the caller isn't in answers `404`; personal spaces refuse rename, delete and membership edits with `409`; owner-only actions by an editor/viewer answer `403`. Paperless failures during a membership change are undone and answer `502`.
+
+| Method | Path | Result |
+| --- | --- | --- |
+| GET | `/api/spaces` | `{household_member_count, spaces: [{id, name, kind: "personal"\|"shared", role: "owner"\|"editor"\|"viewer", owner, member_count, document_count}]}` — the caller's spaces |
+| POST | `/api/spaces` | body `{name (1–128)}` → `201` space; the caller is its only owner; `409` when a shared space of that name already exists among the caller's |
+| PATCH | `/api/spaces/{id}` | `{name}` → `204` (owner) |
+| DELETE | `/api/spaces/{id}` | `204` (owner); `409` while any document — trashed ones included — still has it as home space |
+| GET | `/api/spaces/{id}/members` | `[{member_id, username, role}]` (any member of the space) |
+| POST | `/api/spaces/{id}/members` | `{member_id, role: "editor"\|"viewer"}` → `201` (owner); `409` already a member; `404` unknown member |
+| PATCH | `/api/spaces/{id}/members/{member_id}` | `{role}` → `200` (owner); the owner's own role → `409` |
+| DELETE | `/api/spaces/{id}/members/{member_id}` | `204` — the owner removes someone, or a non-owner removes themselves (leave); the owner can't leave (`409`) |
+| POST | `/api/spaces/{id}/documents` | bulk move into the space: `{doc_ids: [1..200 ids]}` → `200 {results: [{doc_id, status: "moved"\|"unchanged"\|"forbidden"\|"not_found"\|"failed", detail?}]}`; a document the caller can't read is `not_found` |
+
+`POST /api/documents/{doc_id}/move` `{space_id}` → `200 {doc_id, status: "moved"|"unchanged"}`. Needs `owner` of the document's current space (`403` otherwise; `404` when the caller can't read it) and `owner`/`editor` of the target (`403` for a viewer, `404` for a space the caller isn't in). A move rewrites the home space, the Paperless owner + permissions and the Qdrant `space_id` together; any failure restores the original space and answers `502`.
+
 **Member scoping**: every member-facing endpoint below reaches Paperless with the calling member's own Paperless token, so lists, counts and by-id access only cover documents that member may see; another member's document answers `404`. Exceptions: worker-only internal routes, and `/api/ingest/activity` for the household admin (household-wide imports).
 
 ## AI features — `/api/ai/*`
@@ -164,7 +184,7 @@ double-downloading.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| POST | `/api/documents/upload` | 🔒 | Multipart `files` (one or many). Streams each through to Paperless's `/api/documents/post_document/`. Per-file failure is isolated. Returns `{results: [{filename, status, task_id, detail}]}`. |
+| POST | `/api/documents/upload` | 🔒 | Multipart `files` (one or many), optional `space_id` (target space — `owner`/`editor` only, else `403` before anything reaches Paperless; absent = personal space). Streams each through to Paperless's `/api/documents/post_document/`. Per-file failure is isolated. Returns `{results: [{filename, status, task_id, detail}]}`. |
 | POST | `/api/documents/reprocess-failed` | 🔒 | Reprocesses every document in the error state (same semantics as single reprocess), sequentially, up to 200 per call. Per-document failures are collected, not fatal. Returns `{requested, reprocessed, failed: [{doc_id, detail}], remaining}`. |
 | POST | `/api/documents/{id}/reprocess` | 🔒 | Clears every lifecycle tag and pings the auto-tagger webhook. Falls back to the 30s poller if the webhook is unreachable. Returns `ReprocessResponse`. |
 | GET  | `/api/documents/{id}/detail` | 🔒 | Full review payload (same shape as `/api/inbox/{id}`) — works on any doc, not just `ai-pending`. |
@@ -190,7 +210,7 @@ view in the SPA uses these.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| GET  | `/api/inbox/` | 🔒 | Paginated list of `ai-pending` docs. Query: `page`, `page_size` (default 20, max 100), `ordering` (allowlisted, default `-modified`; unknown values fall back to the default). |
+| GET  | `/api/inbox/` | 🔒 | Paginated list of `ai-pending` docs — only from spaces where the caller is `owner` or `editor` (viewers see pending documents in the library only; the live-counts inbox number follows the same rule). Query: `page`, `page_size` (default 20, max 100), `ordering` (allowlisted, default `-modified`; unknown values fall back to the default). |
 | GET  | `/api/inbox/{id}` | 🔒 | Full review payload (12 `ai_*` fields + content excerpt + tags). |
 | PATCH | `/api/inbox/{id}` | 🔒 | Partial field update (`InboxFieldUpdate`). |
 | POST | `/api/inbox/{id}/approve` | 🔒 | Optional body to patch fields in the same call. Tag swap `ai-pending` → `ai-approved`. Idempotent re-approve is a no-op. |
@@ -221,6 +241,7 @@ gotcha and is handled by `mergeCustomFields`.
 | `date_from` / `date_to` | date | ISO YYYY-MM-DD. |
 | `text` | string | Full-text content search. |
 | `tags` | string[] | AND semantics. |
+| `space` | int | Home space id; only the caller's spaces (`403` otherwise). Sent to Paperless as `id__in`; above 1,000 ids the api queries in chunks and merges. Disables the page-1 in-flight pin. |
 | `status` | enum | Processing state: `error` (any of `ai-error` / `ai-propagation-error` / `ai-index-error`), `unprocessed` (no lifecycle tag), `approved`, `done` (`ai-propagated`), `rejected`. Other values → 422. A status whose tag does not exist yet returns an empty page. Disables the page-1 in-flight pin. |
 | `page` | int ≥ 1 | |
 | `page_size` | int 1..100 | Default 25. |
@@ -228,7 +249,7 @@ gotcha and is handled by `mergeCustomFields`.
 
 Returns `{results: LibraryItem[], total, page, page_size}`. `LibraryItem`
 carries `lifecycle_tags` (small badge per tag — propagated / approved /
-rejected / error) and falls back to AI custom fields when the native
+rejected / error) and `home_space {id, name, kind}` (null while unassigned), and falls back to AI custom fields when the native
 correspondent / doc_type FK is unset.
 
 ---

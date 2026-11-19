@@ -40,7 +40,17 @@ trap record_run EXIT
 # --------------------------------------------------------------------------
 # Init repo if needed
 # --------------------------------------------------------------------------
-if ! restic snapshots &>/dev/null; then
+if ! snapshots_error="$(restic snapshots --no-lock 2>&1 >/dev/null)"; then
+    # A repo that exists but cannot be opened (wrong RESTIC_PASSWORD, damaged
+    # key, permissions) used to be reported as "no restic repository" — which
+    # sends the operator looking for a missing folder instead of a bad password.
+    if [ -f "${RESTIC_REPOSITORY}/config" ]; then
+        log "ERROR: the restic repository at ${RESTIC_REPOSITORY} exists but cannot be opened:"
+        log "  ${snapshots_error}"
+        log "Most likely RESTIC_PASSWORD in docker/.env is not the password this repository"
+        log "was created with. Do NOT re-initialise: that would abandon every existing snapshot."
+        exit 1
+    fi
     if [ "${BACKUP_AUTO_INIT:-false}" = "true" ]; then
         log "No repository at ${RESTIC_REPOSITORY} — BACKUP_AUTO_INIT=true, initialising..."
         restic init

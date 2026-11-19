@@ -38,10 +38,10 @@
 
 ## 6. Migration tool
 
-- [ ] 6.1 `tenancy/migrate.ts` (`dist/tenancy/migrate.js`), steps 1–7 from the design, `--dry-run`, resumable, structured log per step
-- [ ] 6.2 Backup gate (backup status file, all three tags < 2 h; `--i-have-a-backup` override)
-- [ ] 6.3 `scripts/migrate-tenancy.sh` (Git Bash path handling as in `backfill-rag-index.sh`)
-- [ ] 6.4 Tests: dry run writes nothing, re-run is a no-op, gate refuses, drift report
+- [x] 6.1 `tenancy/migrate.ts` (`dist/tenancy/migrate.js`), steps 1–7 from the design, `--dry-run`, resumable, structured log per step
+- [x] 6.2 Backup gate (backup status file, all three tags < 2 h; `--i-have-a-backup` override)
+- [x] 6.3 `scripts/migrate-tenancy.sh` (Git Bash path handling as in `backfill-rag-index.sh`)
+- [x] 6.4 Tests: dry run writes nothing, re-run is a no-op, gate refuses, drift report
 
 ## 7. Rehearsal on the e2e stack
 

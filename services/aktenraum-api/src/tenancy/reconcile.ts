@@ -27,7 +27,11 @@ export interface TenancyReconcileReport {
  * resumes cleanly after a crash halfway through. It never deletes or demotes.
  * The migration CLI (§6) runs the same function as its first step.
  */
-export async function reconcileTenancy(db: Database): Promise<TenancyReconcileReport> {
+export async function reconcileTenancy(
+  db: Database,
+  options: { dryRun?: boolean } = {},
+): Promise<TenancyReconcileReport> {
+  const dryRun = options.dryRun === true;
   const report: TenancyReconcileReport = {
     householdId: 0,
     householdCreated: false,
@@ -42,7 +46,10 @@ export async function reconcileTenancy(db: Database): Promise<TenancyReconcileRe
     .orderBy(asc(households.id))
     .limit(1);
   let householdId = existingHousehold[0]?.id;
-  if (householdId === undefined) {
+  if (householdId === undefined && dryRun) {
+    householdId = -1;
+    report.householdCreated = true;
+  } else if (householdId === undefined) {
     const inserted = await db
       .insert(households)
       .values({ name: DEFAULT_HOUSEHOLD_NAME })
@@ -67,6 +74,12 @@ export async function reconcileTenancy(db: Database): Promise<TenancyReconcileRe
   for (const user of allUsers) {
     if (memberByUser.has(user.id)) continue;
     const role = hasAdmin ? "member" : "admin";
+    if (dryRun) {
+      memberByUser.set(user.id, -user.id);
+      hasAdmin = true;
+      report.membersCreated += 1;
+      continue;
+    }
     const inserted = await db
       .insert(members)
       .values({ householdId, userId: user.id, role })
@@ -89,6 +102,10 @@ export async function reconcileTenancy(db: Database): Promise<TenancyReconcileRe
 
   for (const memberId of memberByUser.values()) {
     let spaceId = spaceByMember.get(memberId);
+    if (spaceId === undefined && dryRun) {
+      report.personalSpacesCreated += 1;
+      continue;
+    }
     if (spaceId === undefined) {
       const inserted = await db
         .insert(spaces)
@@ -98,7 +115,7 @@ export async function reconcileTenancy(db: Database): Promise<TenancyReconcileRe
       report.personalSpacesCreated += 1;
     }
     if (!ownerKeys.has(`${spaceId}:${memberId}`)) {
-      await db.insert(spaceMembers).values({ spaceId, memberId, role: "owner" });
+      if (!dryRun) await db.insert(spaceMembers).values({ spaceId, memberId, role: "owner" });
       // A brand-new space always needs its owner row; only count real repairs.
       if (spaceByMember.has(memberId)) report.spaceOwnersRepaired += 1;
     }

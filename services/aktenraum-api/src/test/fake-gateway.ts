@@ -336,6 +336,30 @@ export class FakeGateway {
     this.tenancyWrites.push({ op: "clearOwner", target: `${endpoint}${id}` });
   };
 
+  /** Last password set per user id (the fake's "login" checks it). */
+  readonly passwords = new Map<number, string>();
+
+  listDocumentPermissions = async (): Promise<Map<number, DocumentPermissions>> => {
+    const out = new Map<number, DocumentPermissions>();
+    for (const id of [...this.docs.keys()].sort((a, b) => a - b)) {
+      out.set(id, await this.getDocumentPermissions(id));
+    }
+    return out;
+  };
+
+  setUserPassword = async (userId: number, password: string): Promise<void> => {
+    this.user(userId);
+    this.passwords.set(userId, password);
+  };
+
+  countDocumentsVisibleTo = async (username: string, password: string): Promise<number> => {
+    const user = await this.findUserByUsername(username);
+    if (user === null || this.passwords.get(user.id) !== password) {
+      throw new Error("fake paperless: invalid credentials");
+    }
+    return this.visibleTo(user.id).length;
+  };
+
   /** Documents a Paperless user can list: owner, or view via user/group grant. */
   visibleTo = (userId: number): number[] => {
     const user = this.user(userId);

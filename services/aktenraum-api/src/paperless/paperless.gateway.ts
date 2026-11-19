@@ -757,6 +757,68 @@ export class PaperlessGateway {
     await this.sendJson("PATCH", `${endpoint}${id}/`, { owner: null });
   }
 
+  /** Owner + explicit permissions of EVERY document, 100 per request. */
+  async listDocumentPermissions(): Promise<Map<number, DocumentPermissions>> {
+    const out = new Map<number, DocumentPermissions>();
+    for (let page = 1; page <= 1000; page += 1) {
+      const payload = await this.getJson<{
+        results?: { id: number; owner?: number | null; permissions?: Partial<ObjectPermissions> }[];
+        next?: string | null;
+      }>("/api/documents/", {
+        full_perms: true,
+        fields: "id,owner,permissions",
+        ordering: "id",
+        page_size: 100,
+        page,
+      });
+      const results = payload.results ?? [];
+      for (const doc of results) {
+        out.set(doc.id, {
+          owner: doc.owner ?? null,
+          permissions: {
+            view: {
+              users: doc.permissions?.view?.users ?? [],
+              groups: doc.permissions?.view?.groups ?? [],
+            },
+            change: {
+              users: doc.permissions?.change?.users ?? [],
+              groups: doc.permissions?.change?.groups ?? [],
+            },
+          },
+        });
+      }
+      if (!payload.next || results.length === 0) break;
+    }
+    return out;
+  }
+
+  async setUserPassword(userId: number, password: string): Promise<void> {
+    await this.sendJson("PATCH", `/api/users/${userId}/`, { password });
+  }
+
+  /**
+   * How many documents a given Paperless user can list — logs in as that user
+   * (`POST /api/token/`), so it checks Paperless's own permission enforcement.
+   */
+  async countDocumentsVisibleTo(username: string, password: string): Promise<number> {
+    const tokenResp = await this.fetchFn(this.buildUrl("/api/token/"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    if (tokenResp.status >= 400) {
+      throw new PaperlessRequestError(tokenResp.status, await tokenResp.text(), tokenResp.url);
+    }
+    const { token } = (await tokenResp.json()) as { token: string };
+    const listResp = await this.fetchFn(this.buildUrl("/api/documents/", { page_size: 1 }), {
+      headers: { Authorization: `Token ${token}` },
+    });
+    if (listResp.status >= 400) {
+      throw new PaperlessRequestError(listResp.status, await listResp.text(), listResp.url);
+    }
+    return Number(((await listResp.json()) as { count?: number }).count ?? 0);
+  }
+
   async searchDocuments(
     params: QueryParams,
     options: { pageSize?: number } = {},

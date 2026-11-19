@@ -311,6 +311,21 @@ export class QdrantVectorStore {
   }
 
   /**
+   * How many chunks of `docId` do not (yet) carry `spaceId` — lets the
+   * tenancy backfill skip documents that are already done.
+   */
+  async countChunksOutsideSpace(docId: number, spaceId: number): Promise<number> {
+    const result = await this.client.count(this.collectionName, {
+      filter: {
+        must: [{ key: "doc_id", match: { value: docId } }],
+        must_not: [{ key: "space_id", match: { value: spaceId } }],
+      },
+      exact: true,
+    });
+    return result.count;
+  }
+
+  /**
    * Nearest-neighbour search with optional payload filtering. `topK=50` is
    * the recommended fan-out before reranker — higher than the answer LLM
    * ever sees, but the reranker re-ranks cheaply enough that a wide first

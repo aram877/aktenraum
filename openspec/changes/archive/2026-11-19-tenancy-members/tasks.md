@@ -33,6 +33,6 @@
 
 ## 6. Live (maintainer present, explicit OK per step)
 
-- [ ] 6.1 `bootstrap-secrets.sh` (adds the key), backup snapshot, `task build`
-- [ ] 6.2 Admin's library unchanged (count = 257 + new); invite a test member, redeem in a private window, check isolation both ways in the browser
-- [ ] 6.3 Remove the test member's access by hand if wanted (no removal flow yet — documented)
+- [x] 6.1 `bootstrap-secrets.sh` (adds the key), backup snapshot, `task build`
+- [x] 6.2 Admin's library unchanged (count = 257 + new); invite a test member, redeem in a private window, check isolation both ways in the browser — maintainer confirmed library + Mitglieder; no test member created (invite the real person directly)
+- [x] 6.3 Remove the test member's access by hand if wanted (no removal flow yet — documented) — not needed: no test member was created

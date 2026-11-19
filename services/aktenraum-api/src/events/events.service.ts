@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
+import { MemberGateways } from "../tenancy/member-gateways.js";
+import type { Principal } from "../auth/principal.js";
 
-import { PaperlessGatewayProvider } from "../paperless/paperless.module.js";
 import { errorTagIds } from "../paperless/status-tags.js";
 
 export interface LiveCounts {
@@ -22,15 +23,17 @@ function countOf(payload: Record<string, unknown>): number {
 
 @Injectable()
 export class EventsService {
-  constructor(private readonly gatewayProvider: PaperlessGatewayProvider) {}
+  constructor(
+    private readonly gateways: MemberGateways,
+  ) {}
 
   /**
    * One pass: inbox + in-flight + trash + error counts. All queries run
    * concurrently so the poll cadence is bounded by the slowest single
    * request rather than their sum.
    */
-  async computeCounts(): Promise<LiveCounts> {
-    const gateway = this.gatewayProvider.require();
+  async computeCounts(principal: Principal): Promise<LiveCounts> {
+    const gateway = await this.gateways.forPrincipal(principal);
     const tags = await gateway.listTags();
     const pendingId = tags[PENDING_TAG];
     const flightIds = IN_FLIGHT_TAGS.map((name) => tags[name]).filter(

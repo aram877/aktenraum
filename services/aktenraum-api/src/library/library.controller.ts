@@ -8,7 +8,7 @@ import {
 } from "@nestjs/common";
 
 import { AuthGuard } from "../auth/auth.guard.js";
-import { RequireScope } from "../auth/principal.js";
+import { RequireScope, CurrentPrincipal, type Principal } from "../auth/principal.js";
 import { isLibraryStatus, LIBRARY_STATUSES } from "../paperless/status-tags.js";
 import type { LibraryList, TagFacetList } from "./library.schemas.js";
 import { LibraryService } from "./library.service.js";
@@ -54,6 +54,7 @@ export class LibraryController {
   @Get()
   @RequireScope("documents:read")
   listLibrary(
+    @CurrentPrincipal() principal: Principal,
     @Query("document_type") documentType?: string,
     @Query("correspondent") correspondent?: string,
     @Query("date_from") dateFrom?: string,
@@ -79,7 +80,7 @@ export class LibraryController {
         HttpStatus.UNPROCESSABLE_ENTITY,
       );
     }
-    return this.libraryService.listLibrary({
+    return this.libraryService.listLibrary(principal, {
       documentType,
       correspondent,
       dateFrom: optionalDate(dateFrom),
@@ -95,13 +96,13 @@ export class LibraryController {
 
   @Get("tags")
   @RequireScope("documents:read")
-  listTagFacet(): Promise<TagFacetList> {
-    return this.libraryService.listTagFacet();
+  listTagFacet(@CurrentPrincipal() principal: Principal): Promise<TagFacetList> {
+    return this.libraryService.listTagFacet(principal);
   }
 
   @Get("types")
   @RequireScope("documents:read")
-  listTypeFacet(): Promise<TagFacetList> {
-    return this.libraryService.listTypeFacet();
+  listTypeFacet(@CurrentPrincipal() principal: Principal): Promise<TagFacetList> {
+    return this.libraryService.listTypeFacet(principal);
   }
 }

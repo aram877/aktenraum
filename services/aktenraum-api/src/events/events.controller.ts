@@ -3,7 +3,7 @@ import { Controller, Get, Res, UseGuards } from "@nestjs/common";
 import type { Response } from "express";
 
 import { AuthGuard } from "../auth/auth.guard.js";
-import { RequireScope } from "../auth/principal.js";
+import { RequireScope, CurrentPrincipal, type Principal } from "../auth/principal.js";
 import { PaperlessAuthError } from "../paperless/errors.js";
 import { EventsService, type LiveCounts } from "./events.service.js";
 
@@ -41,7 +41,7 @@ export class EventsController {
   @Get("counts")
   @RequireScope("documents:read")
   @UseGuards(AuthGuard)
-  async streamCounts(@Res() response: Response): Promise<void> {
+  async streamCounts(@CurrentPrincipal() principal: Principal, @Res() response: Response): Promise<void> {
     response.setHeader("Content-Type", "text/event-stream");
     response.setHeader("Cache-Control", "no-cache");
     response.setHeader("Connection", "keep-alive");
@@ -58,7 +58,7 @@ export class EventsController {
 
     while (!closed) {
       try {
-        const counts = await this.eventsService.computeCounts();
+        const counts = await this.eventsService.computeCounts(principal);
         const now = Date.now();
         if (!sameCounts(last, counts) || now - lastEmit >= HEARTBEAT_MS) {
           response.write(`data: ${JSON.stringify(counts)}\n\n`);

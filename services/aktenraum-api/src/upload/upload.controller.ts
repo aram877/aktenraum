@@ -15,6 +15,7 @@ import {
   UseInterceptors,
 } from "@nestjs/common";
 import { FilesInterceptor } from "@nestjs/platform-express";
+import { MemberGateways } from "../tenancy/member-gateways.js";
 
 import { AuthGuard } from "../auth/auth.guard.js";
 import {
@@ -24,7 +25,6 @@ import {
   type Principal,
 } from "../auth/principal.js";
 import { SETTINGS, type Settings } from "../config/settings.js";
-import { PaperlessGatewayProvider } from "../paperless/paperless.module.js";
 import { UploadService, type IncomingFile, type UploadResponse } from "./upload.service.js";
 
 const MAX_FILES_HARD_CAP = 100;
@@ -34,7 +34,7 @@ const MAX_FILES_HARD_CAP = 100;
 export class UploadController {
   constructor(
     private readonly uploadService: UploadService,
-    private readonly gatewayProvider: PaperlessGatewayProvider,
+    private readonly gateways: MemberGateways,
     @Inject(SETTINGS) private readonly settings: Settings,
   ) {}
 
@@ -56,15 +56,17 @@ export class UploadController {
         HttpStatus.PAYLOAD_TOO_LARGE,
       );
     }
-    const memberId = principal.kind === "member" ? principal.memberId : null;
-    return this.uploadService.uploadAll(files, title, memberId);
+    return this.uploadService.uploadAll(principal, files, title);
   }
 
   @Delete(":doc_id")
   @RequireScope("documents:delete")
   @DocumentAccess("delete")
   @HttpCode(HttpStatus.NO_CONTENT)
-  async deleteDocument(@Param("doc_id", ParseIntPipe) docId: number): Promise<void> {
-    await this.gatewayProvider.require().deleteDocument(docId);
+  async deleteDocument(
+    @CurrentPrincipal() principal: Principal,
+    @Param("doc_id", ParseIntPipe) docId: number,
+  ): Promise<void> {
+    await (await this.gateways.forPrincipal(principal)).deleteDocument(docId);
   }
 }

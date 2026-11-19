@@ -1,8 +1,9 @@
 import { Injectable } from "@nestjs/common";
+import { MemberGateways } from "../tenancy/member-gateways.js";
+import type { Principal } from "../auth/principal.js";
 
 import { AutoTaggerClient } from "../auto-tagger/auto-tagger.client.js";
 import type { CustomFieldEntry, PaperlessDocument, PaperlessGateway } from "../paperless/paperless.gateway.js";
-import { PaperlessGatewayProvider } from "../paperless/paperless.module.js";
 import { collectTagIds } from "../paperless/tag-ids.js";
 import { TenancyService } from "../tenancy/tenancy.service.js";
 import { TypeFieldsService } from "../type-fields/type-fields.service.js";
@@ -56,14 +57,15 @@ function asNumber(value: unknown): number | null {
 @Injectable()
 export class InboxService {
   constructor(
-    private readonly gatewayProvider: PaperlessGatewayProvider,
+    private readonly gateways: MemberGateways,
     private readonly typeFields: TypeFieldsService,
     private readonly autoTagger: AutoTaggerClient,
     private readonly tenancy: TenancyService,
   ) {}
 
-  private gateway(): PaperlessGateway {
-    return this.gatewayProvider.require();
+  /** The member's own Paperless gateway (service gateway for the worker). */
+  private gateway(principal: Principal): Promise<PaperlessGateway> {
+    return this.gateways.forPrincipal(principal);
   }
 
   private async fieldIdToName(gateway: PaperlessGateway): Promise<Map<number, string>> {
@@ -71,12 +73,12 @@ export class InboxService {
     return new Map(Object.entries(nameToId).map(([name, id]) => [id, name]));
   }
 
-  async listPending(options: {
+  async listPending(principal: Principal, options: {
     page: number;
     pageSize: number;
     ordering: string;
   }): Promise<InboxList> {
-    const gateway = this.gateway();
+    const gateway = await this.gateway(principal);
     const nameToId = await gateway.listTags();
     const pendingId = nameToId[PENDING_TAG];
     const lowConfId = nameToId[LOW_CONFIDENCE_TAG];
@@ -101,8 +103,8 @@ export class InboxService {
     };
   }
 
-  async getDetail(docId: number, options: { withTypeFields?: boolean } = {}): Promise<InboxDetail> {
-    const gateway = this.gateway();
+  async getDetail(principal: Principal, docId: number, options: { withTypeFields?: boolean } = {}): Promise<InboxDetail> {
+    const gateway = await this.gateway(principal);
     const doc = await gateway.getDocument(docId);
     const fieldIdToName = await this.fieldIdToName(gateway);
     const tagIdToName = new Map(
@@ -120,18 +122,18 @@ export class InboxService {
     return detail;
   }
 
-  async applyFieldUpdate(docId: number, update: InboxFieldUpdate): Promise<InboxDetail> {
+  async applyFieldUpdate(principal: Principal, docId: number, update: InboxFieldUpdate): Promise<InboxDetail> {
     const populated = populatedFields(update);
     if (Object.keys(populated).length > 0) {
-      const gateway = this.gateway();
+      const gateway = await this.gateway(principal);
       const doc = await gateway.getDocument(docId);
       await gateway.patchDocumentCustomFields(docId, populated, { prefetchedDoc: doc });
     }
-    return this.getDetail(docId);
+    return this.getDetail(principal, docId);
   }
 
-  async approve(docId: number, update?: InboxFieldUpdate | null): Promise<InboxDetail> {
-    const gateway = this.gateway();
+  async approve(principal: Principal, docId: number, update?: InboxFieldUpdate | null): Promise<InboxDetail> {
+    const gateway = await this.gateway(principal);
     const populated = populatedFields(update);
     if (Object.keys(populated).length > 0) {
       const doc = await gateway.getDocument(docId);
@@ -142,19 +144,19 @@ export class InboxService {
       add: [APPROVED_TAG],
     });
     await this.autoTagger.ping(docId, { trigger: "propagate", timeoutMs: 2_000 });
-    return this.getDetail(docId);
+    return this.getDetail(principal, docId);
   }
 
-  async reject(docId: number): Promise<InboxDetail> {
-    await this.gateway().swapLifecycleTag(docId, {
+  async reject(principal: Principal, docId: number): Promise<InboxDetail> {
+    await (await this.gateway(principal)).swapLifecycleTag(docId, {
       remove: [PENDING_TAG, LOW_CONFIDENCE_TAG],
       add: [REJECTED_TAG],
     });
-    return this.getDetail(docId);
+    return this.getDetail(principal, docId);
   }
 
-  async openPreview(docId: number): Promise<Response> {
-    return this.gateway().openDocumentStream(docId, "preview");
+  async openPreview(principal: Principal, docId: number): Promise<Response> {
+    return (await this.gateway(principal)).openDocumentStream(docId, "preview");
   }
 
   private projectItem(

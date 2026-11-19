@@ -98,7 +98,7 @@ export class TypeFieldsService {
 
   async inferDocumentType(docId: number): Promise<string | null> {
     try {
-      const gateway = this.gatewayProvider.require();
+      const gateway = this.gatewayProvider.service();
       const doc = await gateway.getDocument(docId);
       const nameToId = await gateway.getCustomFieldIds();
       const fieldIdToName = new Map(Object.entries(nameToId).map(([n, i]) => [i, n]));

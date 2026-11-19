@@ -12,14 +12,14 @@ import {
   Res,
   UseGuards,
 } from "@nestjs/common";
+import { MemberGateways } from "../tenancy/member-gateways.js";
 
 import type { Response } from "express";
 
 import type { DocumentSummary } from "../ai/ai.schemas.js";
 import { projectResults } from "../ai/translate.js";
 import { AuthGuard } from "../auth/auth.guard.js";
-import { DocumentAccess, RequireScope } from "../auth/principal.js";
-import { PaperlessGatewayProvider } from "../paperless/paperless.module.js";
+import { DocumentAccess, RequireScope, CurrentPrincipal, type Principal } from "../auth/principal.js";
 import { collectTagIds } from "../paperless/tag-ids.js";
 import { inlineSafe, pipeUpstreamToResponse } from "../common/stream.js";
 import { ZodValidationPipe } from "../common/zod-validation.pipe.js";
@@ -47,13 +47,13 @@ export class DocumentsController {
   constructor(
     private readonly documentsService: DocumentsService,
     private readonly inboxService: InboxService,
-    private readonly gatewayProvider: PaperlessGatewayProvider,
+    private readonly gateways: MemberGateways,
   ) {}
 
   @Get("in-flight")
   @RequireScope("documents:read")
-  inFlight(): Promise<InFlightCount> {
-    return this.documentsService.inFlightCount();
+  inFlight(@CurrentPrincipal() principal: Principal): Promise<InFlightCount> {
+    return this.documentsService.inFlightCount(principal);
   }
 
   @Get("processing")
@@ -64,67 +64,69 @@ export class DocumentsController {
 
   @Get("task/:task_id")
   @RequireScope("documents:read")
-  taskStatus(@Param("task_id") taskId: string): Promise<TaskStatusResponse> {
-    return this.documentsService.taskStatus(taskId);
+  taskStatus(@CurrentPrincipal() principal: Principal, @Param("task_id") taskId: string): Promise<TaskStatusResponse> {
+    return this.documentsService.taskStatus(principal, taskId);
   }
 
   @Post("reprocess-failed")
   @RequireScope("documents:write")
   @HttpCode(HttpStatus.OK)
-  reprocessFailed(): Promise<ReprocessFailedResponse> {
-    return this.documentsService.reprocessFailed();
+  reprocessFailed(@CurrentPrincipal() principal: Principal): Promise<ReprocessFailedResponse> {
+    return this.documentsService.reprocessFailed(principal);
   }
 
   @Get(":doc_id/status")
   @RequireScope("documents:read")
   @DocumentAccess("read")
   documentStatus(
+    @CurrentPrincipal() principal: Principal,
     @Param("doc_id", ParseIntPipe) docId: number,
   ): Promise<DocumentStatusResponse> {
-    return this.documentsService.documentStatus(docId);
+    return this.documentsService.documentStatus(principal, docId);
   }
 
   @Post(":doc_id/reprocess")
   @RequireScope("documents:write")
   @DocumentAccess("write")
   @HttpCode(HttpStatus.OK)
-  reprocess(@Param("doc_id", ParseIntPipe) docId: number): Promise<ReprocessResponse> {
-    return this.documentsService.reprocess(docId);
+  reprocess(@CurrentPrincipal() principal: Principal, @Param("doc_id", ParseIntPipe) docId: number): Promise<ReprocessResponse> {
+    return this.documentsService.reprocess(principal, docId);
   }
 
   @Post(":doc_id/dismiss-duplicate")
   @RequireScope("documents:write")
   @DocumentAccess("write")
   @HttpCode(HttpStatus.OK)
-  dismissDuplicate(@Param("doc_id", ParseIntPipe) docId: number): Promise<DocIdResponse> {
-    return this.documentsService.dismissDuplicate(docId);
+  dismissDuplicate(@CurrentPrincipal() principal: Principal, @Param("doc_id", ParseIntPipe) docId: number): Promise<DocIdResponse> {
+    return this.documentsService.dismissDuplicate(principal, docId);
   }
 
   @Post(":doc_id/star")
   @RequireScope("documents:write")
   @DocumentAccess("write")
   @HttpCode(HttpStatus.OK)
-  star(@Param("doc_id", ParseIntPipe) docId: number): Promise<DocIdResponse> {
-    return this.documentsService.star(docId);
+  star(@CurrentPrincipal() principal: Principal, @Param("doc_id", ParseIntPipe) docId: number): Promise<DocIdResponse> {
+    return this.documentsService.star(principal, docId);
   }
 
   @Delete(":doc_id/star")
   @RequireScope("documents:write")
   @DocumentAccess("write")
   @HttpCode(HttpStatus.OK)
-  unstar(@Param("doc_id", ParseIntPipe) docId: number): Promise<DocIdResponse> {
-    return this.documentsService.unstar(docId);
+  unstar(@CurrentPrincipal() principal: Principal, @Param("doc_id", ParseIntPipe) docId: number): Promise<DocIdResponse> {
+    return this.documentsService.unstar(principal, docId);
   }
 
   @Get(":doc_id/duplicate-candidates")
   @RequireScope("documents:read")
   @DocumentAccess("read")
   async duplicateCandidates(
+    @CurrentPrincipal() principal: Principal,
     @Param("doc_id", ParseIntPipe) docId: number,
   ): Promise<{ doc_id: number; candidates: DocumentSummary[] }> {
-    const result = await this.documentsService.duplicateCandidates(docId);
+    const result = await this.documentsService.duplicateCandidates(principal, docId);
     if (result.matchedIds.size === 0) return { doc_id: docId, candidates: [] };
-    const gateway = this.gatewayProvider.require();
+    const gateway = await this.gateways.forPrincipal(principal);
     const correspondents = await gateway.listCorrespondents();
     const documentTypes = await gateway.listDocumentTypes();
     const matched = result.rawCandidates.filter((c) => result.matchedIds.has(c.id));
@@ -145,28 +147,30 @@ export class DocumentsController {
   @Get(":doc_id/detail")
   @RequireScope("documents:read")
   @DocumentAccess("read")
-  getDocumentDetail(@Param("doc_id", ParseIntPipe) docId: number): Promise<InboxDetail> {
-    return this.inboxService.getDetail(docId);
+  getDocumentDetail(@CurrentPrincipal() principal: Principal, @Param("doc_id", ParseIntPipe) docId: number): Promise<InboxDetail> {
+    return this.inboxService.getDetail(principal, docId);
   }
 
   @Patch(":doc_id/fields")
   @RequireScope("documents:write")
   @DocumentAccess("write")
   patchDocumentFields(
+    @CurrentPrincipal() principal: Principal,
     @Param("doc_id", ParseIntPipe) docId: number,
     @Body(new ZodValidationPipe(inboxFieldUpdateSchema)) body: InboxFieldUpdate,
   ): Promise<InboxDetail> {
-    return this.inboxService.applyFieldUpdate(docId, body);
+    return this.inboxService.applyFieldUpdate(principal, docId, body);
   }
 
   @Get(":doc_id/preview")
   @RequireScope("documents:read")
   @DocumentAccess("read")
   async getPreview(
+    @CurrentPrincipal() principal: Principal,
     @Param("doc_id", ParseIntPipe) docId: number,
     @Res() response: Response,
   ): Promise<void> {
-    const upstream = await this.documentsService.openStream(docId, "preview");
+    const upstream = await this.documentsService.openStream(principal, docId, "preview");
     const contentType = upstream.headers.get("content-type") ?? "application/pdf";
     const headers: Record<string, string> = { "Cache-Control": "private, max-age=300" };
     if (!inlineSafe(contentType)) {
@@ -180,10 +184,11 @@ export class DocumentsController {
   @RequireScope("documents:read")
   @DocumentAccess("read")
   async getDownload(
+    @CurrentPrincipal() principal: Principal,
     @Param("doc_id", ParseIntPipe) docId: number,
     @Res() response: Response,
   ): Promise<void> {
-    const upstream = await this.documentsService.openStream(docId, "download");
+    const upstream = await this.documentsService.openStream(principal, docId, "download");
     await pipeUpstreamToResponse(upstream, response, {
       contentType: upstream.headers.get("content-type") ?? "application/octet-stream",
       forwardHeaders: ["content-disposition"],

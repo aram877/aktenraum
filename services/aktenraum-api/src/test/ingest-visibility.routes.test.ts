@@ -1,3 +1,4 @@
+import { workerPrincipal } from "../auth/principal.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 
@@ -117,7 +118,7 @@ describe("library status filter", () => {
 describe("live counts", () => {
   it("counts documents carrying any error tag", async () => {
     await boot(new FakeGateway({ docs: mixedDocs() }));
-    const counts = await harness!.app.get(EventsService).computeCounts();
+    const counts = await harness!.app.get(EventsService).computeCounts(workerPrincipal());
     expect(counts.errors).toBe(2);
   });
 });

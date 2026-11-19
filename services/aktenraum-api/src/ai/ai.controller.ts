@@ -63,16 +63,17 @@ export class AiController {
   @RequireScope("ai:ask")
   @HttpCode(HttpStatus.OK)
   async find(
+    @CurrentPrincipal() principal: Principal,
     @Body(new ZodValidationPipe(askRequestSchema)) body: AskRequest,
   ): Promise<AskResponse> {
     const llm = await this.llmBackends.build("filter");
-    const searchFilter = await this.aiService.resolveFilter(
+    const searchFilter = await this.aiService.resolveFilter(principal, 
       body,
       llm,
       buildMessages,
       searchFilterSchema,
     );
-    const [results, total] = await this.aiService.executeFilter(searchFilter);
+    const [results, total] = await this.aiService.executeFilter(principal, searchFilter);
     return {
       filter: searchFilter,
       results,
@@ -116,7 +117,7 @@ export class AiController {
 
     let searchFilter: SearchFilter;
     try {
-      const context = await this.aiService.promptContext();
+      const context = await this.aiService.promptContext(principal);
       const messages = buildMessages(body.question, context);
       searchFilter = (await llm.complete(messages, searchFilterSchema)) as SearchFilter;
     } catch (error: unknown) {
@@ -128,7 +129,7 @@ export class AiController {
     }
 
     const retrievalFilter = broadenForAnswer(searchFilter);
-    const [results, total] = await this.aiService.executeFilter(retrievalFilter);
+    const [results, total] = await this.aiService.executeFilter(principal, retrievalFilter);
 
     sse(response, "meta", {
       filter: searchFilter,
@@ -143,8 +144,8 @@ export class AiController {
       return;
     }
 
-    const promptResults = await this.aiService.promotePromptResults(results, ragChunks);
-    const candidates = await this.aiService.enrichWithAiFields(promptResults);
+    const promptResults = await this.aiService.promotePromptResults(principal, results, ragChunks);
+    const candidates = await this.aiService.enrichWithAiFields(principal, promptResults);
     const chunksByDoc = groupChunksByDoc(ragChunks);
     const answerMessages = buildStreamingAnswerMessages(body.question, {
       candidates,
@@ -188,17 +189,18 @@ export class AiController {
   @RequireScope("ai:ask")
   @HttpCode(HttpStatus.OK)
   async answer(
+    @CurrentPrincipal() principal: Principal,
     @Body(new ZodValidationPipe(answerRequestSchema)) body: AnswerRequest,
   ): Promise<AnswerResponse> {
     const llm = await this.llmBackends.build("filter");
-    const context = await this.aiService.promptContext();
+    const context = await this.aiService.promptContext(principal);
     const searchFilter = (await llm.complete(
       buildMessages(body.question, context),
       searchFilterSchema,
     )) as SearchFilter;
 
     const retrievalFilter = broadenForAnswer(searchFilter);
-    const [results, total] = await this.aiService.executeFilter(retrievalFilter);
+    const [results, total] = await this.aiService.executeFilter(principal, retrievalFilter);
     if (results.length === 0) {
       return {
         question: body.question,
@@ -209,7 +211,7 @@ export class AiController {
       };
     }
 
-    const candidates = await this.aiService.enrichWithAiFields(
+    const candidates = await this.aiService.enrichWithAiFields(principal, 
       results.slice(0, ANSWER_CONTEXT_SIZE),
     );
     const answerLlm = await this.llmBackends.build("answer");

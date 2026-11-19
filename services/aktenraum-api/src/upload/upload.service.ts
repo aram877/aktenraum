@@ -1,4 +1,6 @@
 import { readFile, unlink } from "node:fs/promises";
+import type { Principal } from "../auth/principal.js";
+import { MemberGateways } from "../tenancy/member-gateways.js";
 
 import { logger } from "@aktenraum/core";
 import { Inject, Injectable } from "@nestjs/common";
@@ -8,7 +10,6 @@ import { SETTINGS, type Settings } from "../config/settings.js";
 import { DB, type Database } from "../db/db.module.js";
 import { uploadTaskMembers, uploadTasks } from "../db/schema.js";
 import { PaperlessAuthError } from "../paperless/errors.js";
-import { PaperlessGatewayProvider } from "../paperless/paperless.module.js";
 
 export const UPLOAD_ALLOWED_CONTENT_TYPES: ReadonlySet<string> = new Set([
   "application/pdf",
@@ -61,29 +62,32 @@ async function removeTempFiles(files: IncomingFile[]): Promise<void> {
 @Injectable()
 export class UploadService {
   constructor(
-    private readonly gatewayProvider: PaperlessGatewayProvider,
+    private readonly gateways: MemberGateways,
     @Inject(SETTINGS) private readonly settings: Settings,
     @Inject(DB) private readonly db: Database,
   ) {}
 
   async uploadAll(
+    principal: Principal,
     files: IncomingFile[],
     title?: string,
-    memberId: number | null = null,
   ): Promise<UploadResponse> {
     try {
-      return await this.uploadEach(files, title, memberId);
+      return await this.uploadEach(principal, files, title);
     } finally {
       await removeTempFiles(files);
     }
   }
 
   private async uploadEach(
+    principal: Principal,
     files: IncomingFile[],
     title: string | undefined,
-    memberId: number | null,
   ): Promise<UploadResponse> {
-    const gateway = this.gatewayProvider.require();
+    // Uploaded as the member: Paperless records the task and the new document
+    // under their Paperless user, so they can follow it and nobody else sees it.
+    const gateway = await this.gateways.forPrincipal(principal);
+    const memberId = principal.kind === "member" ? principal.memberId : null;
     const results: UploadResult[] = [];
 
     for (const file of files) {

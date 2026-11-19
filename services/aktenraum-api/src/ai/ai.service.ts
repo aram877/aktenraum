@@ -1,9 +1,10 @@
 import { LIFECYCLE_TAGS, logger, TYPE_FIELD_SCHEMA, type LLMBackend } from "@aktenraum/core";
 import { Inject, Injectable } from "@nestjs/common";
+import { MemberGateways } from "../tenancy/member-gateways.js";
+import type { Principal } from "../auth/principal.js";
 
 import type { MemberPrincipal } from "../auth/principal.js";
 import type { PaperlessDocument, PaperlessGateway } from "../paperless/paperless.gateway.js";
-import { PaperlessGatewayProvider } from "../paperless/paperless.module.js";
 import { collectTagIds } from "../paperless/tag-ids.js";
 import { RETRIEVAL_DEPS } from "./retrieval.module.js";
 import { TenancyService } from "../tenancy/tenancy.service.js";
@@ -171,24 +172,26 @@ export function docToSummary(
 @Injectable()
 export class AiService {
   constructor(
-    private readonly gatewayProvider: PaperlessGatewayProvider,
+    private readonly gateways: MemberGateways,
     private readonly typeFields: TypeFieldsService,
     @Inject(RETRIEVAL_DEPS) private readonly retrievalDeps: RetrievalDeps | null,
     private readonly tenancy: TenancyService,
   ) {}
 
-  gateway(): PaperlessGateway {
-    return this.gatewayProvider.require();
+  /** The member's own Paperless gateway (service gateway for the worker). */
+  gateway(principal: Principal): Promise<PaperlessGateway> {
+    return this.gateways.forPrincipal(principal);
   }
 
-  async promptContext(): Promise<{ correspondents: string[]; tags: string[] }> {
-    const gateway = this.gateway();
+  async promptContext(principal: Principal): Promise<{ correspondents: string[]; tags: string[] }> {
+    const gateway = await this.gateway(principal);
     const correspondents = Object.keys(await gateway.listCorrespondents());
     const tags = userTagVocabulary(await gateway.listTags());
     return { correspondents, tags };
   }
 
   async resolveFilter(
+    principal: Principal,
     body: AskRequest,
     llm: LLMBackend,
     buildMessages: (
@@ -198,13 +201,13 @@ export class AiService {
     filterSchema: Parameters<LLMBackend["complete"]>[1],
   ): Promise<SearchFilter> {
     if (body.filter !== null && body.filter !== undefined) return body.filter;
-    const context = await this.promptContext();
+    const context = await this.promptContext(principal);
     const messages = buildMessages(body.query as string, context);
     return (await llm.complete(messages, filterSchema)) as SearchFilter;
   }
 
-  async executeFilter(filter: SearchFilter): Promise<[DocumentSummary[], number]> {
-    const gateway = this.gateway();
+  async executeFilter(principal: Principal, filter: SearchFilter): Promise<[DocumentSummary[], number]> {
+    const gateway = await this.gateway(principal);
     const correspondents = await gateway.listCorrespondents();
     const documentTypes = await gateway.listDocumentTypes();
     const tags = await gateway.listTags();
@@ -252,12 +255,12 @@ export class AiService {
     return [summaries, totalNative];
   }
 
-  async vectorFilterFor(filter: SearchFilter): Promise<SearchFilter> {
+  async vectorFilterFor(principal: Principal, filter: SearchFilter): Promise<SearchFilter> {
     const broadened = broadenForAnswer(filter);
     let correspondent: string | null = null;
     if (broadened.correspondent) {
       const wanted = broadened.correspondent.trim().toLowerCase();
-      const known = Object.keys(await this.gateway().listCorrespondents());
+      const known = Object.keys(await (await this.gateway(principal)).listCorrespondents());
       correspondent = known.find((name) => name.toLowerCase() === wanted) ?? null;
     }
     return { ...broadened, tags: [], correspondent };
@@ -270,7 +273,7 @@ export class AiService {
   ): Promise<RetrievedChunk[]> {
     if (this.retrievalDeps === null) return [];
     const access = await this.tenancy.searchAccess(principal);
-    const vectorFilter = await this.vectorFilterFor(filter);
+    const vectorFilter = await this.vectorFilterFor(principal, filter);
     const chunks = await retrieveChunksForQuestion(question, {
       deps: this.retrievalDeps,
       structuralFilter: vectorFilter,
@@ -289,8 +292,8 @@ export class AiService {
     });
   }
 
-  async enrichWithAiFields(results: DocumentSummary[]): Promise<AnswerCandidate[]> {
-    const gateway = this.gateway();
+  async enrichWithAiFields(principal: Principal, results: DocumentSummary[]): Promise<AnswerCandidate[]> {
+    const gateway = await this.gateway(principal);
     const fieldIdToName = new Map(
       Object.entries(await gateway.getCustomFieldIds()).map(([name, id]) => [id, name]),
     );
@@ -360,10 +363,11 @@ export class AiService {
   }
 
   async promotePromptResults(
+    principal: Principal,
     structural: DocumentSummary[],
     ragChunks: RetrievedChunk[],
   ): Promise<DocumentSummary[]> {
-    const gateway = this.gateway();
+    const gateway = await this.gateway(principal);
     const structuralById = new Map(structural.map((row) => [row.id, row]));
     const promptResults: DocumentSummary[] = [];
     const included = new Set<number>();

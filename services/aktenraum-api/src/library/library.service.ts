@@ -1,10 +1,11 @@
 import { LIFECYCLE_TAGS } from "@aktenraum/core";
 import { Injectable } from "@nestjs/common";
+import { MemberGateways } from "../tenancy/member-gateways.js";
+import type { Principal } from "../auth/principal.js";
 
 import { AutoTaggerClient } from "../auto-tagger/auto-tagger.client.js";
 import { customFieldValues, parseDate } from "../inbox/inbox.service.js";
 import type { PaperlessDocument, PaperlessGateway, QueryParams } from "../paperless/paperless.gateway.js";
-import { PaperlessGatewayProvider } from "../paperless/paperless.module.js";
 import { statusFilter, type LibraryStatus } from "../paperless/status-tags.js";
 import { collectTagIds } from "../paperless/tag-ids.js";
 import type { LibraryItem, LibraryList, TagFacetList } from "./library.schemas.js";
@@ -71,16 +72,17 @@ function asString(value: unknown): string | null {
 @Injectable()
 export class LibraryService {
   constructor(
-    private readonly gatewayProvider: PaperlessGatewayProvider,
+    private readonly gateways: MemberGateways,
     private readonly autoTagger: AutoTaggerClient,
   ) {}
 
-  private gateway(): PaperlessGateway {
-    return this.gatewayProvider.require();
+  /** The member's own Paperless gateway (service gateway for the worker). */
+  private gateway(principal: Principal): Promise<PaperlessGateway> {
+    return this.gateways.forPrincipal(principal);
   }
 
-  async listLibrary(query: LibraryQuery): Promise<LibraryList> {
-    const gateway = this.gateway();
+  async listLibrary(principal: Principal, query: LibraryQuery): Promise<LibraryList> {
+    const gateway = await this.gateway(principal);
     const correspondents = await gateway.listCorrespondents();
     const documentTypes = await gateway.listDocumentTypes();
     const tagNameToId = await gateway.listTags();
@@ -167,8 +169,8 @@ export class LibraryService {
     return { results: items, total: totalNative, page: query.page, page_size: query.pageSize };
   }
 
-  async listTagFacet(): Promise<TagFacetList> {
-    const gateway = this.gateway();
+  async listTagFacet(principal: Principal): Promise<TagFacetList> {
+    const gateway = await this.gateway(principal);
     const tagNameToId = await gateway.listTags();
     const pendingId = tagNameToId["ai-pending"];
 
@@ -195,8 +197,8 @@ export class LibraryService {
     return { results };
   }
 
-  async listTypeFacet(): Promise<TagFacetList> {
-    const counts = await this.gateway().listDocumentTypeCounts();
+  async listTypeFacet(principal: Principal): Promise<TagFacetList> {
+    const counts = await (await this.gateway(principal)).listDocumentTypeCounts();
     const results = counts
       .filter((entry) => entry.count > 0)
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "de"));

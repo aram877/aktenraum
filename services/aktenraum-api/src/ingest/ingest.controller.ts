@@ -1,7 +1,7 @@
 import { Controller, Get, HttpException, HttpStatus, Query, UseGuards } from "@nestjs/common";
 
 import { AuthGuard } from "../auth/auth.guard.js";
-import { RequireScope } from "../auth/principal.js";
+import { RequireScope, CurrentPrincipal, type Principal } from "../auth/principal.js";
 import { PaperlessRequestError } from "../paperless/errors.js";
 import type { IngestActivity } from "./ingest.schemas.js";
 import { IngestService } from "./ingest.service.js";
@@ -22,9 +22,9 @@ export class IngestController {
 
   @Get("activity")
   @RequireScope("documents:read")
-  async activity(@Query("days") days?: string): Promise<IngestActivity> {
+  async activity(@CurrentPrincipal() principal: Principal, @Query("days") days?: string): Promise<IngestActivity> {
     try {
-      return await this.ingestService.activity(clampDays(days));
+      return await this.ingestService.activity(principal, clampDays(days));
     } catch (error: unknown) {
       if (error instanceof PaperlessRequestError) {
         throw new HttpException("Paperless is unavailable", HttpStatus.BAD_GATEWAY);

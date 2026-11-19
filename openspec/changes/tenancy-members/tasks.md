@@ -7,10 +7,10 @@
 
 ## 2. Per-principal gateway
 
-- [ ] 2.1 `PaperlessGatewayProvider.forPrincipal(principal)` with per-member cache; rename `require()` → `service()`; lazy provisioning + mint; on 401/403 or undecryptable token: re-mint once, retry once, else 502
-- [ ] 2.2 Thread the principal through every member-facing service: library, documents (detail/preview/download/status/task/in-flight/duplicates/reprocess/delete/star), inbox, trash, upload, events (SSE + counts), ingest (admin → service, member → own), ai (structured search, enrich, answer)
-- [ ] 2.3 Remaining `service()` uses reviewed and listed in the session note (worker routes, tenancy, home space, migration)
-- [ ] 2.4 Tests: two-member isolation matrix over every member-facing route (lists, counts, by-id 404s, writes), re-mint on 401, admin view unchanged
+- [x] 2.1 `PaperlessGatewayProvider.forPrincipal(principal)` with per-member cache; rename `require()` → `service()`; lazy provisioning + mint; on 401/403 or undecryptable token: re-mint once, retry once, else 502
+- [x] 2.2 Thread the principal through every member-facing service: library, documents (detail/preview/download/status/task/in-flight/duplicates/reprocess/delete/star), inbox, trash, upload, events (SSE + counts), ingest (admin → service, member → own), ai (structured search, enrich, answer)
+- [x] 2.3 Remaining `service()` uses reviewed and listed in the session note (worker routes, tenancy, home space, migration)
+- [x] 2.4 Tests: two-member isolation matrix over every member-facing route (lists, counts, by-id 404s, writes), re-mint on 401, admin view unchanged
 
 ## 3. Invites + members
 

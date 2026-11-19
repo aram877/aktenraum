@@ -49,7 +49,7 @@ export class HomeSpaceService {
   ) {}
 
   async assign(docId: number): Promise<HomeSpaceAssignment> {
-    const gateway = this.gatewayProvider.require();
+    const gateway = this.gatewayProvider.service();
     let source: HomeSpaceSource = "existing";
     let spaceId = await this.homeSpaceOf(docId);
 
@@ -113,7 +113,7 @@ export class HomeSpaceService {
       .orderBy(asc(uploadTaskMembers.createdAt));
     if (unresolved.length === 0) return null;
 
-    const gateway = this.gatewayProvider.require();
+    const gateway = this.gatewayProvider.service();
     let match: number | null = null;
     let stillRunning = false;
     for (const row of unresolved) {

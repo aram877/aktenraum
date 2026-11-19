@@ -1,9 +1,11 @@
 import { LIFECYCLE_TAGS } from "@aktenraum/core";
 import { Inject, Injectable } from "@nestjs/common";
+import { MemberGateways } from "../tenancy/member-gateways.js";
+import type { Principal } from "../auth/principal.js";
 
 import { DB, type Database } from "../db/db.module.js";
 import { uploadTasks } from "../db/schema.js";
-import type { PaperlessDocument } from "../paperless/paperless.gateway.js";
+import type { PaperlessDocument, PaperlessGateway } from "../paperless/paperless.gateway.js";
 import { PaperlessGatewayProvider } from "../paperless/paperless.module.js";
 import { collectTagIds } from "../paperless/tag-ids.js";
 import type {
@@ -121,11 +123,17 @@ function emptySummary(): IngestSummary {
 export class IngestService {
   constructor(
     private readonly gatewayProvider: PaperlessGatewayProvider,
+    private readonly gateways: MemberGateways,
     @Inject(DB) private readonly db: Database,
   ) {}
 
-  async activity(days: number, now: number = Date.now()): Promise<IngestActivity> {
-    const gateway = this.gatewayProvider.require();
+  async activity(principal: Principal, days: number, now: number = Date.now()): Promise<IngestActivity> {
+    // Household admin: every import (mail / consume-folder tasks belong to the
+    // service user). A member: only what Paperless shows them — their uploads.
+    const gateway =
+      principal.kind === "member" && principal.householdRole !== "admin"
+        ? await this.gateways.forPrincipal(principal)
+        : this.gatewayProvider.service();
     const sinceMs = now - days * 24 * 60 * 60 * 1000;
 
     const [tasks, mails, uploadIds] = await Promise.all([
@@ -151,7 +159,7 @@ export class IngestService {
       if (d.newId !== null) refIds.add(d.newId);
       if (d.target !== null) refIds.add(d.target.id);
     }
-    const { refs: docs, emailIngested } = await this.lookupDocs([...refIds]);
+    const { refs: docs, emailIngested } = await this.lookupDocs(gateway, [...refIds]);
 
     const ref = (id: number, fallbackTitle: string | null): IngestDocRef => {
       const doc = docs.get(id);
@@ -205,14 +213,13 @@ export class IngestService {
     return new Set(rows.map((row) => row.taskId));
   }
 
-  private async lookupDocs(ids: number[]): Promise<{
+  private async lookupDocs(gateway: PaperlessGateway, ids: number[]): Promise<{
     refs: Map<number, Omit<IngestDocRef, "missing">>;
     emailIngested: Set<number>;
   }> {
     const out = new Map<number, Omit<IngestDocRef, "missing">>();
     const emailIngested = new Set<number>();
     if (ids.length === 0) return { refs: out, emailIngested };
-    const gateway = this.gatewayProvider.require();
     const found: PaperlessDocument[] = [];
     for (let i = 0; i < ids.length; i += DOC_LOOKUP_CHUNK) {
       const chunk = ids.slice(i, i + DOC_LOOKUP_CHUNK);

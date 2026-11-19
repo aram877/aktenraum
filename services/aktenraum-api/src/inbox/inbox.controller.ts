@@ -15,7 +15,7 @@ import {
 import type { Response } from "express";
 
 import { AuthGuard } from "../auth/auth.guard.js";
-import { DocumentAccess, RequireScope } from "../auth/principal.js";
+import { DocumentAccess, RequireScope, CurrentPrincipal, type Principal } from "../auth/principal.js";
 import { pipeUpstreamToResponse } from "../common/stream.js";
 import { ZodValidationPipe } from "../common/zod-validation.pipe.js";
 import {
@@ -51,11 +51,12 @@ export class InboxController {
   @Get()
   @RequireScope("documents:read")
   listInbox(
+    @CurrentPrincipal() principal: Principal,
     @Query("page") page?: string,
     @Query("page_size") pageSize?: string,
     @Query("ordering") ordering?: string,
   ): Promise<InboxList> {
-    return this.inboxService.listPending({
+    return this.inboxService.listPending(principal, {
       page: clampInt(page, 1, 1, Number.MAX_SAFE_INTEGER),
       pageSize: clampInt(pageSize, 20, 1, 100),
       ordering:
@@ -66,18 +67,19 @@ export class InboxController {
   @Get(":doc_id")
   @RequireScope("documents:read")
   @DocumentAccess("read")
-  getInboxDetail(@Param("doc_id", ParseIntPipe) docId: number): Promise<InboxDetail> {
-    return this.inboxService.getDetail(docId);
+  getInboxDetail(@CurrentPrincipal() principal: Principal, @Param("doc_id", ParseIntPipe) docId: number): Promise<InboxDetail> {
+    return this.inboxService.getDetail(principal, docId);
   }
 
   @Patch(":doc_id")
   @RequireScope("documents:write")
   @DocumentAccess("write")
   patchInbox(
+    @CurrentPrincipal() principal: Principal,
     @Param("doc_id", ParseIntPipe) docId: number,
     @Body(new ZodValidationPipe(inboxFieldUpdateSchema)) body: InboxFieldUpdate,
   ): Promise<InboxDetail> {
-    return this.inboxService.applyFieldUpdate(docId, body);
+    return this.inboxService.applyFieldUpdate(principal, docId, body);
   }
 
   @Post(":doc_id/approve")
@@ -85,28 +87,30 @@ export class InboxController {
   @DocumentAccess("write")
   @HttpCode(HttpStatus.OK)
   approveInbox(
+    @CurrentPrincipal() principal: Principal,
     @Param("doc_id", ParseIntPipe) docId: number,
     @Body(new ZodValidationPipe(inboxFieldUpdateSchema.optional())) body?: InboxFieldUpdate,
   ): Promise<InboxDetail> {
-    return this.inboxService.approve(docId, body ?? null);
+    return this.inboxService.approve(principal, docId, body ?? null);
   }
 
   @Post(":doc_id/reject")
   @RequireScope("documents:write")
   @DocumentAccess("write")
   @HttpCode(HttpStatus.OK)
-  rejectInbox(@Param("doc_id", ParseIntPipe) docId: number): Promise<InboxDetail> {
-    return this.inboxService.reject(docId);
+  rejectInbox(@CurrentPrincipal() principal: Principal, @Param("doc_id", ParseIntPipe) docId: number): Promise<InboxDetail> {
+    return this.inboxService.reject(principal, docId);
   }
 
   @Get(":doc_id/preview")
   @RequireScope("documents:read")
   @DocumentAccess("read")
   async previewInbox(
+    @CurrentPrincipal() principal: Principal,
     @Param("doc_id", ParseIntPipe) docId: number,
     @Res() response: Response,
   ): Promise<void> {
-    const upstream = await this.inboxService.openPreview(docId);
+    const upstream = await this.inboxService.openPreview(principal, docId);
     await pipeUpstreamToResponse(upstream, response, {
       contentType: "application/pdf",
       headers: { "Cache-Control": "private, max-age=300" },

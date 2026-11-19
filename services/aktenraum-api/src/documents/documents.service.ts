@@ -1,10 +1,11 @@
 import { findDuplicates, LIFECYCLE_TAGS, logger, type DocFields } from "@aktenraum/core";
 import { Injectable } from "@nestjs/common";
+import { MemberGateways } from "../tenancy/member-gateways.js";
+import type { Principal } from "../auth/principal.js";
 
 import { AutoTaggerClient } from "../auto-tagger/auto-tagger.client.js";
 import type { PaperlessDocument, PaperlessGateway } from "../paperless/paperless.gateway.js";
 import { PaperlessAuthError } from "../paperless/errors.js";
-import { PaperlessGatewayProvider } from "../paperless/paperless.module.js";
 import { errorTagIds } from "../paperless/status-tags.js";
 import { collectTagIds } from "../paperless/tag-ids.js";
 import { TenancyService } from "../tenancy/tenancy.service.js";
@@ -109,21 +110,22 @@ export class DocumentsService {
   private inFlightCache: { when: number; count: number } | null = null;
 
   constructor(
-    private readonly gatewayProvider: PaperlessGatewayProvider,
+    private readonly gateways: MemberGateways,
     private readonly autoTagger: AutoTaggerClient,
     private readonly tenancy: TenancyService,
   ) {}
 
-  private gateway(): PaperlessGateway {
-    return this.gatewayProvider.require();
+  /** The member's own Paperless gateway (service gateway for the worker). */
+  private gateway(principal: Principal): Promise<PaperlessGateway> {
+    return this.gateways.forPrincipal(principal);
   }
 
-  async openStream(docId: number, kind: "preview" | "download" | "thumb"): Promise<Response> {
-    return this.gateway().openDocumentStream(docId, kind);
+  async openStream(principal: Principal, docId: number, kind: "preview" | "download" | "thumb"): Promise<Response> {
+    return (await this.gateway(principal)).openDocumentStream(docId, kind);
   }
 
-  async reprocess(docId: number): Promise<ReprocessResponse> {
-    await this.gateway().swapLifecycleTag(docId, { remove: REPROCESS_REMOVE, add: [] });
+  async reprocess(principal: Principal, docId: number): Promise<ReprocessResponse> {
+    await (await this.gateway(principal)).swapLifecycleTag(docId, { remove: REPROCESS_REMOVE, add: [] });
     const notified = await this.autoTagger.ping(docId, { trigger: "extract" });
     return { doc_id: docId, cleared_tags: REPROCESS_REMOVE, auto_tagger_notified: notified };
   }
@@ -134,8 +136,8 @@ export class DocumentsService {
    * serial anyway, and it keeps the Paperless PATCH load flat. One bad
    * document never aborts the batch; an auth failure does.
    */
-  async reprocessFailed(): Promise<ReprocessFailedResponse> {
-    const gateway = this.gateway();
+  async reprocessFailed(principal: Principal): Promise<ReprocessFailedResponse> {
+    const gateway = await this.gateway(principal);
     const errorIds = errorTagIds(await gateway.listTags());
     if (errorIds.length === 0) return { requested: 0, reprocessed: 0, failed: [], remaining: 0 };
 
@@ -150,7 +152,7 @@ export class DocumentsService {
     let reprocessed = 0;
     for (const docId of ids) {
       try {
-        await this.reprocess(docId);
+        await this.reprocess(principal, docId);
         reprocessed += 1;
       } catch (error: unknown) {
         if (error instanceof PaperlessAuthError) throw error;
@@ -168,8 +170,8 @@ export class DocumentsService {
     };
   }
 
-  async dismissDuplicate(docId: number): Promise<DocIdResponse> {
-    const gateway = this.gateway();
+  async dismissDuplicate(principal: Principal, docId: number): Promise<DocIdResponse> {
+    const gateway = await this.gateway(principal);
     await gateway.ensureTag("ai-duplicate-dismissed");
     await gateway.swapLifecycleTag(docId, {
       remove: ["ai-duplicate"],
@@ -178,16 +180,16 @@ export class DocumentsService {
     return { doc_id: docId };
   }
 
-  async star(docId: number): Promise<DocIdResponse> {
-    const gateway = this.gateway();
+  async star(principal: Principal, docId: number): Promise<DocIdResponse> {
+    const gateway = await this.gateway(principal);
     await gateway.ensureTag("wichtig");
     await gateway.swapLifecycleTag(docId, { remove: [], add: ["wichtig"] });
     await this.autoTagger.ping(docId, { trigger: "reindex-metadata" });
     return { doc_id: docId };
   }
 
-  async unstar(docId: number): Promise<DocIdResponse> {
-    await this.gateway().swapLifecycleTag(docId, { remove: ["wichtig"], add: [] });
+  async unstar(principal: Principal, docId: number): Promise<DocIdResponse> {
+    await (await this.gateway(principal)).swapLifecycleTag(docId, { remove: ["wichtig"], add: [] });
     await this.autoTagger.ping(docId, { trigger: "reindex-metadata" });
     return { doc_id: docId };
   }
@@ -203,13 +205,13 @@ export class DocumentsService {
     };
   }
 
-  async inFlightCount(): Promise<InFlightCount> {
+  async inFlightCount(principal: Principal): Promise<InFlightCount> {
     const now = Date.now() / 1000;
     const cached = this.inFlightCache;
     if (cached !== null && now - cached.when <= IN_FLIGHT_CACHE_TTL_SECONDS) {
       return { count: cached.count };
     }
-    const gateway = this.gateway();
+    const gateway = await this.gateway(principal);
     const tags = await gateway.listTags();
     const flightIds = IN_FLIGHT_TAGS.map((name) => tags[name]).filter(
       (id): id is number => id !== undefined,
@@ -227,8 +229,8 @@ export class DocumentsService {
     return { count };
   }
 
-  async taskStatus(taskId: string): Promise<TaskStatusResponse> {
-    const payload = await this.gateway().getTasks(taskId);
+  async taskStatus(principal: Principal, taskId: string): Promise<TaskStatusResponse> {
+    const payload = await (await this.gateway(principal)).getTasks(taskId);
     const rows = Array.isArray(payload) ? (payload as Record<string, unknown>[]) : [];
     const row = rows[0];
     if (row === undefined) return { task_id: taskId, status: "UNKNOWN" };
@@ -240,8 +242,8 @@ export class DocumentsService {
     };
   }
 
-  async documentStatus(docId: number): Promise<DocumentStatusResponse> {
-    const gateway = this.gateway();
+  async documentStatus(principal: Principal, docId: number): Promise<DocumentStatusResponse> {
+    const gateway = await this.gateway(principal);
     const doc: PaperlessDocument = await gateway.getDocument(docId);
     const tags = await gateway.listTagsCovering(collectTagIds([doc]));
     const tagIdToName = new Map(Object.entries(tags).map(([name, id]) => [id, name]));
@@ -253,13 +255,13 @@ export class DocumentsService {
     return { id: docId, lifecycle_tags: lifecycle };
   }
 
-  async duplicateCandidates(docId: number): Promise<{
+  async duplicateCandidates(principal: Principal, docId: number): Promise<{
     doc_id: number;
     rawCandidates: PaperlessDocument[];
     matchedIds: Set<number>;
     fieldIdToName: Map<number, string>;
   }> {
-    const gateway = this.gateway();
+    const gateway = await this.gateway(principal);
     const target = await gateway.getDocument(docId);
     const tags = await gateway.listTags();
     const propagatedId = tags["ai-propagated"];

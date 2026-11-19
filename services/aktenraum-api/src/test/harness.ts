@@ -10,7 +10,7 @@ import { createCsrfMiddleware, securityHeadersMiddleware } from "../common/middl
 import { SETTINGS, loadSettings, type Settings } from "../config/settings.js";
 import { DB, DB_POOL, type Database } from "../db/db.module.js";
 import * as schema from "../db/schema.js";
-import { PAPERLESS_GATEWAY } from "../paperless/paperless.module.js";
+import { PAPERLESS_GATEWAY, PAPERLESS_GATEWAY_FACTORY } from "../paperless/paperless.module.js";
 import type { PaperlessGateway } from "../paperless/paperless.gateway.js";
 import type { LLMBackend } from "@aktenraum/core";
 
@@ -196,7 +196,14 @@ export async function createHarness(options: {
     .overrideProvider(RETRIEVAL_DEPS)
     .useValue(options.retrieval ?? null)
     .overrideProvider(PAPERLESS_GATEWAY)
-    .useValue(options.gateway === undefined ? null : options.gateway);
+    .useValue(options.gateway === undefined ? null : options.gateway)
+    // Member tokens: a FakeGateway hands out per-token views; anything else
+    // (partial stubs) serves members with the same object.
+    .overrideProvider(PAPERLESS_GATEWAY_FACTORY)
+    .useValue((token: string) => {
+      const gateway = options.gateway as { forToken?: (t: string) => unknown } | null | undefined;
+      return typeof gateway?.forToken === "function" ? gateway.forToken(token) : gateway;
+    });
   const llm = options.llm;
   if (llm !== undefined) {
     builder = builder.overrideProvider(LlmBackendProvider).useValue({

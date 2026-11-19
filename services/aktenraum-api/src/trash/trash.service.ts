@@ -1,10 +1,11 @@
 import { logger, type QdrantVectorStore } from "@aktenraum/core";
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { MemberGateways } from "../tenancy/member-gateways.js";
+import type { Principal } from "../auth/principal.js";
 
 import { customFieldValues, parseDate } from "../inbox/inbox.service.js";
 import { PaperlessNotFoundError } from "../paperless/errors.js";
 import type { PaperlessDocument, PaperlessGateway } from "../paperless/paperless.gateway.js";
-import { PaperlessGatewayProvider } from "../paperless/paperless.module.js";
 import { VECTOR_STORE } from "../rag/rag.module.js";
 import type { EmptyTrashResponse, TrashItem, TrashList } from "./trash.schemas.js";
 
@@ -28,20 +29,21 @@ export function parseDateTime(value: unknown): string | null {
 @Injectable()
 export class TrashService {
   constructor(
-    private readonly gatewayProvider: PaperlessGatewayProvider,
+    private readonly gateways: MemberGateways,
     @Inject(VECTOR_STORE) private readonly vectorStore: QdrantVectorStore | null,
   ) {}
 
-  private gateway(): PaperlessGateway {
-    return this.gatewayProvider.require();
+  /** The member's own Paperless gateway (service gateway for the worker). */
+  private gateway(principal: Principal): Promise<PaperlessGateway> {
+    return this.gateways.forPrincipal(principal);
   }
 
-  async listTrashed(options: {
+  async listTrashed(principal: Principal, options: {
     page: number;
     pageSize: number;
     ordering?: string;
   }): Promise<TrashList> {
-    const gateway = this.gateway();
+    const gateway = await this.gateway(principal);
     const payload = await gateway.listTrashedDocuments({
       page: options.page,
       pageSize: options.pageSize,
@@ -66,12 +68,14 @@ export class TrashService {
     };
   }
 
-  async restore(docId: number): Promise<void> {
-    await this.notInTrashOnMissing(docId, () => this.gateway().restoreDocuments([docId]));
+  async restore(principal: Principal, docId: number): Promise<void> {
+    const gateway = await this.gateway(principal);
+    await this.notInTrashOnMissing(docId, () => gateway.restoreDocuments([docId]));
   }
 
-  async deleteForever(docId: number): Promise<void> {
-    await this.notInTrashOnMissing(docId, () => this.gateway().emptyTrash([docId]));
+  async deleteForever(principal: Principal, docId: number): Promise<void> {
+    const gateway = await this.gateway(principal);
+    await this.notInTrashOnMissing(docId, () => gateway.emptyTrash([docId]));
     await this.purgeChunks([docId]);
   }
 
@@ -86,16 +90,16 @@ export class TrashService {
     }
   }
 
-  async empty(): Promise<EmptyTrashResponse> {
-    const ids = await this.listAllTrashedIds();
+  async empty(principal: Principal): Promise<EmptyTrashResponse> {
+    const ids = await this.listAllTrashedIds(principal);
     if (ids.length === 0) return { emptied: 0 };
-    await this.gateway().emptyTrash(ids);
+    await (await this.gateway(principal)).emptyTrash(ids);
     await this.purgeChunks(ids);
     return { emptied: ids.length };
   }
 
-  private async listAllTrashedIds(): Promise<number[]> {
-    const gateway = this.gateway();
+  private async listAllTrashedIds(principal: Principal): Promise<number[]> {
+    const gateway = await this.gateway(principal);
     const ids: number[] = [];
     let page = 1;
     for (;;) {

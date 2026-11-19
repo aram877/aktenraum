@@ -8,7 +8,14 @@ import { FakeGateway } from "./fake-gateway.js";
 import { createHarness, type Harness } from "./harness.js";
 
 /** Routes that are public on purpose. Anything else without a guard fails. */
-const PUBLIC_ROUTES = new Set(["POST /auth/login", "POST /auth/logout", "GET /health"]);
+const PUBLIC_ROUTES = new Set([
+  "POST /auth/login",
+  "POST /auth/logout",
+  "GET /health",
+  // Invite links: the invitee has no session yet (throttled, uniform 404).
+  "GET /invites/:token",
+  "POST /invites/:token/redeem",
+]);
 
 const VERBS: Record<number, string> = { 0: "GET", 1: "POST", 2: "PUT", 3: "DELETE", 4: "PATCH" };
 

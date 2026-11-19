@@ -8,6 +8,7 @@ import { DbModule } from "./db/db.module.js";
 import { DocumentsModule } from "./documents/documents.module.js";
 import { EventsModule } from "./events/events.module.js";
 import { HealthModule } from "./health/health.module.js";
+import { HouseholdModule } from "./household/household.module.js";
 import { InboxModule } from "./inbox/inbox.module.js";
 import { IngestModule } from "./ingest/ingest.module.js";
 import { LibraryModule } from "./library/library.module.js";
@@ -31,6 +32,7 @@ import { UploadModule } from "./upload/upload.module.js";
     AuthModule,
     TenancyModule,
     TenancyApiModule,
+    HouseholdModule,
     SettingsModule,
     AiModule,
     DocumentsModule,

@@ -7,7 +7,9 @@ import { eq } from "drizzle-orm";
 import { SETTINGS, type Settings } from "../config/settings.js";
 import { DB, type Database } from "../db/db.module.js";
 import { users } from "../db/schema.js";
-import { verifyToken } from "./jwt.js";
+import type { Response } from "express";
+
+import { createToken, verifyToken } from "./jwt.js";
 import { hashPassword, verifyPassword } from "./passwords.js";
 
 let timingDummyHash: Promise<string> | null = null;
@@ -92,6 +94,22 @@ export class AuthService implements OnModuleInit {
     if (user === null) return null;
     if (passwordFingerprint(user.passwordHash) !== claims.fingerprint) return null;
     return user;
+  }
+
+  /** Sets the session cookie for `user` — login and invite redemption share it. */
+  issueSession(response: Response, user: AuthUser): void {
+    const token = createToken(user.id, {
+      secret: this.settings.JWT_SECRET,
+      expiresSeconds: this.settings.JWT_EXPIRES_SECONDS,
+      fingerprint: passwordFingerprint(user.passwordHash),
+    });
+    response.cookie(this.settings.COOKIE_NAME, token, {
+      httpOnly: true,
+      secure: this.settings.COOKIE_SECURE,
+      sameSite: "lax",
+      path: "/",
+      maxAge: this.settings.JWT_EXPIRES_SECONDS * 1000,
+    });
   }
 
   async setPassword(userId: number, newPassword: string): Promise<void> {

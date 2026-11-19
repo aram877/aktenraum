@@ -14,10 +14,10 @@
 
 ## 3. Invites + members
 
-- [ ] 3.1 `household/` module: create / list / revoke invites, list members (`household:admin`)
-- [ ] 3.2 Public `GET /api/invites/:token` + `POST /api/invites/:token/redeem` (uniform 404, `InviteThrottle`, conditional redeem, provisioning, session cookie); route-inventory allowlist
-- [ ] 3.3 `/auth/me` returns `household_role`
-- [ ] 3.4 Tests: create/list/revoke/expiry/single use/concurrent redeem/username taken/throttle/non-admin 403/provisioning failure still logs in
+- [x] 3.1 `household/` module: create / list / revoke invites, list members (`household:admin`)
+- [x] 3.2 Public `GET /api/invites/:token` + `POST /api/invites/:token/redeem` (uniform 404, `InviteThrottle`, conditional redeem, provisioning, session cookie); route-inventory allowlist
+- [x] 3.3 `/auth/me` returns `household_role`
+- [x] 3.4 Tests: create/list/revoke/expiry/single use/concurrent redeem/username taken/throttle/non-admin 403/provisioning failure still logs in
 
 ## 4. Web
 

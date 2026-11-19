@@ -26,9 +26,8 @@ import {
   type LoginRequest,
   type UserResponse,
 } from "./auth.schemas.js";
-import { AuthService, passwordFingerprint } from "./auth.service.js";
+import { AuthService } from "./auth.service.js";
 import { LoginThrottle } from "./login-throttle.js";
-import { createToken } from "./jwt.js";
 import { verifyPassword } from "./passwords.js";
 import { CurrentPrincipal, RequireScope, type MemberPrincipal, type Principal } from "./principal.js";
 
@@ -73,15 +72,7 @@ export class AuthController {
       throw new UnauthorizedException("Invalid credentials");
     }
     this.throttle.reset(key);
-    const token = createToken(user.id, {
-      secret: this.settings.JWT_SECRET,
-      expiresSeconds: this.settings.JWT_EXPIRES_SECONDS,
-      fingerprint: passwordFingerprint(user.passwordHash),
-    });
-    response.cookie(this.settings.COOKIE_NAME, token, {
-      ...this.cookieOptions(),
-      maxAge: this.settings.JWT_EXPIRES_SECONDS * 1000,
-    });
+    this.authService.issueSession(response, user);
     return { username: user.username };
   }
 
@@ -95,7 +86,8 @@ export class AuthController {
   @UseGuards(AuthGuard)
   @RequireScope()
   me(@CurrentPrincipal() principal: Principal): UserResponse {
-    return { username: memberOf(principal).username };
+    const member = memberOf(principal);
+    return { username: member.username, household_role: member.householdRole };
   }
 
   @Post("change-password")

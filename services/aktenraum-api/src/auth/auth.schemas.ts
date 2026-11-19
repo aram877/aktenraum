@@ -14,4 +14,6 @@ export type ChangePasswordRequest = z.infer<typeof changePasswordRequestSchema>;
 
 export interface UserResponse {
   username: string;
+  /** Present on `/auth/me`; the SPA shows household management only to `admin`. */
+  household_role?: "admin" | "member";
 }

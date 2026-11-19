@@ -78,7 +78,7 @@ describe("auth routes", () => {
     await agent.post("/api/auth/login").send({ username: "admin", password: "correct-horse" });
     const authenticated = await agent.get("/api/auth/me");
     expect(authenticated.status).toBe(200);
-    expect(authenticated.body).toEqual({ username: "admin" });
+    expect(authenticated.body).toEqual({ username: "admin", household_role: "admin" });
   });
 
   it("rejects a session cookie signed with a different secret", async () => {

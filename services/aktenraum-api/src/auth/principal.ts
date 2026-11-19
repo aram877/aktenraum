@@ -49,7 +49,11 @@ export const WORKER_SCOPES: ReadonlySet<Scope> = new Set<Scope>(INTERNAL_SCOPES)
 
 export interface MemberPrincipal {
   readonly kind: "member";
+  /** `members.id` — what policy, spaces and shares key on. */
   readonly memberId: number;
+  /** `users.id` — only for credential code (login, change password). */
+  readonly userId: number;
+  readonly householdId: number;
   readonly username: string;
   readonly householdRole: HouseholdRole;
   readonly scopes: ReadonlySet<Scope>;

@@ -9,6 +9,7 @@ import { Reflector } from "@nestjs/core";
 
 import { SETTINGS, type Settings } from "../config/settings.js";
 import { PolicyService } from "../policy/policy.service.js";
+import { TenancyService } from "../tenancy/tenancy.service.js";
 import { AuthService } from "./auth.service.js";
 import {
   type MemberPrincipal,
@@ -27,6 +28,7 @@ export class AuthGuard implements CanActivate {
     private readonly authService: AuthService,
     private readonly reflector: Reflector,
     private readonly policy: PolicyService,
+    private readonly tenancy: TenancyService,
     @Inject(SETTINGS) private readonly settings: Settings,
   ) {}
 
@@ -40,13 +42,19 @@ export class AuthGuard implements CanActivate {
     if (user === null) {
       throw new UnauthorizedException("Invalid session");
     }
-    // Until ADR-009 step 3 adds members, every user is the household admin.
+    // The JWT carries users.id; tenancy decides who that is in the household.
+    const member = await this.tenancy.resolveMember(user.id);
+    if (member === null) {
+      throw new UnauthorizedException("Invalid session");
+    }
     const principal: MemberPrincipal = {
       kind: "member",
-      memberId: user.id,
+      memberId: member.id,
+      userId: user.id,
+      householdId: member.householdId,
       username: user.username,
-      householdRole: "admin",
-      scopes: memberScopes("admin"),
+      householdRole: member.role,
+      scopes: memberScopes(member.role),
       sessionId: null,
       authTime: null,
       clientId: "spa",

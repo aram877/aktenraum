@@ -56,10 +56,11 @@ export async function reconcileTenancy(db: Database): Promise<TenancyReconcileRe
     .select({ id: users.id })
     .from(users)
     .orderBy(asc(users.id));
+  // One household per install (ADR-009): every member counts, whatever its
+  // household_id, so a user is never given a second member row.
   const existingMembers = await db
     .select({ id: members.id, userId: members.userId, role: members.role })
-    .from(members)
-    .where(eq(members.householdId, householdId));
+    .from(members);
   const memberByUser = new Map(existingMembers.map((m) => [m.userId, m.id]));
   let hasAdmin = existingMembers.some((m) => m.role === "admin");
 

@@ -4,6 +4,7 @@ import { Reflector } from "@nestjs/core";
 import { describe, expect, it } from "vitest";
 
 import { PolicyService } from "../policy/policy.service.js";
+import type { DocumentSpaceAccess, TenancyLookup } from "../tenancy/tenancy.service.js";
 import {
   DOCUMENT_ACCESS,
   MEMBER_SCOPES,
@@ -20,6 +21,8 @@ function member(scopes: Iterable<Scope> = memberScopes("admin")): MemberPrincipa
   return {
     kind: "member",
     memberId: 1,
+    userId: 1,
+    householdId: 1,
     username: "admin",
     householdRole: "admin",
     scopes: new Set(scopes),
@@ -43,7 +46,12 @@ function route(meta: { scopes?: Scope[]; action?: string }, params: Record<strin
 }
 
 const reflector = new Reflector();
-const policy = new PolicyService();
+/** Document 7 has no home space yet; everything else lives in member 1's space. */
+const lookup: TenancyLookup = {
+  documentAccess: async (docId: number): Promise<DocumentSpaceAccess> =>
+    docId === 7 ? { assigned: false } : { assigned: true, spaceId: 1, role: "owner" },
+};
+const policy = new PolicyService(lookup);
 const run = (principal: Principal, context: ExecutionContext) =>
   authorize(context, principal, reflector, policy);
 
@@ -106,22 +114,8 @@ describe("authorize", () => {
     await expect(run(workerPrincipal(), write)).resolves.toBeUndefined();
   });
 
-  it("allows members on document routes until tenancy exists", async () => {
+  it("lets the household admin act on a document without a home space", async () => {
     const context = route({ scopes: ["documents:delete"], action: "delete" }, { doc_id: "7" });
     await expect(run(member(), context)).resolves.toBeUndefined();
-  });
-});
-
-describe("PolicyService", () => {
-  it("allows every action for a member", async () => {
-    for (const action of ["read", "write", "delete"] as const) {
-      expect(await policy.canAccessDocument(member(), 1, action)).toBe(true);
-    }
-  });
-
-  it("allows the worker to write but not to read or delete", async () => {
-    expect(await policy.canAccessDocument(workerPrincipal(), 1, "write")).toBe(true);
-    expect(await policy.canAccessDocument(workerPrincipal(), 1, "read")).toBe(false);
-    expect(await policy.canAccessDocument(workerPrincipal(), 1, "delete")).toBe(false);
   });
 });

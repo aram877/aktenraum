@@ -10,9 +10,9 @@
 
 ## 2. Principal + policy
 
-- [ ] 2.1 `MemberPrincipal`: `memberId` = `members.id`, add `userId`, `householdId`; guard resolves the member from the JWT's `users.id`; `change-password` uses `userId`
-- [ ] 2.2 `PolicyService`: space membership + role → action; no home space → admin only; service principals by scope
-- [ ] 2.3 Tests: policy matrix (viewer/editor/owner × read/write/delete, no home space, service)
+- [x] 2.1 `MemberPrincipal`: `memberId` = `members.id`, add `userId`, `householdId`; guard resolves the member from the JWT's `users.id`; `change-password` uses `userId`
+- [x] 2.2 `PolicyService`: space membership + role → action; no home space → admin only; service principals by scope
+- [x] 2.3 Tests: policy matrix (viewer/editor/owner × read/write/delete, no home space, service)
 
 ## 3. Paperless mapping
 

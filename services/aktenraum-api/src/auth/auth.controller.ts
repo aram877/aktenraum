@@ -108,7 +108,7 @@ export class AuthController {
     @Res({ passthrough: true }) response: Response,
   ): Promise<void> {
     // The principal carries no secrets; the current hash comes from the database.
-    const user = await this.authService.findById(memberOf(principal).memberId);
+    const user = await this.authService.findById(memberOf(principal).userId);
     if (user === null || !(await verifyPassword(body.current_password, user.passwordHash))) {
       throw new UnauthorizedException("Current password is incorrect");
     }

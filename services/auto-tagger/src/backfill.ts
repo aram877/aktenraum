@@ -8,6 +8,7 @@ import {
 
 import { loadSettings } from "./config.js";
 import { indexDocument, type IndexingDeps } from "./indexer.js";
+import { apiSpaceLookup } from "./space-lookup.js";
 
 const PAGE_SIZE = 100;
 
@@ -30,6 +31,9 @@ export async function backfill(force: boolean): Promise<number> {
     paperless,
     vectorStore,
     embedder: new OllamaEmbedder(settings.OLLAMA_BASE_URL, settings.EMBEDDING_MODEL),
+    spaceLookup: settings.AKTENRAUM_API_URL
+      ? apiSpaceLookup(settings.AKTENRAUM_API_URL, settings.WEBHOOK_SECRET)
+      : undefined,
   };
 
   emit("started", { force, collection_ready: true });

@@ -10,6 +10,7 @@ import {
 import { formatError } from "./extract.js";
 import type { IndexJob } from "./indexer.js";
 import type { AsyncQueue } from "./queue.js";
+import { corpusScope, type SpaceLookup } from "./space-lookup.js";
 
 const DUPLICATE_CANDIDATE_CAP = 200;
 const LIFECYCLE_SET: ReadonlySet<string> = new Set(LIFECYCLE_TAGS);
@@ -59,6 +60,7 @@ export async function findDuplicateIds(
   newDoc: PaperlessDocument,
   correspondentId: number,
   aiFields: Record<string, unknown>,
+  allowedIds?: ReadonlySet<number>,
 ): Promise<number[]> {
   const dismissedId = await paperless.getTagId("ai-duplicate-dismissed");
   const newDocTags = new Set((newDoc.tags as number[] | undefined) ?? []);
@@ -71,6 +73,11 @@ export async function findDuplicateIds(
     { correspondent__id: correspondentId },
   );
   if (candidates.length === 0) return [];
+  // Never a duplicate across home spaces (ADR-009).
+  if (allowedIds !== undefined) {
+    candidates = candidates.filter((c) => allowedIds.has(c.id));
+    if (candidates.length === 0) return [];
+  }
   if (dismissedId !== null) {
     candidates = candidates.filter(
       (c) => !((c.tags as number[] | undefined) ?? []).includes(dismissedId),
@@ -100,7 +107,7 @@ export async function findDuplicateIds(
 export async function processApprovedDocument(
   doc: PaperlessDocument,
   paperless: PaperlessClient,
-  options: { indexingQueue?: AsyncQueue<IndexJob> | null } = {},
+  options: { indexingQueue?: AsyncQueue<IndexJob> | null; spaceLookup?: SpaceLookup } = {},
 ): Promise<void> {
   const docId = doc.id;
   const currentTags = (doc.tags as number[] | undefined) ?? [];
@@ -141,9 +148,15 @@ export async function processApprovedDocument(
     const propagatedId = await paperless.getOrCreateTag("ai-propagated");
 
     let duplicateIds: number[] = [];
-    if (correspondentId !== null) {
+    const scope =
+      correspondentId !== null
+        ? await corpusScope(options.spaceLookup, docId, (reason) =>
+            logger.warn("duplicate_detection_skipped", { doc_id: docId, reason }),
+          )
+        : null;
+    if (correspondentId !== null && scope !== null) {
       try {
-        duplicateIds = await findDuplicateIds(paperless, doc, correspondentId, aiFields);
+        duplicateIds = await findDuplicateIds(paperless, doc, correspondentId, aiFields, scope);
       } catch (error: unknown) {
         logger.warn("duplicate_detection_failed", {
           doc_id: docId,

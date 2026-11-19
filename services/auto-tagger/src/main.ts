@@ -14,6 +14,7 @@ import { ProcessingState } from "./processing-state.js";
 import { AsyncQueue } from "./queue.js";
 import { lifecycleTagsOn, processDocument } from "./extract.js";
 import { apiHomeSpaceAssigner } from "./home-space.js";
+import { apiSpaceLookup } from "./space-lookup.js";
 import {
   enqueueUnindexedDocuments,
   indexDocument,
@@ -48,6 +49,9 @@ export async function bootstrap(): Promise<void> {
   const homeSpaceFailures = new TransientFailureTracker();
   const assignHomeSpace = settings.AKTENRAUM_API_URL
     ? apiHomeSpaceAssigner(settings.AKTENRAUM_API_URL, settings.WEBHOOK_SECRET)
+    : undefined;
+  const spaceLookup = settings.AKTENRAUM_API_URL
+    ? apiSpaceLookup(settings.AKTENRAUM_API_URL, settings.WEBHOOK_SECRET)
     : undefined;
   const saveTypeFields = settings.AKTENRAUM_API_URL
     ? apiTypeFieldsSaver(settings.AKTENRAUM_API_URL, settings.WEBHOOK_SECRET)
@@ -109,6 +113,7 @@ export async function bootstrap(): Promise<void> {
           saveTypeFields,
           assignHomeSpace,
           homeSpaceFailures,
+          spaceLookup,
         });
       },
     }),
@@ -137,7 +142,7 @@ export async function bootstrap(): Promise<void> {
         signal: controller.signal,
         handle: async (docId) => {
           const doc = await paperless.getDocument(docId);
-          await processApprovedDocument(doc, paperless, { indexingQueue });
+          await processApprovedDocument(doc, paperless, { indexingQueue, spaceLookup });
         },
       }),
     );
@@ -169,6 +174,7 @@ export async function bootstrap(): Promise<void> {
       paperless,
       vectorStore,
       embedder: new OllamaEmbedder(settings.OLLAMA_BASE_URL, settings.EMBEDDING_MODEL),
+      spaceLookup,
     };
     loops.push(
       runQueueConsumer<IndexJob>({

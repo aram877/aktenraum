@@ -254,3 +254,25 @@ describe("shared vocabulary (owner = null on every create)", () => {
     expect(await client.getOrCreateCorrespondent("Finanzamt")).toBe(5);
   });
 });
+
+describe("getCorrespondentHistory scoped to a home space", () => {
+  it("counts only the allowed documents", async () => {
+    const client = clientWithHandler(({ url }) => {
+      if (url.pathname === "/api/tags/") return { status: 200, json: { results: [{ id: 4, name: "ai-propagated" }] } };
+      if (url.pathname === "/api/correspondents/") return { status: 200, json: { results: [{ id: 70, name: "Stadtwerke" }] } };
+      if (url.pathname === "/api/document_types/") return { status: 200, json: { results: [{ id: 80, name: "Rechnung" }, { id: 81, name: "Vertrag" }] } };
+      return {
+        status: 200,
+        json: {
+          results: [
+            { id: 1, correspondent: 70, document_type: 80, tags: [4] },
+            { id: 2, correspondent: 70, document_type: 81, tags: [4] },
+          ],
+        },
+      };
+    });
+    expect(await client.getCorrespondentHistory(200)).toEqual({ Stadtwerke: { Rechnung: 1, Vertrag: 1 } });
+    expect(await client.getCorrespondentHistory(200, new Set([1]))).toEqual({ Stadtwerke: { Rechnung: 1 } });
+    expect(await client.getCorrespondentHistory(200, new Set())).toEqual({});
+  });
+});

@@ -9,6 +9,7 @@ import { DocumentExtractionSchema, LIFECYCLE_TAGS } from "@aktenraum/core";
 
 import type { Settings } from "./config.js";
 import { HomeSpacePendingError, type AssignHomeSpace } from "./home-space.js";
+import { corpusScope, type SpaceLookup } from "./space-lookup.js";
 import { isTransientLlmError, type TransientFailureTracker } from "./transient.js";
 import { runTypeFieldsPass, type SaveTypeFields } from "./type-fields.js";
 import { routeLifecycleTags, UNTRUSTED_SOURCE_TAGS, type RuleSet } from "./routing.js";
@@ -132,6 +133,8 @@ export interface ExtractDeps {
   assignHomeSpace?: AssignHomeSpace;
   /** Separate from `transientFailures` so assignment and LLM retries don't share a budget. */
   homeSpaceFailures?: TransientFailureTracker;
+  /** Keeps few-shot examples and the history hint inside the home space. */
+  spaceLookup?: SpaceLookup;
 }
 
 /**
@@ -181,6 +184,12 @@ export async function processDocument(
   const title = typeof doc.title === "string" ? doc.title : `doc-${docId}`;
 
   if (!(await ensureHomeSpace(docId, deps))) return;
+  const wantsCorpus = settings.USE_CORRESPONDENT_HISTORY || settings.FEW_SHOT_EXAMPLES > 0;
+  const scope = wantsCorpus
+    ? await corpusScope(deps.spaceLookup, docId, (reason) =>
+        logger.warn("corpus_hints_skipped", { doc_id: docId, reason }),
+      )
+    : undefined;
 
   const content = await paperless.getDocumentContent(docId);
   if (!content.trim()) {
@@ -192,18 +201,18 @@ export async function processDocument(
   const text = truncateText(content, settings.MAX_TOKENS_INPUT);
   let systemPrompt = SYSTEM_PROMPT;
 
-  if (settings.USE_CORRESPONDENT_HISTORY) {
-    const hint = await buildHistoryHint(paperless, content);
+  if (settings.USE_CORRESPONDENT_HISTORY && scope !== null) {
+    const hint = await buildHistoryHint(paperless, content, scope);
     if (hint) {
       systemPrompt = `${systemPrompt}\n\n${hint}`;
       logger.info("history_hint_attached", { doc_id: docId, chars: hint.length });
     }
   }
 
-  if (settings.FEW_SHOT_EXAMPLES > 0) {
+  if (settings.FEW_SHOT_EXAMPLES > 0 && scope !== null) {
     let fewShot = "";
     try {
-      fewShot = await buildFewShotBlock(paperless, settings.FEW_SHOT_EXAMPLES);
+      fewShot = await buildFewShotBlock(paperless, settings.FEW_SHOT_EXAMPLES, scope);
     } catch (error: unknown) {
       logger.warn("few_shot_build_failed", {
         doc_id: docId,

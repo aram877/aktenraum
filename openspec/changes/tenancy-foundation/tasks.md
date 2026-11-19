@@ -31,10 +31,10 @@
 
 ## 5. Space-aware AI
 
-- [ ] 5.1 Core `rag/vectorStore.ts`: `space_id` + `shared_with` payload fields and keyword indexes (created on `ensureCollection` when missing)
-- [ ] 5.2 Worker indexer writes them; api retrieval filters on the principal's spaces (+ `shared_with`)
-- [ ] 5.3 Few-shot exemplars, correspondent history hint, `findDuplicateIds` and the api's duplicate-candidates endpoint scoped to the home space
-- [ ] 5.4 Tests: filter construction, cross-space duplicate not flagged, few-shot excludes other spaces
+- [x] 5.1 Core `rag/vectorStore.ts`: `space_id` + `shared_with` payload fields and keyword indexes (created on `ensureCollection` when missing)
+- [x] 5.2 Worker indexer writes them; api retrieval filters on the principal's spaces (+ `shared_with`)
+- [x] 5.3 Few-shot exemplars, correspondent history hint, `findDuplicateIds` and the api's duplicate-candidates endpoint scoped to the home space
+- [x] 5.4 Tests: filter construction, cross-space duplicate not flagged, few-shot excludes other spaces
 
 ## 6. Migration tool
 

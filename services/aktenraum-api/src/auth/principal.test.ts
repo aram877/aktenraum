@@ -70,6 +70,7 @@ describe("memberScopes", () => {
   it("gives the worker internal scopes only", () => {
     expect([...workerPrincipal().scopes].sort()).toEqual([
       "internal:settings-read",
+      "internal:tenancy-read",
       "internal:tenancy-write",
       "internal:type-fields-write",
     ]);
@@ -107,8 +108,8 @@ describe("authorize", () => {
   });
 
   it("asks the policy for document routes and hides denials as 404", async () => {
-    const read = route({ scopes: ["internal:type-fields-write"], action: "read" }, { doc_id: "42" });
-    await expect(run(workerPrincipal(), read)).rejects.toThrow(
+    const remove = route({ scopes: ["internal:type-fields-write"], action: "delete" }, { doc_id: "42" });
+    await expect(run(workerPrincipal(), remove)).rejects.toThrow(
       new NotFoundException("Document 42 not found"),
     );
     const write = route({ scopes: ["internal:type-fields-write"], action: "write" }, { doc_id: "42" });

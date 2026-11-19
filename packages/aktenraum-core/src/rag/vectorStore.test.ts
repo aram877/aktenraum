@@ -5,6 +5,7 @@ import {
   ChunkPayload,
   QdrantVectorStore,
   SearchFilter,
+  buildAccessCondition,
   buildQdrantFilter,
   payloadFromDict,
   payloadToDict,
@@ -148,7 +149,9 @@ describe("ensureCollection", () => {
     const indexedFields = new Set(
       callsOf(fake, "createPayloadIndex").map((c) => c.args["field_name"]),
     );
-    expect(indexedFields).toEqual(new Set(["doc_id", "doc_type", "correspondent", "tags"]));
+    expect(indexedFields).toEqual(
+      new Set(["doc_id", "doc_type", "correspondent", "tags", "space_id", "shared_with"]),
+    );
   });
 
   it("swallows an already-exists error from payload indexing", async () => {
@@ -433,6 +436,8 @@ describe("payload round-trip", () => {
       tags: ["Telekom", "Mobilfunk"],
       createdDate: "2024-06-15",
       page: 2,
+      spaceId: 7,
+      sharedWith: [3],
     };
     const raw = payloadToDict(p);
     const restored = payloadFromDict(raw);
@@ -473,5 +478,68 @@ describe("buildQdrantFilter", () => {
     const qfilter = buildQdrantFilter(f);
     const cond = qfilter.must[0]!;
     expect(cond.match).toEqual({ any: ["Lebenslauf", "Bewerbung"] });
+  });
+});
+
+describe("tenancy fields", () => {
+  it("reads chunks written before tenancy as unassigned", () => {
+    const restored = payloadFromDict({ doc_id: 1, text: "x" });
+    expect(restored.spaceId).toBeNull();
+    expect(restored.sharedWith).toEqual([]);
+  });
+
+  it("upsertChunks writes space_id and shared_with", async () => {
+    const fake = new FakeQdrantClient({ collectionExists: true });
+    const store = makeStore(fake);
+    await store.upsertChunks(
+      [{ index: 0, text: "a", charStart: 0, charEnd: 1, tokenCount: 1 }],
+      [[0.1]],
+      { docId: 5, space: { spaceId: 2, sharedWith: [] } },
+    );
+    const points = callsOf(fake, "upsert")[0]!.args["points"] as { payload: Record<string, unknown> }[];
+    expect(points[0]!.payload).toMatchObject({ space_id: 2, shared_with: [] });
+  });
+
+  it("a plain metadata refresh leaves the space alone; an explicit one writes it", async () => {
+    const fake = new FakeQdrantClient({ collectionExists: true });
+    const store = makeStore(fake);
+    await store.updateMetadataByDocId(5, { tags: ["a"] });
+    await store.updateMetadataByDocId(5, { tags: ["a"], space: { spaceId: 2, sharedWith: [9] } });
+    const [plain, withSpace] = callsOf(fake, "setPayload").map((c) => c.args["payload"] as Record<string, unknown>);
+    expect(plain).not.toHaveProperty("space_id");
+    expect(withSpace).toMatchObject({ space_id: 2, shared_with: [9] });
+  });
+
+  it("setSpaceByDocId writes only the tenancy fields for that document", async () => {
+    const fake = new FakeQdrantClient({ collectionExists: true });
+    const store = makeStore(fake);
+    await store.setSpaceByDocId(5, { spaceId: 2, sharedWith: [] });
+    const call = callsOf(fake, "setPayload")[0]!;
+    expect(call.args["payload"]).toEqual({ space_id: 2, shared_with: [] });
+    expect(call.args["filter"]).toEqual({ must: [{ key: "doc_id", match: { value: 5 } }] });
+  });
+
+  it("builds the access condition: own spaces, shared with me, unassigned only for the admin", () => {
+    expect(buildAccessCondition({ spaceIds: [1, 2], memberId: 4, includeUnassigned: true })).toEqual({
+      should: [
+        { key: "space_id", match: { any: [1, 2] } },
+        { key: "shared_with", match: { any: [4] } },
+        { is_empty: { key: "space_id" } },
+      ],
+    });
+    expect(buildAccessCondition({ spaceIds: [], memberId: 4, includeUnassigned: false })).toEqual({
+      should: [{ key: "shared_with", match: { any: [4] } }],
+    });
+  });
+
+  it("ANDs the access condition with the other filters", () => {
+    const filter = buildQdrantFilter({
+      docTypes: ["Rechnung"],
+      access: { spaceIds: [1], memberId: 4, includeUnassigned: false },
+    });
+    expect(filter.must).toEqual([
+      { key: "doc_type", match: { any: ["Rechnung"] } },
+      { should: [{ key: "space_id", match: { any: [1] } }, { key: "shared_with", match: { any: [4] } }] },
+    ]);
   });
 });

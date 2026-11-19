@@ -1,10 +1,12 @@
 import { LIFECYCLE_TAGS, logger, TYPE_FIELD_SCHEMA, type LLMBackend } from "@aktenraum/core";
 import { Inject, Injectable } from "@nestjs/common";
 
+import type { MemberPrincipal } from "../auth/principal.js";
 import type { PaperlessDocument, PaperlessGateway } from "../paperless/paperless.gateway.js";
 import { PaperlessGatewayProvider } from "../paperless/paperless.module.js";
 import { collectTagIds } from "../paperless/tag-ids.js";
 import { RETRIEVAL_DEPS } from "./retrieval.module.js";
+import { TenancyService } from "../tenancy/tenancy.service.js";
 import { TypeFieldsService } from "../type-fields/type-fields.service.js";
 import {
   EMPTY_FILTER,
@@ -172,6 +174,7 @@ export class AiService {
     private readonly gatewayProvider: PaperlessGatewayProvider,
     private readonly typeFields: TypeFieldsService,
     @Inject(RETRIEVAL_DEPS) private readonly retrievalDeps: RetrievalDeps | null,
+    private readonly tenancy: TenancyService,
   ) {}
 
   gateway(): PaperlessGateway {
@@ -260,12 +263,18 @@ export class AiService {
     return { ...broadened, tags: [], correspondent };
   }
 
-  async retrieveChunks(question: string, filter: SearchFilter): Promise<RetrievedChunk[]> {
+  async retrieveChunks(
+    question: string,
+    filter: SearchFilter,
+    principal: MemberPrincipal,
+  ): Promise<RetrievedChunk[]> {
     if (this.retrievalDeps === null) return [];
+    const access = await this.tenancy.searchAccess(principal);
     const vectorFilter = await this.vectorFilterFor(filter);
     const chunks = await retrieveChunksForQuestion(question, {
       deps: this.retrievalDeps,
       structuralFilter: vectorFilter,
+      access,
     });
     const constrained = vectorFilter.document_type !== null || vectorFilter.correspondent !== null;
     if (chunks.length > 0 || !constrained) return chunks;
@@ -273,7 +282,11 @@ export class AiService {
       document_type: vectorFilter.document_type,
       correspondent: vectorFilter.correspondent,
     });
-    return retrieveChunksForQuestion(question, { deps: this.retrievalDeps, structuralFilter: null });
+    return retrieveChunksForQuestion(question, {
+      deps: this.retrievalDeps,
+      structuralFilter: null,
+      access,
+    });
   }
 
   async enrichWithAiFields(results: DocumentSummary[]): Promise<AnswerCandidate[]> {

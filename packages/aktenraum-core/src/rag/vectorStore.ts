@@ -43,6 +43,11 @@ const INDEXED_PAYLOAD_FIELDS: Record<string, "integer" | "keyword"> = {
   doc_type: "keyword",
   correspondent: "keyword",
   tags: "keyword",
+  // Tenancy (ADR-009): the document's home space and the members it is
+  // shared with. Created on ensureCollection when missing, so existing
+  // collections pick them up on the next start.
+  space_id: "integer",
+  shared_with: "integer",
 };
 
 /**
@@ -62,6 +67,27 @@ export interface ChunkPayload {
   readonly tags: readonly string[];
   readonly createdDate: string | null; // ISO date (YYYY-MM-DD), null if unknown
   readonly page: number | null;
+  /** Home space of the document; null = not assigned yet (household admin only). */
+  readonly spaceId: number | null;
+  /** Member ids the document is shared with (empty until tenancy-sharing). */
+  readonly sharedWith: readonly number[];
+}
+
+/** The tenancy fields of a chunk payload. */
+export interface ChunkSpace {
+  spaceId: number | null;
+  sharedWith: readonly number[];
+}
+
+/**
+ * Who is searching: chunks match when their space is one of `spaceIds`, or
+ * they are shared with `memberId`, or — for the household admin only — they
+ * have no space yet (mirrors the document policy for unassigned documents).
+ */
+export interface SearchAccess {
+  spaceIds: readonly number[];
+  memberId: number;
+  includeUnassigned: boolean;
 }
 
 /** One result returned by QdrantVectorStore.search. Frozen — search results
@@ -83,6 +109,8 @@ export interface SearchFilter {
   correspondents?: readonly string[];
   tags?: readonly string[];
   docIds?: readonly number[];
+  /** Tenancy restriction; omitted = no restriction (worker / service use only). */
+  access?: SearchAccess;
 }
 
 export interface QdrantVectorStoreOptions {
@@ -181,6 +209,7 @@ export class QdrantVectorStore {
       correspondent?: string | null;
       tags?: readonly string[];
       createdDate?: string | null;
+      space?: ChunkSpace;
     },
   ): Promise<number> {
     if (chunks.length !== embeddings.length) {
@@ -203,6 +232,8 @@ export class QdrantVectorStore {
         tags: options.tags ?? [],
         createdDate: options.createdDate ?? null,
         page: null,
+        spaceId: options.space?.spaceId ?? null,
+        sharedWith: options.space?.sharedWith ?? [],
       };
       return {
         id: pointId(options.docId, chunk.index),
@@ -248,16 +279,32 @@ export class QdrantVectorStore {
       correspondent?: string | null;
       tags?: readonly string[];
       createdDate?: string | null;
+      /** Only written when given — a plain metadata refresh never touches the space. */
+      space?: ChunkSpace;
     } = {},
   ): Promise<void> {
-    const payload = {
+    const payload: Record<string, unknown> = {
       doc_type: options.docType ?? null,
       correspondent: options.correspondent ?? null,
       tags: [...(options.tags ?? [])],
       created_date: options.createdDate ?? null,
     };
+    if (options.space !== undefined) Object.assign(payload, spaceToDict(options.space));
     await this.client.setPayload(this.collectionName, {
       payload,
+      filter: { must: [{ key: "doc_id", match: { value: docId } }] },
+      wait: true,
+    });
+  }
+
+  /**
+   * Write only the tenancy fields of every chunk of `docId` (set_payload
+   * merges, nothing else changes, no re-embedding). Used by the tenancy
+   * migration's backfill. No-op when the document has no chunks.
+   */
+  async setSpaceByDocId(docId: number, space: ChunkSpace): Promise<void> {
+    await this.client.setPayload(this.collectionName, {
+      payload: spaceToDict(space),
       filter: { must: [{ key: "doc_id", match: { value: docId } }] },
       wait: true,
     });
@@ -345,6 +392,7 @@ export function payloadToDict(payload: ChunkPayload): Record<string, unknown> {
     tags: [...payload.tags],
     created_date: payload.createdDate,
     page: payload.page,
+    ...spaceToDict(payload),
   };
 }
 
@@ -364,7 +412,28 @@ export function payloadFromDict(raw: Record<string, unknown>): ChunkPayload {
     tags: Array.isArray(raw["tags"]) ? (raw["tags"] as string[]) : [],
     createdDate,
     page: (raw["page"] as number | null | undefined) ?? null,
+    spaceId: typeof raw["space_id"] === "number" ? raw["space_id"] : null,
+    sharedWith: Array.isArray(raw["shared_with"]) ? (raw["shared_with"] as number[]) : [],
   });
+}
+
+export function spaceToDict(space: ChunkSpace): { space_id: number | null; shared_with: number[] } {
+  return { space_id: space.spaceId, shared_with: [...space.sharedWith] };
+}
+
+/**
+ * The tenancy part of a Qdrant filter: one nested `should` (any of) — the
+ * caller's spaces, shared with the caller, or (admin) no space at all.
+ */
+export function buildAccessCondition(access: SearchAccess): Record<string, unknown> {
+  const should: Record<string, unknown>[] = [
+    { key: "shared_with", match: { any: [access.memberId] } },
+  ];
+  if (access.spaceIds.length > 0) {
+    should.unshift({ key: "space_id", match: { any: [...access.spaceIds] } });
+  }
+  if (access.includeUnassigned) should.push({ is_empty: { key: "space_id" } });
+  return { should };
 }
 
 /**
@@ -386,5 +455,6 @@ export function buildQdrantFilter(f: SearchFilter) {
   if (f.tags && f.tags.length > 0) {
     must.push({ key: "tags", match: { any: [...f.tags] } });
   }
+  if (f.access) must.push(buildAccessCondition(f.access));
   return { must };
 }

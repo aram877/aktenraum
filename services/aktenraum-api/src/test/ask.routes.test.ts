@@ -54,6 +54,8 @@ function payload(docId: number, text: string): ChunkPayload {
     tags: [],
     createdDate: null,
     page: null,
+    spaceId: null,
+    sharedWith: [],
   };
 }
 
@@ -214,11 +216,27 @@ describe("POST /api/ai/answer/stream", { timeout: 20_000 }, () => {
       gateway,
       filter: { correspondent: "stadtwerke münchen", tags: ["wichtig"] },
       answer: "Antwort. [Quelle: 42]",
-      retrieval: fakeRetrieval((filter) => (filter ? [] : [payload(42, "Zählerstand")]), calls),
+      retrieval: fakeRetrieval(
+        (filter) => (filter?.correspondents?.length ? [] : [payload(42, "Zählerstand")]),
+        calls,
+      ),
     });
 
     expect(calls[0]).toMatchObject({ correspondents: ["Stadtwerke München"], tags: [] });
-    expect(calls[1]).toBeUndefined();
+    // The unfiltered retry drops every structural constraint — never the tenancy one.
+    expect(Object.keys(calls[1] ?? {})).toEqual(["access"]);
     expect(calls).toHaveLength(2);
+  });
+
+  it("restricts every vector search to the caller's spaces (admin: plus unassigned chunks)", async () => {
+    const calls: (VectorFilter | undefined)[] = [];
+    await ask({
+      gateway: new FakeGateway({ docs: [makeDoc({ id: 42 })] }),
+      filter: {},
+      answer: "Antwort. [Quelle: 42]",
+      retrieval: fakeRetrieval(() => [payload(42, "Zählerstand")], calls),
+    });
+
+    expect(calls[0]?.access).toEqual({ spaceIds: [1], memberId: 1, includeUnassigned: true });
   });
 });

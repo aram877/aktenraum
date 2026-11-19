@@ -1,17 +1,59 @@
-import { Body, Controller, HttpCode, HttpStatus, Post, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseIntPipe,
+  Post,
+  UseGuards,
+} from "@nestjs/common";
 import { z } from "zod";
 
 import { InternalGuard } from "../auth/internal.guard.js";
-import { RequireScope } from "../auth/principal.js";
+import { DocumentAccess, RequireScope } from "../auth/principal.js";
 import { ZodValidationPipe } from "../common/zod-validation.pipe.js";
 import { HomeSpaceService, type HomeSpaceAssignment } from "./home-space.service.js";
+import { TenancyService } from "./tenancy.service.js";
+
+export interface DocumentSpaceResponse {
+  document_id: number;
+  /** null = no home space yet. */
+  space_id: number | null;
+  /** Member ids the document is shared with (always empty until tenancy-sharing). */
+  shared_with: number[];
+  /** Every document of the same home space (empty when unassigned). */
+  space_document_ids: number[];
+}
 
 const assignHomeSpaceSchema = z.object({ document_id: z.number().int().positive() });
 type AssignHomeSpaceRequest = z.infer<typeof assignHomeSpaceSchema>;
 
 @Controller("tenancy")
 export class TenancyController {
-  constructor(private readonly homeSpaces: HomeSpaceService) {}
+  constructor(
+    private readonly homeSpaces: HomeSpaceService,
+    private readonly tenancy: TenancyService,
+  ) {}
+
+  /**
+   * Worker → api: the home space of a document and its space peers, for the
+   * Qdrant payload and for scoping few-shot / history / duplicates.
+   */
+  @Get("documents/:doc_id/space")
+  @RequireScope("internal:tenancy-read")
+  @DocumentAccess("read")
+  @UseGuards(InternalGuard)
+  async documentSpace(@Param("doc_id", ParseIntPipe) docId: number): Promise<DocumentSpaceResponse> {
+    const spaceId = await this.tenancy.homeSpaceOf(docId);
+    return {
+      document_id: docId,
+      space_id: spaceId,
+      shared_with: [],
+      space_document_ids: spaceId === null ? [] : await this.tenancy.spaceDocumentIds(spaceId),
+    };
+  }
 
   /**
    * Worker → api, before extraction: give the document its home space and

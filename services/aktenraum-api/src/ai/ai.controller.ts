@@ -2,6 +2,7 @@ import { logger } from "@aktenraum/core";
 import {
   Body,
   Controller,
+  ForbiddenException,
   HttpCode,
   HttpStatus,
   Post,
@@ -11,7 +12,12 @@ import {
 import type { Response } from "express";
 
 import { AuthGuard } from "../auth/auth.guard.js";
-import { RequireScope } from "../auth/principal.js";
+import {
+  CurrentPrincipal,
+  RequireScope,
+  type MemberPrincipal,
+  type Principal,
+} from "../auth/principal.js";
 import { ZodValidationPipe } from "../common/zod-validation.pipe.js";
 import {
   answerOutputSchema,
@@ -79,15 +85,17 @@ export class AiController {
   @RequireScope("ai:ask")
   async answerStream(
     @Body(new ZodValidationPipe(answerRequestSchema)) body: AnswerRequest,
+    @CurrentPrincipal() principal: Principal,
     @Res() response: Response,
   ): Promise<void> {
+    if (principal.kind !== "member") throw new ForbiddenException("Members only");
     response.setHeader("Content-Type", "text/event-stream");
     response.setHeader("Cache-Control", "no-cache");
     response.setHeader("X-Accel-Buffering", "no");
     response.flushHeaders();
 
     try {
-      await this.streamAnswerEvents(body, response);
+      await this.streamAnswerEvents(body, principal, response);
     } catch (error: unknown) {
       logger.warn("ai_answer_stream_fatal", {
         error: error instanceof Error ? error.message : String(error),
@@ -98,7 +106,11 @@ export class AiController {
     }
   }
 
-  private async streamAnswerEvents(body: AnswerRequest, response: Response): Promise<void> {
+  private async streamAnswerEvents(
+    body: AnswerRequest,
+    principal: MemberPrincipal,
+    response: Response,
+  ): Promise<void> {
     const llm = await this.llmBackends.build("filter");
     const answerLlm = await this.llmBackends.build("answer");
 
@@ -124,7 +136,7 @@ export class AiController {
       total,
     });
 
-    const ragChunks = await this.aiService.retrieveChunks(body.question, searchFilter);
+    const ragChunks = await this.aiService.retrieveChunks(body.question, searchFilter, principal);
     if (results.length === 0 && ragChunks.length === 0) {
       sse(response, "chunk", { text: NO_MATCH_DE });
       sse(response, "final", { answer_de: NO_MATCH_DE, citations: [], total: 0 });

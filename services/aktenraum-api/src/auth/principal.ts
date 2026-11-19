@@ -32,6 +32,7 @@ export const INTERNAL_SCOPES = [
   "internal:settings-read",
   "internal:type-fields-write",
   "internal:tenancy-write",
+  "internal:tenancy-read",
 ] as const;
 
 export type MemberScope = (typeof MEMBER_SCOPES)[number];
@@ -48,7 +49,7 @@ export function memberScopes(role: HouseholdRole): ReadonlySet<Scope> {
   );
 }
 
-/** The worker reads its settings, writes type fields and assigns home spaces — nothing else. */
+/** The worker reads its settings, writes type fields, assigns and reads home spaces — nothing else. */
 export const WORKER_SCOPES: ReadonlySet<Scope> = new Set<Scope>(INTERNAL_SCOPES);
 
 export interface MemberPrincipal {

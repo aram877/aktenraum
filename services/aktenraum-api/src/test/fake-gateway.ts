@@ -31,6 +31,7 @@ export const CUSTOM_FIELDS: Record<string, number> = {
   ai_confidence: 14,
   ai_summary_de: 15,
   ai_error_message: 16,
+  ai_reference_numbers: 17,
 };
 
 export const CORRESPONDENTS: Record<string, number> = { "Stadtwerke München": 70 };

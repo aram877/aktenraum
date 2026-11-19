@@ -69,12 +69,20 @@ describe("PolicyService matrix", () => {
     }
   });
 
-  it("gives the worker write only, regardless of spaces", async () => {
+  it("gives the worker write (type fields) and read (home space), never delete, regardless of spaces", async () => {
     for (const access of [{ assigned: false } as const, { assigned: true, spaceId: 1, role: null } as const]) {
       const policy = policyWith(access);
       expect(await policy.canAccessDocument(workerPrincipal(), 1, "write")).toBe(true);
-      expect(await policy.canAccessDocument(workerPrincipal(), 1, "read")).toBe(false);
+      expect(await policy.canAccessDocument(workerPrincipal(), 1, "read")).toBe(true);
       expect(await policy.canAccessDocument(workerPrincipal(), 1, "delete")).toBe(false);
+    }
+  });
+
+  it("a service principal without the scope gets nothing", async () => {
+    const policy = policyWith({ assigned: false });
+    const bare = { kind: "service" as const, service: "worker" as const, scopes: new Set<never>() };
+    for (const action of ACTIONS) {
+      expect(await policy.canAccessDocument(bare, 1, action)).toBe(false);
     }
   });
 });

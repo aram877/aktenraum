@@ -23,8 +23,8 @@ export function spaceRoleAllows(role: SpaceRole, action: DocumentAction): boolea
  * of the member's spaces and the space role permits the action. A document
  * without a home space yet (it arrived between deploy and assignment) is
  * visible to the household admin only. Shares join here with `tenancy-sharing`.
- * Service principals get exactly what their scopes grant: the worker may only
- * write (type fields).
+ * Service principals get exactly what their scopes grant: the worker may write
+ * (type fields) and read the home space of a document — never delete.
  */
 @Injectable()
 export class PolicyService {
@@ -36,7 +36,9 @@ export class PolicyService {
     action: DocumentAction,
   ): Promise<boolean> {
     if (principal.kind === "service") {
-      return action === "write" && principal.scopes.has("internal:type-fields-write");
+      if (action === "write") return principal.scopes.has("internal:type-fields-write");
+      if (action === "read") return principal.scopes.has("internal:tenancy-read");
+      return false;
     }
     const access = await this.tenancy.documentAccess(docId, principal.memberId);
     if (!access.assigned) return principal.householdRole === "admin";

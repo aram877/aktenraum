@@ -365,8 +365,17 @@ export class PaperlessClient {
    * `sampleSize` propagated documents. Drives both the per-sender prompt
    * hint and any future analytics.
    */
-  async getCorrespondentHistory(sampleSize = 200): Promise<Record<string, Record<string, number>>> {
-    const docs = await this.getDocumentsWithTag("ai-propagated", sampleSize, "-modified");
+  /**
+   * `{correspondent: {document_type: count}}` over the newest propagated
+   * documents. `allowedIds` restricts it to one home space (ADR-009) — the
+   * hint must never leak what another space's documents are.
+   */
+  async getCorrespondentHistory(
+    sampleSize = 200,
+    allowedIds?: ReadonlySet<number>,
+  ): Promise<Record<string, Record<string, number>>> {
+    let docs = await this.getDocumentsWithTag("ai-propagated", sampleSize, "-modified");
+    if (allowedIds !== undefined) docs = docs.filter((d) => allowedIds.has(d.id));
     if (docs.length === 0) return {};
     const correspondentNames = await this.getEntityNameMap("/api/correspondents/");
     const documentTypeNames = await this.getEntityNameMap("/api/document_types/");

@@ -7,6 +7,7 @@ import { PaperlessAuthError } from "../paperless/errors.js";
 import { PaperlessGatewayProvider } from "../paperless/paperless.module.js";
 import { errorTagIds } from "../paperless/status-tags.js";
 import { collectTagIds } from "../paperless/tag-ids.js";
+import { TenancyService } from "../tenancy/tenancy.service.js";
 
 export const REPROCESS_REMOVE: string[] = [
   ...LIFECYCLE_TAGS,
@@ -110,6 +111,7 @@ export class DocumentsService {
   constructor(
     private readonly gatewayProvider: PaperlessGatewayProvider,
     private readonly autoTagger: AutoTaggerClient,
+    private readonly tenancy: TenancyService,
   ) {}
 
   private gateway(): PaperlessGateway {
@@ -285,12 +287,15 @@ export class DocumentsService {
       { tags__id__all: String(propagatedId), correspondent__id: String(correspondentId) },
       { pageSize: DUPLICATE_CANDIDATE_CAP },
     );
-    const rawCandidates = ((payload.results as PaperlessDocument[] | undefined) ?? []).filter(
+    const unscoped = ((payload.results as PaperlessDocument[] | undefined) ?? []).filter(
       (c) =>
         c.id !== docId &&
         (dismissedId === undefined ||
           !((c.tags as number[] | undefined) ?? []).includes(dismissedId)),
     );
+    // Never a duplicate across home spaces (ADR-009).
+    const sameSpace = await this.tenancy.sameSpaceAs(docId, unscoped.map((c) => c.id));
+    const rawCandidates = unscoped.filter((c) => sameSpace.has(c.id));
     if (rawCandidates.length === 0) return { ...empty, fieldIdToName };
 
     const matchedIds = new Set(

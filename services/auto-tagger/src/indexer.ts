@@ -2,6 +2,7 @@ import {
   chunkText,
   LIFECYCLE_TAGS,
   logger,
+  type ChunkSpace,
   type Embedder,
   type PaperlessClient,
   type PaperlessDocument,
@@ -9,6 +10,7 @@ import {
 } from "@aktenraum/core";
 
 import { formatError } from "./extract.js";
+import type { SpaceLookup } from "./space-lookup.js";
 
 const MAX_CHUNKS_PER_DOC = 200;
 export const INDEX_ERROR_TAG = "ai-index-error";
@@ -17,6 +19,21 @@ export interface IndexingDeps {
   paperless: PaperlessClient;
   vectorStore: QdrantVectorStore;
   embedder: Embedder;
+  /** Home space for the chunk payload (ADR-009). Unset = chunks carry no space. */
+  spaceLookup?: SpaceLookup;
+}
+
+/**
+ * The tenancy fields for a document's chunks. No home space → `spaceId: null`
+ * (only the household admin retrieves those). A failing lookup throws, so the
+ * document is marked `ai-index-error` instead of being indexed unscoped.
+ */
+async function chunkSpaceFor(docId: number, deps: IndexingDeps): Promise<ChunkSpace | undefined> {
+  if (deps.spaceLookup === undefined) return undefined;
+  const space = await deps.spaceLookup(docId);
+  return space === null
+    ? { spaceId: null, sharedWith: [] }
+    : { spaceId: space.spaceId, sharedWith: [...space.sharedWith] };
 }
 
 export interface IndexJob {
@@ -150,6 +167,7 @@ export async function indexDocument(docId: number, deps: IndexingDeps): Promise<
       return;
     }
 
+    const space = await chunkSpaceFor(docId, deps);
     const embeddings = await deps.embedder.embedDense(chunks.map((c) => c.text));
     await deps.vectorStore.deleteByDocId(docId);
     const written = await deps.vectorStore.upsertChunks(chunks, embeddings, {
@@ -158,6 +176,7 @@ export async function indexDocument(docId: number, deps: IndexingDeps): Promise<
       correspondent: meta.correspondent,
       tags: meta.tags,
       createdDate: meta.createdDate,
+      space,
     });
     logger.info("indexer_doc_indexed", {
       doc_id: docId,
@@ -196,6 +215,7 @@ export async function reindexMetadata(docId: number, deps: IndexingDeps): Promis
     correspondent: meta.correspondent,
     tags: meta.tags,
     createdDate: meta.createdDate,
+    space: await chunkSpaceFor(docId, deps),
   });
   logger.info("indexer_metadata_refreshed", { doc_id: docId, chunks: existing });
 }

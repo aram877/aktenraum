@@ -1,5 +1,6 @@
 import { Inject, Injectable, type OnApplicationBootstrap } from "@nestjs/common";
-import { and, eq } from "drizzle-orm";
+import type { SearchAccess } from "@aktenraum/core";
+import { and, eq, inArray } from "drizzle-orm";
 
 import { DB, type Database } from "../db/db.module.js";
 import {
@@ -71,6 +72,61 @@ export class TenancyService implements OnApplicationBootstrap, TenancyLookup {
       .where(and(eq(spaceMembers.spaceId, spaceId), eq(spaceMembers.memberId, memberId)))
       .limit(1);
     return { assigned: true, spaceId, role: membership[0]?.role ?? null };
+  }
+
+  async homeSpaceOf(docId: number): Promise<number | null> {
+    const rows = await this.db
+      .select({ spaceId: documentSpaces.spaceId })
+      .from(documentSpaces)
+      .where(eq(documentSpaces.paperlessDocId, docId))
+      .limit(1);
+    return rows[0]?.spaceId ?? null;
+  }
+
+  async spaceDocumentIds(spaceId: number): Promise<number[]> {
+    const rows = await this.db
+      .select({ docId: documentSpaces.paperlessDocId })
+      .from(documentSpaces)
+      .where(eq(documentSpaces.spaceId, spaceId));
+    return rows.map((r) => r.docId).sort((a, b) => a - b);
+  }
+
+  /** Spaces the member belongs to (any role). */
+  async spaceIdsOf(memberId: number): Promise<number[]> {
+    const rows = await this.db
+      .select({ spaceId: spaceMembers.spaceId })
+      .from(spaceMembers)
+      .where(eq(spaceMembers.memberId, memberId));
+    return rows.map((r) => r.spaceId).sort((a, b) => a - b);
+  }
+
+  /**
+   * What a member may retrieve from the vector index: chunks of its spaces,
+   * chunks shared with it, and — household admin only — chunks of documents
+   * without a home space yet (same rule as `PolicyService`).
+   */
+  async searchAccess(member: { memberId: number; householdRole: HouseholdRoleValue }): Promise<SearchAccess> {
+    return {
+      spaceIds: await this.spaceIdsOf(member.memberId),
+      memberId: member.memberId,
+      includeUnassigned: member.householdRole === "admin",
+    };
+  }
+
+  /**
+   * Which of `docIds` live in the same home space as `docId` — for corpus
+   * features (duplicates) that must not compare across spaces. A document
+   * without a home space is compared only with other unassigned ones.
+   */
+  async sameSpaceAs(docId: number, docIds: readonly number[]): Promise<Set<number>> {
+    if (docIds.length === 0) return new Set();
+    const home = await this.homeSpaceOf(docId);
+    const rows = await this.db
+      .select({ docId: documentSpaces.paperlessDocId, spaceId: documentSpaces.spaceId })
+      .from(documentSpaces)
+      .where(inArray(documentSpaces.paperlessDocId, [...docIds]));
+    const spaceByDoc = new Map(rows.map((r) => [r.docId, r.spaceId]));
+    return new Set(docIds.filter((id) => (spaceByDoc.get(id) ?? null) === home));
   }
 
   private async findMember(userId: number): Promise<MemberRecord | null> {

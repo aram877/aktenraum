@@ -5,6 +5,7 @@ import {
   type QdrantVectorStore,
   type RerankCandidate,
   type Reranker,
+  type SearchAccess,
   type SearchFilter as VectorSearchFilter,
 } from "@aktenraum/core";
 
@@ -60,6 +61,8 @@ export async function retrieveChunksForQuestion(
   options: {
     deps: RetrievalDeps;
     structuralFilter?: SearchFilter | null;
+    /** Tenancy restriction for member requests (ADR-009); omitted only for service use (eval). */
+    access?: SearchAccess;
     fetchTopK?: number;
     rerankTopK?: number;
   },
@@ -80,10 +83,12 @@ export async function retrieveChunksForQuestion(
   const queryVec = embeddings[0];
   if (queryVec === undefined) return [];
 
-  const qfilter =
+  const structural =
     options.structuralFilter !== null && options.structuralFilter !== undefined
       ? toVectorFilter(options.structuralFilter)
       : undefined;
+  const qfilter =
+    options.access !== undefined ? { ...(structural ?? {}), access: options.access } : structural;
 
   let hits;
   try {

@@ -173,9 +173,21 @@ function examplePayload(
   return JSON.stringify(payload, null, 2);
 }
 
-export async function buildFewShotBlock(paperless: PaperlessClient, n: number): Promise<string> {
+/**
+ * `allowedIds` keeps the examples inside the document's home space (ADR-009):
+ * an example is another document's text, so it must never cross spaces. A
+ * wider sample is fetched and filtered, since most recent documents may live
+ * elsewhere.
+ */
+export async function buildFewShotBlock(
+  paperless: PaperlessClient,
+  n: number,
+  allowedIds?: ReadonlySet<number>,
+): Promise<string> {
   if (n <= 0) return "";
-  const docs = await paperless.getDocumentsWithTag("ai-propagated", n, "-modified");
+  const sample = allowedIds === undefined ? n : Math.min(Math.max(n * 10, 50), 200);
+  let docs = await paperless.getDocumentsWithTag("ai-propagated", sample, "-modified");
+  if (allowedIds !== undefined) docs = docs.filter((d) => allowedIds.has(d.id)).slice(0, n);
   if (docs.length === 0) return "";
   const nameById = await paperless.getCustomFieldNameById();
   const correspondentNames = await paperless.getEntityNameMap("/api/correspondents/");
@@ -259,10 +271,14 @@ export function formatHistoryHint(sender: string, counts: Record<string, number>
   return `Hinweis aus früheren Dokumenten von '${sender}': bisherige Klassifikationen: ${dist}. Wähle den passendsten Typ.`;
 }
 
-export async function buildHistoryHint(paperless: PaperlessClient, text: string): Promise<string> {
+export async function buildHistoryHint(
+  paperless: PaperlessClient,
+  text: string,
+  allowedIds?: ReadonlySet<number>,
+): Promise<string> {
   let history: Record<string, Record<string, number>>;
   try {
-    history = await paperless.getCorrespondentHistory();
+    history = await paperless.getCorrespondentHistory(200, allowedIds);
   } catch (exc) {
     logger.warn("history_fetch_failed", {
       error: exc instanceof Error ? exc.message : String(exc),

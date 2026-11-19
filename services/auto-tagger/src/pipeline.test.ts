@@ -356,6 +356,105 @@ describe("indexDocument", () => {
   });
 });
 
+describe("indexDocument with tenancy", () => {
+  it("writes the home space into every chunk", async () => {
+    const paperless = new FakePaperless();
+    paperless.addDoc({ id: 1, content: "Ein Absatz mit Text." });
+    const store = fakeVectorStore(0);
+
+    await indexDocument(1, {
+      paperless: paperless.asClient(),
+      vectorStore: store as unknown as QdrantVectorStore,
+      embedder: embedder(async (texts) => texts.map(() => [0, 0, 1])),
+      spaceLookup: async () => ({ spaceId: 4, sharedWith: [], peers: new Set([1]) }),
+    });
+
+    const options = (store.upsertChunks.mock.calls[0] as unknown[])[2] as Record<string, unknown>;
+    expect(options.space).toEqual({ spaceId: 4, sharedWith: [] });
+  });
+
+  it("indexes a document without a home space as unassigned (admin-only)", async () => {
+    const paperless = new FakePaperless();
+    paperless.addDoc({ id: 1, content: "Ein Absatz mit Text." });
+    const store = fakeVectorStore(0);
+
+    await indexDocument(1, {
+      paperless: paperless.asClient(),
+      vectorStore: store as unknown as QdrantVectorStore,
+      embedder: embedder(async (texts) => texts.map(() => [0, 0, 1])),
+      spaceLookup: async () => null,
+    });
+
+    const options = (store.upsertChunks.mock.calls[0] as unknown[])[2] as Record<string, unknown>;
+    expect(options.space).toEqual({ spaceId: null, sharedWith: [] });
+  });
+
+  it("never indexes unscoped when the space lookup fails — keeps old chunks, tags ai-index-error", async () => {
+    const paperless = new FakePaperless();
+    paperless.addDoc({ id: 1, content: "Ein Absatz mit Text." });
+    const store = fakeVectorStore(3);
+
+    await indexDocument(1, {
+      paperless: paperless.asClient(),
+      vectorStore: store as unknown as QdrantVectorStore,
+      embedder: embedder(async (texts) => texts.map(() => [0, 0, 1])),
+      spaceLookup: async () => {
+        throw new Error("api down");
+      },
+    });
+
+    expect(store.deleteByDocId).not.toHaveBeenCalled();
+    expect(store.upsertChunks).not.toHaveBeenCalled();
+    expect(paperless.tagsOf(1)).toEqual([INDEX_ERROR_TAG]);
+  });
+});
+
+describe("extraction corpus hints follow the home space", () => {
+  it("skips few-shot and the history hint when the document's space is unknown", async () => {
+    const paperless = new FakePaperless();
+    paperless.addDoc({ id: 1 });
+    const getHistory = vi.fn(async () => ({}));
+    const getWithTag = vi.fn(async () => []);
+    Object.assign(paperless, { getCorrespondentHistory: getHistory });
+    const original = paperless.getDocumentsWithTag.bind(paperless);
+    Object.assign(paperless, {
+      getDocumentsWithTag: async (...args: Parameters<typeof original>) => {
+        if (args[0] === "ai-propagated") return getWithTag();
+        return original(...args);
+      },
+    });
+
+    await processDocument(await paperless.getDocument(1), {
+      paperless: paperless.asClient(),
+      backend: backend(async () => EXTRACTION as never),
+      settings: { ...settings(), USE_CORRESPONDENT_HISTORY: true, FEW_SHOT_EXAMPLES: 2 },
+      getRules: async () => RULES,
+      spaceLookup: async () => null,
+    });
+
+    expect(getHistory).not.toHaveBeenCalled();
+    expect(getWithTag).not.toHaveBeenCalled();
+    expect(paperless.tagsOf(1)).toEqual(["ai-pending"]);
+  });
+
+  it("passes the space's documents to the history hint", async () => {
+    const paperless = new FakePaperless();
+    paperless.addDoc({ id: 1 });
+    const getHistory = vi.fn(async () => ({}));
+    Object.assign(paperless, { getCorrespondentHistory: getHistory });
+
+    await processDocument(await paperless.getDocument(1), {
+      paperless: paperless.asClient(),
+      backend: backend(async () => EXTRACTION as never),
+      settings: { ...settings(), USE_CORRESPONDENT_HISTORY: true },
+      getRules: async () => RULES,
+      spaceLookup: async () => ({ spaceId: 1, sharedWith: [], peers: new Set([1, 7]) }),
+    });
+
+    expect(getHistory).toHaveBeenCalledWith(200, new Set([1, 7]));
+  });
+});
+
 describe("reindexMetadata", () => {
   it("updates the payload without re-embedding when chunks exist", async () => {
     const paperless = new FakePaperless(["wichtig"]);

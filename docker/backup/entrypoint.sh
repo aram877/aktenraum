@@ -11,6 +11,32 @@ export PGPASSWORD="${PAPERLESS_DBPASS}"
 
 log() { echo "[$(date -Iseconds)] $*"; }
 
+STATUS_DIR="${BACKUP_STATUS_DIR:-/status}"
+
+# --------------------------------------------------------------------------
+# One run at a time — cron (backup-if-due.sh), container start and manual
+# `docker compose exec backup entrypoint.sh` all come through here.
+# --------------------------------------------------------------------------
+exec 9>/tmp/aktenraum-backup.lock
+if ! flock -n 9; then
+    log "Another backup run is in progress — skipping."
+    exit 0
+fi
+
+# Record the outcome (timestamp + exit code) and refresh the status file the
+# SPA reads, also when `set -e` aborts the run halfway.
+record_run() {
+    local rc=$?
+    if [ -d "${STATUS_DIR}" ] && [ -w "${STATUS_DIR}" ]; then
+        printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${rc}" > "${STATUS_DIR}/last-run"
+        /usr/local/bin/healthcheck.sh >/dev/null 2>&1 || true
+    fi
+    if [ "${rc}" -ne 0 ]; then
+        log "ERROR: backup run failed (exit ${rc})."
+    fi
+}
+trap record_run EXIT
+
 # --------------------------------------------------------------------------
 # Init repo if needed
 # --------------------------------------------------------------------------
@@ -90,12 +116,30 @@ if [ -n "${BACKUP_B2_BUCKET:-}" ]; then
 fi
 
 # --------------------------------------------------------------------------
-# Integrity check — weekly (Sundays) to bound cost; structure + 5% of data
+# Integrity check — at most weekly to bound cost; structure + 5% of data.
+# Keyed on "7 days since the last check" (marker in the status volume), not
+# on "today is Sunday": a desktop that is never on during a Sunday run would
+# otherwise never be checked. Without the status volume it falls back to Sundays.
 # --------------------------------------------------------------------------
-if [ "$(date +%u)" = "7" ] || [ "${BACKUP_FORCE_CHECK:-false}" = "true" ]; then
+CHECK_MARKER="${STATUS_DIR}/last-check"
+check_due() {
+    [ "${BACKUP_FORCE_CHECK:-false}" = "true" ] && return 0
+    if [ ! -d "${STATUS_DIR}" ] || [ ! -w "${STATUS_DIR}" ]; then
+        [ "$(date +%u)" = "7" ]
+        return
+    fi
+    [ -f "${CHECK_MARKER}" ] || return 0
+    local last
+    last="$(cat "${CHECK_MARKER}" 2>/dev/null || echo 0)"
+    [ $(( $(date +%s) - ${last:-0} )) -ge $(( 7 * 86400 )) ]
+}
+if check_due; then
     log "Running restic check (structure + 5% data sample)..."
     restic check --read-data-subset=5%
     log "restic check passed."
+    if [ -d "${STATUS_DIR}" ] && [ -w "${STATUS_DIR}" ]; then
+        date +%s > "${CHECK_MARKER}"
+    fi
 fi
 
 log "Backup complete."

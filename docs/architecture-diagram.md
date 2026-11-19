@@ -37,7 +37,7 @@ flowchart TB
         qdrant[("qdrant<br/>vector store<br/>chunks + payload")]
     end
 
-    backup["backup<br/>crond + restic, daily 02:00"]
+    backup["backup<br/>crond + restic, catch-up daily"]
 
     user -->|HTTPS| nginx
     nginx -->|"/api/*"| api
@@ -141,7 +141,7 @@ data: Data stores {
   qdrant: qdrant\nvector store {shape: cylinder}
 }
 
-backup: backup\ncrond + restic daily 02:00
+backup: backup\ncrond + restic catch-up daily
 
 user -> edge.nginx: HTTPS
 edge.nginx -> app.api: /api/*
@@ -215,7 +215,7 @@ backup -> data.pg: snapshots: data/media/export + 2 DB dumps {style.stroke-dash:
    │  ║ aktenraum  ║   ╚════════════╝   ╚═══════════════════════════╝   │
    │  ╚═════╤══════╝                                                    │
    └────────┼───────────────────────────────────────────────────────────┘
-            │ daily 02:00
+            │ daily (catch-up)
             ▼
      ┌─────────────────────────────────┐
      │ backup (crond + restic)         │

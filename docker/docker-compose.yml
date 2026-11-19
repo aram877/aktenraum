@@ -214,6 +214,9 @@ services:
       # export). Without the volume every rebuild re-pays the download, and
       # an interrupted rebuild leaves a truncated file that fails at load.
       - aktenraum-node-hf-cache:/home/appuser/.cache/huggingface
+      # Status file written by the backup container's healthcheck; served at
+      # GET /api/health/backup so the SPA can warn about stale backups.
+      - backup-status:/run/backup-status:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -286,6 +289,8 @@ services:
       - ${AKTENRAUM_DATA_DIR:?must be set to an absolute path in docker/.env (see .env.example) - unset/empty risks silent data loss}/media:/backup/media:ro
       - ${AKTENRAUM_DATA_DIR:?must be set to an absolute path in docker/.env (see .env.example) - unset/empty risks silent data loss}/export:/backup/export:ro
       - ${AKTENRAUM_DATA_DIR:?must be set to an absolute path in docker/.env (see .env.example) - unset/empty risks silent data loss}/backup/restic-repo:/repo
+      # backup-status.json (read by aktenraum-api), last-run, last-check
+      - backup-status:/status
     networks:
       - internal
 
@@ -301,3 +306,6 @@ volumes:
   # rebuild without it leaves a truncated file that fails at load with a
   # protobuf parse error rather than a download error.
   aktenraum-node-hf-cache:
+  # Backup health handed from the backup container (rw) to aktenraum-api (ro).
+  # Small JSON + marker files only; losing it just means one extra restic check.
+  backup-status:

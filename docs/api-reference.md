@@ -23,6 +23,7 @@ schema files listed under "Shape references" are the source of truth.**
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
 | GET | `/api/health` | — | Liveness probe. Returns `{"status": "ok"}`. |
+| GET | `/api/health/backup` | session | Backup health from the backup container's status file: `{state: ok\|stale\|failing\|unknown, last_backup_at, age_hours, max_age_hours, checked_at, last_run_at, last_run_exit, detail}`. `unknown` = no status file (backup service not deployed). `failing` also when the container hasn't reported for > 3 h. |
 
 ---
 

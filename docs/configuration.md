@@ -271,14 +271,23 @@ Read by [`docker/backup/entrypoint.sh`](../docker/backup/entrypoint.sh) and
 | `RESTIC_PASSWORD` | empty (**required**, generated) | none | Encrypts the restic repo. **You cannot restore without it** — keep it in a password manager. |
 | `RESTIC_REPOSITORY` | not in template | `/repo` | Repo path inside the container (bind-mounted from `${AKTENRAUM_DATA_DIR}/backup/restic-repo`). |
 | `BACKUP_AUTO_INIT` | not in template | `false` | `true` lets the entrypoint `restic init` a missing repo. Otherwise it fails loudly; first-time init is done by `task setup`. |
-| `BACKUP_FORCE_CHECK` | not in template | `false` | `true` runs the `restic check --read-data-subset=5%` on every run, not just Sundays. |
+| `BACKUP_FORCE_CHECK` | not in template | `false` | `true` runs the `restic check --read-data-subset=5%` on every run, not just when the last check is ≥ 7 days old. |
+| `BACKUP_INTERVAL_HOURS` | not in template | `20` | `backup-if-due.sh` (hourly + at container start) backs up only when the newest complete backup is older than this. |
+| `BACKUP_MAX_AGE_HOURS` | not in template | `36` | Healthcheck limit; older → container unhealthy and the SPA shows "Backup veraltet". |
+| `BACKUP_START_DELAY_SECONDS` | not in template | `60` | Delay before the catch-up check after container start. |
+| `BACKUP_STATUS_DIR` | not in template | `/status` | `backup-status` volume: `backup-status.json` (read by the api), `last-run`, `last-check`. |
 | `BACKUP_B2_BUCKET` | commented out | empty | When set (with the three vars below), snapshots are also copied to Backblaze B2. |
 | `RESTIC_REPOSITORY_2` | commented out | empty | B2 repo URL, e.g. `b2:<bucket>:/aktenraum`. |
 | `B2_ACCOUNT_ID` | commented out | empty | B2 application key id. |
 | `B2_ACCOUNT_KEY` | commented out | empty | B2 application key. |
 
-Schedule and retention are fixed in [`docker/backup/crontab`](../docker/backup/crontab)
-and the entrypoint: daily at 02:00, keep 7 daily / 4 weekly / 12 monthly.
+Schedule: catch-up, not a fixed time. [`docker/backup/crontab`](../docker/backup/crontab) runs
+`backup-if-due.sh` hourly (and `start.sh` once at container start); it backs up when the newest
+complete backup is older than `BACKUP_INTERVAL_HOURS`, so a desktop that sleeps at night is still
+backed up within an hour of waking. Retention (in the entrypoint): 7 daily / 4 weekly / 12 monthly.
+
+aktenraum-api reads the status file via `BACKUP_STATUS_FILE` (default
+`/run/backup-status/backup-status.json`, the `backup-status` volume mounted read-only).
 
 ---
 

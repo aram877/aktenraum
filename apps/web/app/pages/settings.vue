@@ -61,6 +61,8 @@ async function onPickAnswer(model: string): Promise<void> {
 
         <SettingsAutoApprove />
 
+        <SettingsBackup />
+
         <SettingsKonto />
       </div>
     </div>

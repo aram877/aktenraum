@@ -137,3 +137,58 @@ describe("AppNav error pill", () => {
     expect(wrapper.find('[data-testid="error-pill"]').exists()).toBe(false);
   });
 });
+
+describe("AppNav backup pill", () => {
+  const backup = (state: string, extra: Record<string, unknown> = {}) => ({
+    state,
+    last_backup_at: "2026-10-16T08:14:12Z",
+    age_hours: 817,
+    max_age_hours: 36,
+    checked_at: "2026-11-19T10:00:00Z",
+    last_run_at: null,
+    last_run_exit: null,
+    detail: null,
+    ...extra,
+  });
+
+  function serveBackup(payload: unknown): void {
+    get.mockImplementation((path: string) =>
+      path === "/health/backup" ? Promise.resolve(payload) : new Promise(() => undefined),
+    );
+  }
+
+  beforeEach(() => {
+    useNuxtApp().$queryClient.clear();
+    get.mockReset();
+    useNuxtApp().$queryClient.setQueryData(ME_KEY, { username: "admin" });
+  });
+
+  it("warns about a stale backup and links to the settings section", async () => {
+    serveBackup(backup("stale"));
+    const wrapper = await mountSuspended(AppNav);
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="backup-pill"]').exists()).toBe(true));
+    const pill = wrapper.find('[data-testid="backup-pill"]');
+    expect(pill.text()).toBe("Backup veraltet");
+    expect(pill.attributes("href")).toBe("/settings#backup");
+  });
+
+  it("flags a failing backup", async () => {
+    serveBackup(backup("failing", { last_run_exit: 3 }));
+    const wrapper = await mountSuspended(AppNav);
+    await vi.waitFor(() =>
+      expect(wrapper.find('[data-testid="backup-pill"]').text()).toBe("Backup-Fehler"),
+    );
+  });
+
+  it("stays quiet when backups are fresh or the status is unknown", async () => {
+    for (const state of ["ok", "unknown"]) {
+      useNuxtApp().$queryClient.clear();
+      useNuxtApp().$queryClient.setQueryData(ME_KEY, { username: "admin" });
+      serveBackup(backup(state, { age_hours: 2 }));
+      const wrapper = await mountSuspended(AppNav);
+      await vi.waitFor(() => expect(calledPaths()).toContain("/health/backup"));
+      await flushPromises();
+      expect(wrapper.find('[data-testid="backup-pill"]').exists()).toBe(false);
+    }
+  });
+});

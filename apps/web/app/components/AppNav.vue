@@ -18,6 +18,9 @@ const inFlightCount = computed(() =>
 
 const errorCount = computed(() => live.data.value?.errors ?? errorList.data.value?.total ?? 0);
 
+const backup = useBackupStatus(authenticated);
+const backupAlert = computed(() => backupNotice(backup.data.value));
+
 const menuOpen = ref(false);
 
 const links = [
@@ -89,6 +92,21 @@ async function onLogout(): Promise<void> {
           @click="closeMenu"
         >
           {{ errorCount }} Fehler
+        </NuxtLink>
+        <NuxtLink
+          v-if="backupAlert.pill"
+          to="/settings#backup"
+          data-testid="backup-pill"
+          :title="backupAlert.summary"
+          class="rounded-full px-2.5 py-0.5 text-[11px] font-medium"
+          :class="
+            backupAlert.tone === 'error'
+              ? 'bg-red-500/10 text-red-600 hover:bg-red-500/20'
+              : 'bg-amber-500/15 text-amber-700 hover:bg-amber-500/25'
+          "
+          @click="closeMenu"
+        >
+          {{ backupAlert.pill }}
         </NuxtLink>
         <span
           v-if="inFlightCount > 0"

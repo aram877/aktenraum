@@ -1,1 +1,1 @@
-0 2 * * * /usr/local/bin/entrypoint.sh >> /proc/1/fd/1 2>&1
+7 * * * * /usr/local/bin/backup-if-due.sh >> /proc/1/fd/1 2>&1

@@ -63,6 +63,8 @@ export const settingsSchema = z.object({
   UPLOAD_MAX_FILE_BYTES: int(25 * 1024 * 1024, 1),
   UPLOAD_MAX_FILES_PER_REQUEST: int(20, 1),
 
+  BACKUP_STATUS_FILE: str("/run/backup-status/backup-status.json"),
+
   AUTO_TAGGER_URL: str("http://auto-tagger:8001"),
   WEBHOOK_SECRET: str(""),
 

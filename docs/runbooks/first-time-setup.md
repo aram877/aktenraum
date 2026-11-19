@@ -117,7 +117,7 @@ Re-running the script with the same `AKTENRAUM_MAIL_NAME` updates the existing a
 
 ### 7. Set up backup
 
-The default deployment uses the Dockerised `backup` service, which runs crond inside a container and fires `entrypoint.sh` daily at 02:00. It reads `RESTIC_PASSWORD` and `PAPERLESS_DBPASS` from `docker/.env` (generated in step 1) and writes to `<AKTENRAUM_DATA_DIR>/backup/restic-repo` (mounted at `/repo`). The entrypoint does not create a missing repository, so initialise it once and take a first snapshot:
+The default deployment uses the Dockerised `backup` service, which runs crond inside a container and runs `entrypoint.sh` whenever the newest complete backup is older than 20 h (checked hourly and at container start). It reads `RESTIC_PASSWORD` and `PAPERLESS_DBPASS` from `docker/.env` (generated in step 1) and writes to `<AKTENRAUM_DATA_DIR>/backup/restic-repo` (mounted at `/repo`). The entrypoint does not create a missing repository, so initialise it once and take a first snapshot:
 
 ```bash
 docker compose --project-directory docker exec -T backup sh -c \

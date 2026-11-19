@@ -59,7 +59,7 @@ Auxiliary tags (`ai-auto-approved`, `ai-low-confidence`, `ai-duplicate`, `ai-dup
 
 ## Backups (Dockerised `backup` service)
 
-The `backup` service runs `crond` inside its container and fires `entrypoint.sh` daily at 02:00. It reads `RESTIC_PASSWORD` and `PAPERLESS_DBPASS` from `docker/.env` and writes to `<AKTENRAUM_DATA_DIR>/backup/restic-repo` (mounted at `/repo`). Each run snapshots `data`, `media`, `export` plus dumps of the `paperless` and `aktenraum` databases, then applies 7 daily / 4 weekly / 12 monthly retention. A `restic check --read-data-subset=5%` runs on Sundays.
+The `backup` service runs `crond` inside its container. Every hour (and once shortly after the container starts) `backup-if-due.sh` checks the newest complete backup and runs `entrypoint.sh` when it is older than 20 h (`BACKUP_INTERVAL_HOURS`) — a fixed 02:00 job never fired on a machine that sleeps at night. It reads `RESTIC_PASSWORD` and `PAPERLESS_DBPASS` from `docker/.env` and writes to `<AKTENRAUM_DATA_DIR>/backup/restic-repo` (mounted at `/repo`). Each run snapshots `data`, `media`, `export` plus dumps of the `paperless` and `aktenraum` databases, then applies 7 daily / 4 weekly / 12 monthly retention. A `restic check --read-data-subset=5%` runs when the last check is at least 7 days old. Runs are serialised by an flock, so a manual run during a scheduled one just skips. A stale or failing backup shows as an amber/red pill in the SPA nav and in `/settings → Backup`.
 
 ```bash
 # Logs

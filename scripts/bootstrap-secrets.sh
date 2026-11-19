@@ -145,6 +145,10 @@ if fill_if_empty JWT_SECRET gen_secret_b64; then
   generated_lines+=("aktenraum-api JWT signing key: generated ✓")
 fi
 
+if fill_if_empty AKTENRAUM_SECRET_KEY gen_secret_b64; then
+  generated_lines+=("aktenraum-api token encryption key: generated ✓")
+fi
+
 DATA_DIR="$(read_value "$ENV_FILE" AKTENRAUM_DATA_DIR)"
 RESTIC_REPO_CONFIG="${DATA_DIR:+${DATA_DIR}/backup/restic-repo/config}"
 restic_blocked=0

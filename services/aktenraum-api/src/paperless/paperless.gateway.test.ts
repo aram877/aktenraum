@@ -728,3 +728,28 @@ describe("ensureTag creates shared vocabulary", () => {
     expect(patch?.body).toEqual({ owner: null });
   });
 });
+
+describe("mintUserToken", () => {
+  it("sets a fresh random password, logs in as the user once and returns the token", async () => {
+    const { gateway, requests } = gatewayWithHandler(({ method, url }) => {
+      if (method === "PATCH" && url.pathname === "/api/users/101/") return { status: 200, json: { id: 101 } };
+      if (method === "POST" && url.pathname === "/api/token/") return { status: 200, json: { token: "abc123" } };
+      return { status: 500 };
+    });
+
+    expect(await gateway.mintUserToken(101, "ak-1")).toBe("abc123");
+    const patch = requests[0]!;
+    const login = requests[1]!;
+    expect(patch.method).toBe("PATCH");
+    const password = (patch.body as { password: string }).password;
+    expect(password.length).toBeGreaterThanOrEqual(24);
+    expect(login.body).toEqual({ username: "ak-1", password });
+  });
+
+  it("fails loudly when the login is refused", async () => {
+    const { gateway } = gatewayWithHandler(({ method }) =>
+      method === "PATCH" ? { status: 200, json: {} } : { status: 400, text: "bad credentials" },
+    );
+    await expect(gateway.mintUserToken(101, "ak-1")).rejects.toThrow();
+  });
+});

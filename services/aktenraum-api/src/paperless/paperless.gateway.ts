@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+
 import { logger, normalizeDate, truncateForField } from "@aktenraum/core";
 
 import {
@@ -796,11 +798,8 @@ export class PaperlessGateway {
     await this.sendJson("PATCH", `/api/users/${userId}/`, { password });
   }
 
-  /**
-   * How many documents a given Paperless user can list — logs in as that user
-   * (`POST /api/token/`), so it checks Paperless's own permission enforcement.
-   */
-  async countDocumentsVisibleTo(username: string, password: string): Promise<number> {
+  /** `POST /api/token/` as that user — returns (creating if needed) their API token. */
+  private async loginToken(username: string, password: string): Promise<string> {
     const tokenResp = await this.fetchFn(this.buildUrl("/api/token/"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -809,7 +808,26 @@ export class PaperlessGateway {
     if (tokenResp.status >= 400) {
       throw new PaperlessRequestError(tokenResp.status, await tokenResp.text(), tokenResp.url);
     }
-    const { token } = (await tokenResp.json()) as { token: string };
+    return ((await tokenResp.json()) as { token: string }).token;
+  }
+
+  /**
+   * A Paperless API token for a member's Paperless user (ADR-010 §8): set a
+   * fresh random password (superuser), log in once as that user, forget the
+   * password. Re-running rotates nothing — Paperless keeps one token per user.
+   */
+  async mintUserToken(userId: number, username: string): Promise<string> {
+    const password = randomBytes(24).toString("base64url");
+    await this.setUserPassword(userId, password);
+    return this.loginToken(username, password);
+  }
+
+  /**
+   * How many documents a given Paperless user can list — logs in as that user
+   * (`POST /api/token/`), so it checks Paperless's own permission enforcement.
+   */
+  async countDocumentsVisibleTo(username: string, password: string): Promise<number> {
+    const token = await this.loginToken(username, password);
     const listResp = await this.fetchFn(this.buildUrl("/api/documents/", { page_size: 1 }), {
       headers: { Authorization: `Token ${token}` },
     });

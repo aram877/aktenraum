@@ -6,7 +6,7 @@ import type {
   PaperlessUser,
   SharedVocabularyEndpoint,
 } from "../paperless/paperless.gateway.js";
-import { PaperlessNotFoundError } from "../paperless/errors.js";
+import { PaperlessAuthError, PaperlessNotFoundError } from "../paperless/errors.js";
 
 export const TAGS: Record<string, number> = {
   "ai-pending": 1,
@@ -72,7 +72,7 @@ function idList(raw: unknown): number[] {
 export class FakeGateway {
   readonly docs = new Map<number, PaperlessDocument>();
   readonly trashed = new Map<number, PaperlessDocument>();
-  readonly uploads: { filename: string; contentType?: string }[] = [];
+  readonly uploads: { filename: string; contentType?: string; owner?: number }[] = [];
   emptyTrashCalls: number[][] = [];
   readonly tasks: Record<string, unknown>[];
   readonly processedMail: Record<string, unknown>[];
@@ -360,6 +360,33 @@ export class FakeGateway {
     return this.visibleTo(user.id).length;
   };
 
+  // ---------------------------------------------------------------- member tokens
+
+  /** token → Paperless user id; one token per user, like Paperless. */
+  readonly tokens = new Map<string, number>();
+  /** Tokens that answer 401 on their next call (then work again), to test re-minting. */
+  readonly rejectOnce = new Set<string>();
+  readonly mints: number[] = [];
+
+  mintUserToken = async (userId: number, _username: string): Promise<string> => {
+    this.user(userId);
+    this.mints.push(userId);
+    const token = `tok-${userId}`;
+    this.tokens.set(token, userId);
+    return token;
+  };
+
+  /**
+   * What a Paperless user sees through their own token: documents they may
+   * view (fixtures without explicit permissions count as ownerless — visible to
+   * everyone, as in Paperless), their own trash and tasks, their own uploads.
+   * Everything else delegates to this fake (shared vocabulary, custom fields).
+   */
+  forToken(token: string): FakeGateway {
+    return viewForToken(this, token);
+  }
+
+
   /** Documents a Paperless user can list: owner, or view via user/group grant. */
   visibleTo = (userId: number): number[] => {
     const user = this.user(userId);
@@ -374,4 +401,96 @@ export class FakeGateway {
       );
     });
   };
+}
+
+function viewForToken(base: FakeGateway, token: string): FakeGateway {
+  const userId = base.tokens.get(token);
+  const guard = (): number => {
+    if (userId === undefined) throw new PaperlessAuthError(401);
+    if (base.rejectOnce.delete(token)) throw new PaperlessAuthError(401);
+    return userId;
+  };
+  const canSee = (docId: number): boolean => {
+    const uid = guard();
+    return !base.permissions.has(docId) || base.visibleTo(uid).includes(docId);
+  };
+  const ownerOf = (docId: number): number | null =>
+    base.permissions.has(docId) ? (base.permissions.get(docId)?.owner ?? null) : null;
+  const requireVisible = (docId: number): void => {
+    if (!canSee(docId)) throw new PaperlessNotFoundError(docId);
+  };
+  const overrides: Partial<Record<keyof FakeGateway, unknown>> = {
+    getDocument: async (docId: number) => {
+      requireVisible(docId);
+      return base.getDocument(docId);
+    },
+    searchDocuments: async (params: Record<string, unknown>, options: { pageSize?: number } = {}) => {
+      guard();
+      const all = (await base.searchDocuments(params, {})) as { results: PaperlessDocument[] };
+      let results = all.results.filter((d) => canSee(d.id));
+      const count = results.length;
+      if (options.pageSize !== undefined) results = results.slice(0, options.pageSize);
+      return { count, results };
+    },
+    listDocumentTypeCounts: async () =>
+      Object.entries(DOCUMENT_TYPES).map(([name, id]) => ({
+        name,
+        count: [...base.docs.values()].filter((d) => d.document_type === id && canSee(d.id)).length,
+      })),
+    patchDocumentCustomFields: async (docId: number, values: Record<string, unknown>) => {
+      requireVisible(docId);
+      return base.patchDocumentCustomFields(docId, values);
+    },
+    swapLifecycleTag: async (docId: number, options: { remove: string[]; add: string[] }) => {
+      requireVisible(docId);
+      return base.swapLifecycleTag(docId, options);
+    },
+    openDocumentStream: async (docId: number, kind: string) => {
+      requireVisible(docId);
+      return base.openDocumentStream(docId, kind);
+    },
+    deleteDocument: async (docId: number) => {
+      requireVisible(docId);
+      const owner = ownerOf(docId);
+      if (owner !== null && owner !== guard()) throw new PaperlessAuthError(403);
+      return base.deleteDocument(docId);
+    },
+    listTrashedDocuments: async () => {
+      const uid = guard();
+      const results = [...base.trashed.values()].filter((d) => {
+        const owner = ownerOf(d.id);
+        return owner === null || owner === uid;
+      });
+      return { count: results.length, next: null, results };
+    },
+    restoreDocuments: async (docIds: number[]) => {
+      guard();
+      return base.restoreDocuments(docIds);
+    },
+    emptyTrash: async (docIds: number[] | null) => {
+      guard();
+      return base.emptyTrash(docIds);
+    },
+    listConsumeTasks: async () => {
+      const uid = guard();
+      if (base.tasksError !== null) throw base.tasksError;
+      return base.tasks.filter((t) => t.owner === uid);
+    },
+    getTasks: async (taskId: string) => {
+      const uid = guard();
+      return base.tasks.filter((t) => t.task_id === taskId && t.owner === uid);
+    },
+    uploadDocument: async (options: { content: Uint8Array; filename: string; contentType?: string }) => {
+      const uid = guard();
+      base.uploads.push({ filename: options.filename, contentType: options.contentType, owner: uid });
+      return "task-uuid-1234";
+    },
+  };
+  return new Proxy(base, {
+    get(target, prop, receiver) {
+      if (typeof prop === "string" && prop in overrides) return overrides[prop as keyof FakeGateway];
+      if (prop === "token") return token;
+      return Reflect.get(target, prop, receiver);
+    },
+  });
 }

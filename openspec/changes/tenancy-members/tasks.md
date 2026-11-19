@@ -1,9 +1,9 @@
 ## 1. Secret + token storage
 
-- [ ] 1.1 `AKTENRAUM_SECRET_KEY` in `config/settings.ts` (fail-closed at start, like `JWT_SECRET`), `docker/.env.example`, `scripts/bootstrap-secrets.sh` (`fill_if_empty`, base64 32 bytes); test harness env
-- [ ] 1.2 `member_paperless_tokens` + `invites` in `schema.ts`, `schema.sql`, harness; verify on a throwaway `postgres:15` (apply twice + constraints)
-- [ ] 1.3 `tenancy/token-vault.ts`: AES-256-GCM encrypt/decrypt with `key_id`; tests (round trip, wrong key, tampered tag)
-- [ ] 1.4 Gateway: mint a member token (password PATCH + `/api/token/` as the user); fake Paperless supports per-user tokens and enforces visibility per token
+- [x] 1.1 `AKTENRAUM_SECRET_KEY` in `config/settings.ts` (fail-closed at start, like `JWT_SECRET`), `docker/.env.example`, `scripts/bootstrap-secrets.sh` (`fill_if_empty`, base64 32 bytes); test harness env
+- [x] 1.2 `member_paperless_tokens` + `invites` in `schema.ts`, `schema.sql`, harness; verify on a throwaway `postgres:15` (apply twice + constraints)
+- [x] 1.3 `tenancy/token-vault.ts`: AES-256-GCM encrypt/decrypt with `key_id`; tests (round trip, wrong key, tampered tag)
+- [x] 1.4 Gateway: mint a member token (password PATCH + `/api/token/` as the user); fake Paperless supports per-user tokens and enforces visibility per token
 
 ## 2. Per-principal gateway
 

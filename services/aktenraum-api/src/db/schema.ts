@@ -1,4 +1,4 @@
-import { pgTable, varchar, unique, serial, timestamp, jsonb, boolean, numeric, integer, primaryKey, check, index } from "drizzle-orm/pg-core"
+import { pgTable, varchar, unique, serial, timestamp, jsonb, boolean, numeric, integer, primaryKey, check, index, text } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
 
 
@@ -100,6 +100,31 @@ export const documentSpaces = pgTable("document_spaces", {
 	assignedAt: timestamp("assigned_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 }, (table) => [
 	index("document_spaces_space_id_idx").on(table.spaceId),
+]);
+
+export const memberPaperlessTokens = pgTable("member_paperless_tokens", {
+	memberId: integer("member_id").primaryKey().notNull().references(() => members.id),
+	ciphertext: text().notNull(),
+	iv: varchar({ length: 32 }).notNull(),
+	authTag: varchar("auth_tag", { length: 32 }).notNull(),
+	keyId: varchar("key_id", { length: 16 }).notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+});
+
+export const invites = pgTable("invites", {
+	id: serial().primaryKey().notNull(),
+	tokenHash: varchar("token_hash", { length: 64 }).notNull(),
+	householdId: integer("household_id").notNull().references(() => households.id),
+	role: varchar({ length: 16 }).$type<HouseholdRoleValue>().default("member").notNull(),
+	createdByMemberId: integer("created_by_member_id").notNull().references(() => members.id),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	expiresAt: timestamp("expires_at", { withTimezone: true, mode: 'string' }).notNull(),
+	redeemedAt: timestamp("redeemed_at", { withTimezone: true, mode: 'string' }),
+	redeemedByMemberId: integer("redeemed_by_member_id").references(() => members.id),
+	revokedAt: timestamp("revoked_at", { withTimezone: true, mode: 'string' }),
+}, (table) => [
+	unique("invites_token_hash_key").on(table.tokenHash),
+	check("invites_role_check", sql`${table.role} IN ('admin', 'member')`),
 ]);
 
 /** 0 in paperless_doc_id = the task finished without creating a document. */

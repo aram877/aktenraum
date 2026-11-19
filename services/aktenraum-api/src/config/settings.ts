@@ -42,9 +42,18 @@ const required = (name: string) =>
     .string({ required_error: `${name} is required` })
     .min(1, `${name} must not be empty`);
 
+/** A required base64 secret that must decode to exactly `bytes` bytes. */
+const base64Key = (name: string, bytes: number) =>
+  required(name).refine((raw) => Buffer.from(raw, "base64").length === bytes, {
+    message: `${name} must be ${bytes} random bytes, base64-encoded (openssl rand -base64 ${bytes})`,
+  });
+
 export const settingsSchema = z.object({
   DATABASE_URL: required("DATABASE_URL"),
   JWT_SECRET: required("JWT_SECRET"),
+  // Encrypts the members' Paperless API tokens at rest (ADR-010 §8). Tokens
+  // are re-mintable, so a lost or changed key costs nothing but a re-mint.
+  AKTENRAUM_SECRET_KEY: base64Key("AKTENRAUM_SECRET_KEY", 32),
   JWT_EXPIRES_SECONDS: int(28800, 60),
 
   COOKIE_NAME: str("aktenraum_session"),

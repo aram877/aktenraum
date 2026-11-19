@@ -91,12 +91,33 @@ CREATE TABLE upload_task_members (
   paperless_doc_id integer,
   created_at timestamp with time zone NOT NULL DEFAULT now()
 );
+CREATE TABLE member_paperless_tokens (
+  member_id integer PRIMARY KEY REFERENCES members(id),
+  ciphertext text NOT NULL,
+  iv varchar(32) NOT NULL,
+  auth_tag varchar(32) NOT NULL,
+  key_id varchar(16) NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now()
+);
+CREATE TABLE invites (
+  id serial PRIMARY KEY,
+  token_hash varchar(64) NOT NULL UNIQUE,
+  household_id integer NOT NULL REFERENCES households(id),
+  role varchar(16) NOT NULL DEFAULT 'member' CHECK (role IN ('admin', 'member')),
+  created_by_member_id integer NOT NULL REFERENCES members(id),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  expires_at timestamp with time zone NOT NULL,
+  redeemed_at timestamp with time zone,
+  redeemed_by_member_id integer REFERENCES members(id),
+  revoked_at timestamp with time zone
+);
 INSERT INTO app_settings (id) VALUES (1);
 `;
 
 export const TEST_ENV: NodeJS.ProcessEnv = {
   DATABASE_URL: "postgresql://test/test",
   JWT_SECRET: "test-secret-not-for-prod-32-bytes-min",
+  AKTENRAUM_SECRET_KEY: Buffer.alloc(32, 7).toString("base64"),
   JWT_EXPIRES_SECONDS: "3600",
   COOKIE_SECURE: "false",
   BOOTSTRAP_USERNAME: "",

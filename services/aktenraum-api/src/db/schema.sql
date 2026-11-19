@@ -117,6 +117,35 @@ CREATE TABLE IF NOT EXISTS "upload_task_members" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 
+-- Members' Paperless API tokens, AES-256-GCM under AKTENRAUM_SECRET_KEY
+-- (ADR-010 §8). key_id identifies the key that encrypted the row, so a key
+-- change is detected and the token simply re-minted.
+CREATE TABLE IF NOT EXISTS "member_paperless_tokens" (
+	"member_id" integer PRIMARY KEY NOT NULL REFERENCES "members"("id"),
+	"ciphertext" text NOT NULL,
+	"iv" varchar(32) NOT NULL,
+	"auth_tag" varchar(32) NOT NULL,
+	"key_id" varchar(16) NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+
+-- Invite links (ADR-009 / ADR-010): single use, 7 days, only the SHA-256 of
+-- the secret token is stored.
+CREATE TABLE IF NOT EXISTS "invites" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"token_hash" varchar(64) NOT NULL,
+	"household_id" integer NOT NULL REFERENCES "households"("id"),
+	"role" varchar(16) DEFAULT 'member' NOT NULL,
+	"created_by_member_id" integer NOT NULL REFERENCES "members"("id"),
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"expires_at" timestamp with time zone NOT NULL,
+	"redeemed_at" timestamp with time zone,
+	"redeemed_by_member_id" integer REFERENCES "members"("id"),
+	"revoked_at" timestamp with time zone,
+	CONSTRAINT "invites_token_hash_key" UNIQUE("token_hash"),
+	CONSTRAINT "invites_role_check" CHECK ("role" IN ('admin', 'member'))
+);
+
 INSERT INTO "alembic_version" ("version_num")
 SELECT '0006'
 WHERE NOT EXISTS (SELECT 1 FROM "alembic_version");

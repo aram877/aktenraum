@@ -111,6 +111,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://paperless:e2e@postgres:5432/aktenraum
       JWT_SECRET: e2e-jwt-not-a-secret
+      AKTENRAUM_SECRET_KEY: ZTJlLWtleS1ub3QtYS1zZWNyZXQtMzItYnl0ZXMhISE=
       COOKIE_SECURE: "false"
       BOOTSTRAP_USERNAME: admin
       BOOTSTRAP_PASSWORD: e2epassword

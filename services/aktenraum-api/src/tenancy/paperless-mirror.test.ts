@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { documentSpaces, members, spaces } from "../db/schema.js";
+import { and, eq } from "drizzle-orm";
+
+import { documentSpaces, households, members, spaceMembers, spacePaperlessGroups, spaces, users } from "../db/schema.js";
 import { FakeGateway, makeDoc } from "../test/fake-gateway.js";
 import { createHarness, type Harness } from "../test/harness.js";
 import {
@@ -9,7 +11,10 @@ import {
   mirrorDocument,
   provisionMemberUser,
   provisionSpaceGroup,
+  removeFromSpaceGroups,
   spaceGroupName,
+  spaceViewerGroupName,
+  syncSpaceMembership,
 } from "./paperless-mirror.js";
 
 let harness: Harness | null = null;
@@ -131,5 +136,129 @@ describe("mirrorDocument", () => {
     const { db, paperless } = await setup();
     expect(await mirrorDocument(db, paperless, 2)).toBe("unassigned");
     expect(paperless.tenancyWrites).toHaveLength(0);
+  });
+});
+
+// ------------------------------------------------------------ shared spaces
+
+async function sharedSetup() {
+  const base = await setup();
+  const { db, paperless } = base;
+  const [user] = await db.insert(users).values({ username: "bob", passwordHash: "x" }).returning();
+  const [household] = await db.select().from(households);
+  const [bob] = await db.insert(members).values({ householdId: household!.id, userId: user!.id, role: "member" }).returning();
+  const [carol] = await db
+    .insert(members)
+    .values({
+      householdId: household!.id,
+      userId: (await db.insert(users).values({ username: "carol", passwordHash: "x" }).returning())[0]!.id,
+      role: "member",
+    })
+    .returning();
+  const [shared] = await db
+    .insert(spaces)
+    .values({ householdId: household!.id, name: "Haushalt", kind: "shared" })
+    .returning();
+  await db.insert(spaceMembers).values([
+    { spaceId: shared!.id, memberId: base.memberId, role: "owner" },
+    { spaceId: shared!.id, memberId: bob!.id, role: "editor" },
+    { spaceId: shared!.id, memberId: carol!.id, role: "viewer" },
+  ]);
+  const userOf = async (memberId: number) =>
+    (await db.select().from(members).where(eq(members.id, memberId)))[0]!.paperlessUserId!;
+  return { ...base, paperless, sharedId: shared!.id, bobId: bob!.id, carolId: carol!.id, userOf };
+}
+
+describe("shared-space mirror", () => {
+  it("personal documents keep the single-group target and mirror as unchanged", async () => {
+    const { db, paperless, spaceId } = await setup();
+    await db.insert(documentSpaces).values({ paperlessDocId: 1, spaceId });
+    await mirrorDocument(db, paperless, 1);
+    // A shared space appearing elsewhere doesn't change the personal target.
+    const [household] = await db.select().from(households);
+    await db.insert(spaces).values({ householdId: household!.id, name: "X", kind: "shared" });
+    const writes = paperless.tenancyWrites.length;
+
+    expect(await mirrorDocument(db, paperless, 1)).toBe("unchanged");
+    expect(paperless.tenancyWrites).toHaveLength(writes);
+    expect(paperless.permissions.get(1)!.permissions.view.groups).toHaveLength(1);
+  });
+
+  it("shared documents: owner = space owner, view = writer + viewer group, change = writer group", async () => {
+    const { db, paperless, sharedId, memberId, userOf } = await sharedSetup();
+    await db.insert(documentSpaces).values({ paperlessDocId: 1, spaceId: sharedId });
+
+    expect(await mirrorDocument(db, paperless, 1)).toBe("updated");
+
+    const writer = paperless.groups.get((await db.select().from(spaces).where(eq(spaces.id, sharedId)))[0]!.paperlessGroupId!)!;
+    const viewer = [...paperless.groups.values()].find((g) => g.name === spaceViewerGroupName(sharedId))!;
+    expect(writer.name).toBe(spaceGroupName(sharedId));
+    expect(paperless.permissions.get(1)).toEqual({
+      owner: await userOf(memberId),
+      permissions: {
+        view: { users: [], groups: [writer.id, viewer.id] },
+        change: { users: [], groups: [writer.id] },
+      },
+    });
+    const [row] = await db.select().from(spacePaperlessGroups);
+    expect(row).toMatchObject({ spaceId: sharedId, viewerGroupId: viewer.id });
+    expect(await mirrorDocument(db, paperless, 1)).toBe("unchanged");
+  });
+
+  it("syncSpaceMembership puts writers and viewers in their groups, idempotently", async () => {
+    const { db, paperless, sharedId, memberId, bobId, carolId, userOf } = await sharedSetup();
+    await db.insert(documentSpaces).values({ paperlessDocId: 1, spaceId: sharedId });
+
+    const first = await syncSpaceMembership(db, paperless, sharedId);
+    await mirrorDocument(db, paperless, 1);
+
+    const groupsOf = async (m: number) => paperless.users.get(await userOf(m))!.groups;
+    expect(await groupsOf(memberId)).toContain(first.writerGroupId);
+    expect(await groupsOf(bobId)).toEqual([first.writerGroupId]);
+    expect(await groupsOf(carolId)).toEqual([first.viewerGroupId]);
+    // Paperless enforces it: all three see the document, only writers may change it.
+    for (const m of [memberId, bobId, carolId]) expect(paperless.visibleTo(await userOf(m))).toContain(1);
+    expect(paperless.canChange(await userOf(bobId), 1)).toBe(true);
+    expect(paperless.canChange(await userOf(carolId), 1)).toBe(false);
+
+    const writes = paperless.tenancyWrites.length;
+    expect((await syncSpaceMembership(db, paperless, sharedId)).usersUpdated).toBe(0);
+    expect(paperless.tenancyWrites).toHaveLength(writes);
+  });
+
+  it("role change editor ↔ viewer swaps the group without touching documents", async () => {
+    const { db, paperless, sharedId, bobId, userOf } = await sharedSetup();
+    await db.insert(documentSpaces).values({ paperlessDocId: 1, spaceId: sharedId });
+    const { writerGroupId, viewerGroupId } = await syncSpaceMembership(db, paperless, sharedId);
+    await mirrorDocument(db, paperless, 1);
+    const perms = structuredClone(paperless.permissions.get(1));
+
+    await db.update(spaceMembers).set({ role: "viewer" }).where(and(eq(spaceMembers.spaceId, sharedId), eq(spaceMembers.memberId, bobId)));
+    expect((await syncSpaceMembership(db, paperless, sharedId)).usersUpdated).toBe(1);
+    expect(paperless.users.get(await userOf(bobId))!.groups).toEqual([viewerGroupId]);
+    expect(paperless.canChange(await userOf(bobId), 1)).toBe(false);
+    expect(paperless.visibleTo(await userOf(bobId))).toContain(1);
+
+    await db.update(spaceMembers).set({ role: "editor" }).where(and(eq(spaceMembers.spaceId, sharedId), eq(spaceMembers.memberId, bobId)));
+    await syncSpaceMembership(db, paperless, sharedId);
+    expect(paperless.users.get(await userOf(bobId))!.groups).toEqual([writerGroupId]);
+    expect(paperless.permissions.get(1)).toEqual(perms);
+    expect(paperless.tenancyWrites.filter((w) => w.op === "setDocumentPermissions" && w.target === 1)).toHaveLength(1);
+  });
+
+  it("removeFromSpaceGroups revokes access at once and is idempotent", async () => {
+    const { db, paperless, sharedId, carolId, userOf } = await sharedSetup();
+    await db.insert(documentSpaces).values({ paperlessDocId: 1, spaceId: sharedId });
+    await syncSpaceMembership(db, paperless, sharedId);
+    await mirrorDocument(db, paperless, 1);
+    const carolUser = await userOf(carolId);
+    await paperless.updateUser(carolUser, { groups: [...paperless.users.get(carolUser)!.groups, 999] });
+
+    await db.delete(spaceMembers).where(and(eq(spaceMembers.spaceId, sharedId), eq(spaceMembers.memberId, carolId)));
+    expect(await removeFromSpaceGroups(db, paperless, carolId, sharedId)).toBe(true);
+
+    expect(paperless.users.get(carolUser)!.groups).toEqual([999]); // unrelated groups kept
+    expect(paperless.visibleTo(carolUser)).not.toContain(1);
+    expect(await removeFromSpaceGroups(db, paperless, carolId, sharedId)).toBe(false);
   });
 });

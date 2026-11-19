@@ -387,6 +387,19 @@ export class FakeGateway {
   }
 
 
+  /** Whether a Paperless user may change a document: owner, or change via user/group grant. */
+  canChange = (userId: number, docId: number): boolean => {
+    const user = this.user(userId);
+    if (user.is_superuser) return true;
+    const perms = this.permissions.get(docId);
+    if (perms === undefined) return false;
+    return (
+      perms.owner === userId ||
+      perms.permissions.change.users.includes(userId) ||
+      perms.permissions.change.groups.some((g) => user.groups.includes(g))
+    );
+  };
+
   /** Documents a Paperless user can list: owner, or view via user/group grant. */
   visibleTo = (userId: number): number[] => {
     const user = this.user(userId);
@@ -419,6 +432,12 @@ function viewForToken(base: FakeGateway, token: string): FakeGateway {
   const requireVisible = (docId: number): void => {
     if (!canSee(docId)) throw new PaperlessNotFoundError(docId);
   };
+  /** Paperless: visible but without change permission → 403. */
+  const requireChange = (docId: number): void => {
+    requireVisible(docId);
+    if (!base.permissions.has(docId)) return;
+    if (!base.canChange(guard(), docId)) throw new PaperlessAuthError(403);
+  };
   const overrides: Partial<Record<keyof FakeGateway, unknown>> = {
     getDocument: async (docId: number) => {
       requireVisible(docId);
@@ -438,11 +457,11 @@ function viewForToken(base: FakeGateway, token: string): FakeGateway {
         count: [...base.docs.values()].filter((d) => d.document_type === id && canSee(d.id)).length,
       })),
     patchDocumentCustomFields: async (docId: number, values: Record<string, unknown>) => {
-      requireVisible(docId);
+      requireChange(docId);
       return base.patchDocumentCustomFields(docId, values);
     },
     swapLifecycleTag: async (docId: number, options: { remove: string[]; add: string[] }) => {
-      requireVisible(docId);
+      requireChange(docId);
       return base.swapLifecycleTag(docId, options);
     },
     openDocumentStream: async (docId: number, kind: string) => {

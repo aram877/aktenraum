@@ -1,5 +1,9 @@
 import { logger, type QdrantVectorStore } from "@aktenraum/core";
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { inArray } from "drizzle-orm";
+
+import { DB, type Database } from "../db/db.module.js";
+import { documentSpaces } from "../db/schema.js";
 import { MemberGateways } from "../tenancy/member-gateways.js";
 import type { Principal } from "../auth/principal.js";
 
@@ -31,6 +35,7 @@ export class TrashService {
   constructor(
     private readonly gateways: MemberGateways,
     @Inject(VECTOR_STORE) private readonly vectorStore: QdrantVectorStore | null,
+    @Inject(DB) private readonly db: Database,
   ) {}
 
   /** The member's own Paperless gateway (service gateway for the worker). */
@@ -77,6 +82,7 @@ export class TrashService {
     const gateway = await this.gateway(principal);
     await this.notInTrashOnMissing(docId, () => gateway.emptyTrash([docId]));
     await this.purgeChunks([docId]);
+    await this.forgetHomeSpaces([docId]);
   }
 
   private async notInTrashOnMissing(docId: number, action: () => Promise<void>): Promise<void> {
@@ -95,6 +101,7 @@ export class TrashService {
     if (ids.length === 0) return { emptied: 0 };
     await (await this.gateway(principal)).emptyTrash(ids);
     await this.purgeChunks(ids);
+    await this.forgetHomeSpaces(ids);
     return { emptied: ids.length };
   }
 
@@ -109,6 +116,21 @@ export class TrashService {
       }
       if (!payload.next) return ids;
       page += 1;
+    }
+  }
+
+  /**
+   * A hard-deleted document no longer exists, so its home-space row goes too —
+   * otherwise its space could never be deleted ("empty incl. trash").
+   */
+  private async forgetHomeSpaces(docIds: number[]): Promise<void> {
+    try {
+      await this.db.delete(documentSpaces).where(inArray(documentSpaces.paperlessDocId, docIds));
+    } catch (error: unknown) {
+      logger.warn("trash_home_space_cleanup_failed", {
+        doc_ids: docIds,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 

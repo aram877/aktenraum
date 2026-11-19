@@ -4,7 +4,7 @@ import { logger } from "@aktenraum/core";
 import { and, asc, eq } from "drizzle-orm";
 
 import type { Database } from "../db/db.module.js";
-import { documentSpaces, members, spaceMembers, spaces } from "../db/schema.js";
+import { documentSpaces, members, spaceMembers, spacePaperlessGroups, spaces } from "../db/schema.js";
 import type {
   DocumentPermissions,
   ObjectPermissions,
@@ -64,6 +64,11 @@ export function memberUsername(memberId: number): string {
 
 export function spaceGroupName(spaceId: number): string {
   return `space-${spaceId}`;
+}
+
+/** View-only group of a shared space, holding its viewers. */
+export function spaceViewerGroupName(spaceId: number): string {
+  return `space-${spaceId}-view`;
 }
 
 function sameSet(a: readonly (string | number)[], b: readonly (string | number)[]): boolean {
@@ -127,9 +132,9 @@ export async function provisionMemberUser(
 }
 
 /**
- * Ensures the space's Paperless group exists and is linked, and that every
- * `owner`/`editor` of the space is in it (group = view + change). Viewers get
- * per-user view permissions once shared spaces exist (tenancy-sharing).
+ * Ensures the space's Paperless (writer) group exists and is linked, and that
+ * every `owner`/`editor` of the space is in it (group = view + change). It only
+ * ever adds; `syncSpaceMembership` is the full diff, viewers included.
  */
 export async function provisionSpaceGroup(
   db: Database,
@@ -190,7 +195,7 @@ export async function spaceDocumentPermissions(
   const { paperlessGroupId } = await provisionSpaceGroup(db, paperless, spaceId);
   const space = (
     await db
-      .select({ personalMemberId: spaces.personalMemberId })
+      .select({ personalMemberId: spaces.personalMemberId, kind: spaces.kind })
       .from(spaces)
       .where(eq(spaces.id, spaceId))
       .limit(1)
@@ -207,10 +212,17 @@ export async function spaceDocumentPermissions(
   }
   if (ownerMemberId === null) throw new Error(`space ${spaceId} has no owner`);
   const { paperlessUserId } = await provisionMemberUser(db, paperless, ownerMemberId);
+  // Personal spaces keep exactly the pre-shared-spaces target, so every
+  // existing document mirrors as `unchanged`.
+  const viewerGroupId =
+    space?.kind === "shared" ? await provisionViewerGroup(db, paperless, spaceId) : null;
   return {
     owner: paperlessUserId,
     permissions: {
-      view: { users: [], groups: [paperlessGroupId] },
+      view: {
+        users: [],
+        groups: viewerGroupId === null ? [paperlessGroupId] : [paperlessGroupId, viewerGroupId],
+      },
       change: { users: [], groups: [paperlessGroupId] },
     },
   };
@@ -236,4 +248,123 @@ export async function mirrorDocument(
   if (samePermissions(current, target)) return "unchanged";
   await paperless.setDocumentPermissions(docId, target);
   return "updated";
+}
+
+/**
+ * Ensures the viewer group `space-<id>-view` of a shared space exists and is
+ * recorded in `space_paperless_groups`. Returns its id.
+ */
+export async function provisionViewerGroup(
+  db: Database,
+  paperless: PaperlessTenancyPort,
+  spaceId: number,
+): Promise<number> {
+  const stored = async () =>
+    (
+      await db
+        .select({ viewerGroupId: spacePaperlessGroups.viewerGroupId })
+        .from(spacePaperlessGroups)
+        .where(eq(spacePaperlessGroups.spaceId, spaceId))
+        .limit(1)
+    )[0]?.viewerGroupId;
+  const known = await stored();
+  if (known !== undefined) return known;
+  const name = spaceViewerGroupName(spaceId);
+  const groupId = (await paperless.findGroupByName(name))?.id ?? (await paperless.createGroup(name)).id;
+  await db.insert(spacePaperlessGroups).values({ spaceId, viewerGroupId: groupId }).onConflictDoNothing();
+  return (await stored()) ?? groupId;
+}
+
+/** A space's Paperless group ids (viewer = null for a personal space), provisioning them. */
+export async function spaceGroupIds(
+  db: Database,
+  paperless: PaperlessTenancyPort,
+  spaceId: number,
+): Promise<{ writer: number; viewer: number | null }> {
+  const { paperlessGroupId } = await provisionSpaceGroup(db, paperless, spaceId);
+  const space = (
+    await db.select({ kind: spaces.kind }).from(spaces).where(eq(spaces.id, spaceId)).limit(1)
+  )[0];
+  const viewer = space?.kind === "shared" ? await provisionViewerGroup(db, paperless, spaceId) : null;
+  return { writer: paperlessGroupId, viewer };
+}
+
+async function setUserGroups(
+  paperless: PaperlessTenancyPort,
+  paperlessUserId: number,
+  change: (groups: readonly number[]) => number[],
+): Promise<boolean> {
+  const user = await paperless.getUser(paperlessUserId);
+  const current = user.groups ?? [];
+  const next = change(current);
+  if (sameSet(current, next)) return false;
+  await paperless.updateUser(paperlessUserId, { groups: next });
+  return true;
+}
+
+/**
+ * Brings Paperless group membership in line with `space_members` for one
+ * space: owner + editors in the writer group (and out of the viewer group),
+ * viewers in the viewer group (and out of the writer group). A Paperless user
+ * is PATCHed only when its group set differs, so a re-run writes nothing.
+ * Members who are no longer in the space go through `removeFromSpaceGroups`.
+ */
+export async function syncSpaceMembership(
+  db: Database,
+  paperless: PaperlessTenancyPort,
+  spaceId: number,
+): Promise<{ writerGroupId: number; viewerGroupId: number | null; usersUpdated: number }> {
+  const groups = await spaceGroupIds(db, paperless, spaceId);
+  const rows = await db
+    .select({ memberId: spaceMembers.memberId, role: spaceMembers.role })
+    .from(spaceMembers)
+    .where(eq(spaceMembers.spaceId, spaceId))
+    .orderBy(asc(spaceMembers.memberId));
+  let usersUpdated = 0;
+  for (const row of rows) {
+    const want = row.role === "viewer" ? groups.viewer : groups.writer;
+    const drop = row.role === "viewer" ? groups.writer : groups.viewer;
+    if (want === null) continue; // a personal space has no viewers
+    const { paperlessUserId } = await provisionMemberUser(db, paperless, row.memberId);
+    const changed = await setUserGroups(paperless, paperlessUserId, (current) => [
+      ...current.filter((g) => g !== drop && g !== want),
+      want,
+    ]);
+    if (changed) usersUpdated += 1;
+  }
+  return { writerGroupId: groups.writer, viewerGroupId: groups.viewer, usersUpdated };
+}
+
+/**
+ * Takes a member out of both groups of a space (removed, left, or the space
+ * was deleted). Idempotent; a member without a Paperless user is a no-op.
+ */
+export async function removeFromSpaceGroups(
+  db: Database,
+  paperless: PaperlessTenancyPort,
+  memberId: number,
+  spaceId: number,
+): Promise<boolean> {
+  const member = (
+    await db
+      .select({ paperlessUserId: members.paperlessUserId })
+      .from(members)
+      .where(eq(members.id, memberId))
+      .limit(1)
+  )[0];
+  const paperlessUserId = member?.paperlessUserId ?? null;
+  if (paperlessUserId === null) return false;
+  const writer = (
+    await db.select({ id: spaces.paperlessGroupId }).from(spaces).where(eq(spaces.id, spaceId)).limit(1)
+  )[0]?.id;
+  const viewer = (
+    await db
+      .select({ id: spacePaperlessGroups.viewerGroupId })
+      .from(spacePaperlessGroups)
+      .where(eq(spacePaperlessGroups.spaceId, spaceId))
+      .limit(1)
+  )[0]?.id;
+  const drop = new Set([writer, viewer].filter((g): g is number => typeof g === "number"));
+  if (drop.size === 0) return false;
+  return setUserGroups(paperless, paperlessUserId, (current) => current.filter((g) => !drop.has(g)));
 }

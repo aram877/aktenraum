@@ -111,6 +111,16 @@ CREATE TABLE invites (
   redeemed_by_member_id integer REFERENCES members(id),
   revoked_at timestamp with time zone
 );
+CREATE TABLE space_paperless_groups (
+  space_id integer PRIMARY KEY REFERENCES spaces(id),
+  viewer_group_id integer NOT NULL UNIQUE,
+  created_at timestamp with time zone NOT NULL DEFAULT now()
+);
+CREATE TABLE upload_task_spaces (
+  task_id varchar(64) PRIMARY KEY,
+  space_id integer NOT NULL REFERENCES spaces(id),
+  created_at timestamp with time zone NOT NULL DEFAULT now()
+);
 INSERT INTO app_settings (id) VALUES (1);
 `;
 
@@ -170,6 +180,8 @@ export async function createHarness(options: {
   env?: Record<string, string>;
   llm?: Partial<Record<BackendRole, LLMBackend>>;
   retrieval?: RetrievalDeps | null;
+  /** A fake `QdrantVectorStore`; default null (RAG off). */
+  vectorStore?: unknown;
 } = {}): Promise<Harness> {
   const settings = loadSettings({ ...TEST_ENV, ...options.env });
 
@@ -192,7 +204,7 @@ export async function createHarness(options: {
     .overrideProvider(DB_POOL)
     .useValue({ end: async () => undefined })
     .overrideProvider(VECTOR_STORE)
-    .useValue(null)
+    .useValue(options.vectorStore ?? null)
     .overrideProvider(RETRIEVAL_DEPS)
     .useValue(options.retrieval ?? null)
     .overrideProvider(PAPERLESS_GATEWAY)

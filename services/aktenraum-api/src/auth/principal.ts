@@ -25,6 +25,7 @@ export const MEMBER_SCOPES = [
   "settings:read",
   "settings:write",
   "shares:manage",
+  "spaces:manage",
   "household:admin",
 ] as const;
 

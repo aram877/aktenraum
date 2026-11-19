@@ -10,7 +10,7 @@ import type { DocumentSpaceAccess, TenancyLookup } from "../tenancy/tenancy.serv
 import { TenancyService } from "../tenancy/tenancy.service.js";
 import { PolicyService, spaceRoleAllows, type DocumentAction } from "./policy.service.js";
 
-const ACTIONS: DocumentAction[] = ["read", "write", "delete"];
+const ACTIONS: DocumentAction[] = ["read", "write", "delete", "move"];
 
 function member(role: HouseholdRoleValue, memberId = 1): MemberPrincipal {
   return {
@@ -36,7 +36,7 @@ describe("PolicyService matrix", () => {
   const expected: Record<SpaceRole, DocumentAction[]> = {
     viewer: ["read"],
     editor: ["read", "write"],
-    owner: ["read", "write", "delete"],
+    owner: ["read", "write", "delete", "move"],
   };
 
   for (const [role, allowed] of Object.entries(expected) as [SpaceRole, DocumentAction[]][]) {
@@ -75,6 +75,7 @@ describe("PolicyService matrix", () => {
       expect(await policy.canAccessDocument(workerPrincipal(), 1, "write")).toBe(true);
       expect(await policy.canAccessDocument(workerPrincipal(), 1, "read")).toBe(true);
       expect(await policy.canAccessDocument(workerPrincipal(), 1, "delete")).toBe(false);
+      expect(await policy.canAccessDocument(workerPrincipal(), 1, "move")).toBe(false);
     }
   });
 

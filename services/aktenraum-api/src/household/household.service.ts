@@ -100,6 +100,14 @@ export class HouseholdService {
     return rows.map((r) => ({ id: r.id, username: r.username, role: r.role, joined_at: r.joinedAt }));
   }
 
+  async directory(): Promise<{ id: number; username: string }[]> {
+    return this.db
+      .select({ id: members.id, username: users.username })
+      .from(members)
+      .innerJoin(users, eq(users.id, members.userId))
+      .orderBy(asc(members.id));
+  }
+
   /** Whether a link is redeemable; every other state is the same 404 (no oracle). */
   async checkInvite(token: string): Promise<{ expires_at: string }> {
     const rows = await this.db

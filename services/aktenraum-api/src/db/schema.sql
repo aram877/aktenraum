@@ -146,6 +146,25 @@ CREATE TABLE IF NOT EXISTS "invites" (
 	CONSTRAINT "invites_role_check" CHECK ("role" IN ('admin', 'member'))
 );
 
+-- The viewer group of a shared space (tenancy-shared-spaces): `space-<id>-view`,
+-- view-only on the space's documents. The writer group stays in
+-- spaces.paperless_group_id; a separate table because applySchema can't add a
+-- column to spaces.
+CREATE TABLE IF NOT EXISTS "space_paperless_groups" (
+	"space_id" integer PRIMARY KEY NOT NULL REFERENCES "spaces"("id"),
+	"viewer_group_id" integer NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "space_paperless_groups_viewer_group_id_key" UNIQUE("viewer_group_id")
+);
+
+-- The space an upload was sent into (the /upload picker). No row = the
+-- uploader's personal space. Same 30-day retention as upload_task_members.
+CREATE TABLE IF NOT EXISTS "upload_task_spaces" (
+	"task_id" varchar(64) PRIMARY KEY NOT NULL,
+	"space_id" integer NOT NULL REFERENCES "spaces"("id"),
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+
 INSERT INTO "alembic_version" ("version_num")
 SELECT '0006'
 WHERE NOT EXISTS (SELECT 1 FROM "alembic_version");

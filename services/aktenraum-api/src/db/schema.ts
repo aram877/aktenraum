@@ -134,3 +134,19 @@ export const uploadTaskMembers = pgTable("upload_task_members", {
 	paperlessDocId: integer("paperless_doc_id"),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 });
+
+/** The viewer group of a shared space (`space-<id>-view`); the writer group id lives in `spaces`. */
+export const spacePaperlessGroups = pgTable("space_paperless_groups", {
+	spaceId: integer("space_id").primaryKey().notNull().references(() => spaces.id),
+	viewerGroupId: integer("viewer_group_id").notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	unique("space_paperless_groups_viewer_group_id_key").on(table.viewerGroupId),
+]);
+
+/** The space an aktenraum upload was sent into (absent = the uploader's personal space). */
+export const uploadTaskSpaces = pgTable("upload_task_spaces", {
+	taskId: varchar("task_id", { length: 64 }).primaryKey().notNull(),
+	spaceId: integer("space_id").notNull().references(() => spaces.id),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+});

@@ -192,7 +192,7 @@ export async function bootstrap(): Promise<void> {
     );
     void retryUntilSuccess({
       name: "index_reconcile",
-      run: () => enqueueUnindexedDocuments(paperless, vectorStore, indexingQueue),
+      run: () => enqueueUnindexedDocuments(paperless, vectorStore, indexingQueue, 100, spaceLookup),
       attempts: 10,
       delayMs: 30_000,
       signal: controller.signal,

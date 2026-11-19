@@ -41,6 +41,13 @@ export class HouseholdController {
     return this.household.listMembers();
   }
 
+  /** Every member: id + username, to pick whom to add to a space. Nothing else. */
+  @Get("directory")
+  @RequireScope("spaces:manage")
+  directory(): Promise<{ id: number; username: string }[]> {
+    return this.household.directory();
+  }
+
   @Get("invites")
   @RequireScope("household:admin")
   pendingInvites(): Promise<PendingInvite[]> {

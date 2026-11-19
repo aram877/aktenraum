@@ -514,6 +514,36 @@ describe("enqueueUnindexedDocuments", () => {
       { kind: "full", docId: 3 },
     ]);
   });
+
+  it("re-sets the chunk space of indexed documents whose chunks disagree with their home space", async () => {
+    const paperless = new FakePaperless(["ai-propagated"]);
+    const tag = paperless.tagIds.get("ai-propagated");
+    for (const id of [1, 2, 3, 4]) paperless.addDoc({ id, tags: [tag] });
+    const store = {
+      countChunksForDoc: vi.fn(async () => 5),
+      // doc 1 already right, doc 2 stale, doc 3 lookup fails, doc 4 unassigned
+      countChunksOutsideSpace: vi.fn(async (id: number) => (id === 2 ? 5 : 0)),
+      setSpaceByDocId: vi.fn(async () => undefined),
+    };
+    const lookup = vi.fn(async (id: number) => {
+      if (id === 3) throw new Error("api down");
+      if (id === 4) return null;
+      return { spaceId: 9, sharedWith: [], peers: new Set([id]) };
+    });
+
+    const count = await enqueueUnindexedDocuments(
+      paperless.asClient(),
+      store as unknown as QdrantVectorStore,
+      { push: () => undefined },
+      10,
+      lookup,
+    );
+
+    expect(count).toBe(0);
+    expect(store.setSpaceByDocId).toHaveBeenCalledTimes(1);
+    expect(store.setSpaceByDocId).toHaveBeenCalledWith(2, { spaceId: 9, sharedWith: [] });
+    expect(lookup).toHaveBeenCalledTimes(4);
+  });
 });
 
 describe("isTransientLlmError", () => {

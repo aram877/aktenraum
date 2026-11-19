@@ -13,7 +13,7 @@ import {
   PaperlessGatewayProvider,
   type PaperlessGatewayFactory,
 } from "../paperless/paperless.module.js";
-import { memberUsername, provisionMemberUser, provisionSpaceGroup } from "./paperless-mirror.js";
+import { memberUsername, provisionMemberUser, syncSpaceMembership } from "./paperless-mirror.js";
 import { TokenVault, TokenVaultError } from "./token-vault.js";
 
 /**
@@ -95,7 +95,7 @@ export class MemberGateways {
       .select({ spaceId: spaceMembers.spaceId })
       .from(spaceMembers)
       .where(eq(spaceMembers.memberId, memberId));
-    for (const { spaceId } of memberSpaces) await provisionSpaceGroup(this.db, service, spaceId);
+    for (const { spaceId } of memberSpaces) await syncSpaceMembership(this.db, service, spaceId);
 
     const token = await service.mintUserToken(paperlessUserId, memberUsername(memberId));
     const sealed = this.vault.seal(token);

@@ -4,12 +4,13 @@ import type { Principal } from "../auth/principal.js";
 import type { SpaceRole } from "../db/schema.js";
 import { TenancyService, type TenancyLookup } from "../tenancy/tenancy.service.js";
 
-export type DocumentAction = "read" | "write" | "delete";
+/** `move` = take the document out of its current space (owner only). */
+export type DocumentAction = "read" | "write" | "delete" | "move";
 
 const SPACE_ROLE_ACTIONS: Readonly<Record<SpaceRole, ReadonlySet<DocumentAction>>> = {
   viewer: new Set<DocumentAction>(["read"]),
   editor: new Set<DocumentAction>(["read", "write"]),
-  owner: new Set<DocumentAction>(["read", "write", "delete"]),
+  owner: new Set<DocumentAction>(["read", "write", "delete", "move"]),
 };
 
 export function spaceRoleAllows(role: SpaceRole, action: DocumentAction): boolean {

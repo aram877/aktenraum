@@ -65,6 +65,7 @@ describe("memberScopes", () => {
     expect(scopes.has("settings:write")).toBe(false);
     expect(scopes.has("household:admin")).toBe(false);
     expect(scopes.has("documents:write")).toBe(true);
+    expect(scopes.has("spaces:manage")).toBe(true);
   });
 
   it("gives the worker internal scopes only", () => {

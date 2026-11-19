@@ -15,6 +15,7 @@ import { LibraryModule } from "./library/library.module.js";
 import { PaperlessModule } from "./paperless/paperless.module.js";
 import { RagModule } from "./rag/rag.module.js";
 import { SettingsModule } from "./settings/settings.module.js";
+import { SpacesModule } from "./spaces/spaces.module.js";
 import { TenancyApiModule } from "./tenancy/tenancy-api.module.js";
 import { TenancyModule } from "./tenancy/tenancy.module.js";
 import { TrashModule } from "./trash/trash.module.js";
@@ -33,6 +34,7 @@ import { UploadModule } from "./upload/upload.module.js";
     TenancyModule,
     TenancyApiModule,
     HouseholdModule,
+    SpacesModule,
     SettingsModule,
     AiModule,
     DocumentsModule,

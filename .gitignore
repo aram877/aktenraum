@@ -40,3 +40,6 @@ evals/local.yaml
 # Timestamped .env backups taken before config migrations — contain secrets.
 docker/.env.bak-*
 docker/*.env.bak-*
+
+# Claude Code per-machine settings (permissions can contain secrets)
+.claude/settings.local.json

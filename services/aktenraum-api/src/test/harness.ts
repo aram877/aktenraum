@@ -50,6 +50,41 @@ CREATE TABLE upload_tasks (
   file_name varchar(255),
   created_at timestamp with time zone NOT NULL DEFAULT now()
 );
+CREATE TABLE households (
+  id serial PRIMARY KEY,
+  name varchar(128) NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now()
+);
+CREATE TABLE members (
+  id serial PRIMARY KEY,
+  household_id integer NOT NULL REFERENCES households(id),
+  user_id integer NOT NULL UNIQUE REFERENCES users(id),
+  role varchar(16) NOT NULL CHECK (role IN ('admin', 'member')),
+  paperless_user_id integer UNIQUE,
+  created_at timestamp with time zone NOT NULL DEFAULT now()
+);
+CREATE TABLE spaces (
+  id serial PRIMARY KEY,
+  household_id integer NOT NULL REFERENCES households(id),
+  name varchar(128) NOT NULL,
+  kind varchar(16) NOT NULL CHECK (kind IN ('personal', 'shared')),
+  personal_member_id integer UNIQUE REFERENCES members(id),
+  paperless_group_id integer UNIQUE,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CHECK ((kind = 'personal') = (personal_member_id IS NOT NULL))
+);
+CREATE TABLE space_members (
+  space_id integer NOT NULL REFERENCES spaces(id),
+  member_id integer NOT NULL REFERENCES members(id),
+  role varchar(16) NOT NULL CHECK (role IN ('owner', 'editor', 'viewer')),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  PRIMARY KEY (space_id, member_id)
+);
+CREATE TABLE document_spaces (
+  paperless_doc_id integer PRIMARY KEY,
+  space_id integer NOT NULL REFERENCES spaces(id),
+  assigned_at timestamp with time zone NOT NULL DEFAULT now()
+);
 INSERT INTO app_settings (id) VALUES (1);
 `;
 

@@ -4,9 +4,9 @@
 
 ## 1. Schema + reconcile
 
-- [ ] 1.1 `households`, `members`, `spaces`, `space_members`, `document_spaces` in `db/schema.ts` **and** `db/schema.sql` (+ `apply-schema.test.ts`), plus the pg-mem harness schema
-- [ ] 1.2 `tenancy/` module: reconciler at startup (household, member per user — first is admin, personal space per member), idempotent
-- [ ] 1.3 Tests: fresh DB, existing user, restart idempotency, second `users` row becomes `member`
+- [x] 1.1 `households`, `members`, `spaces`, `space_members`, `document_spaces` in `db/schema.ts` **and** `db/schema.sql` (+ `apply-schema.test.ts`), plus the pg-mem harness schema
+- [x] 1.2 `tenancy/` module: reconciler at startup (household, member per user — first is admin, personal space per member), idempotent
+- [x] 1.3 Tests: fresh DB, existing user, restart idempotency, second `users` row becomes `member`
 
 ## 2. Principal + policy
 

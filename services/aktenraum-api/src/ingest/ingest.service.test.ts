@@ -31,6 +31,13 @@ describe("classifySource", () => {
   it("treats other owned tasks as e-mail", () => {
     expect(classifySource({ task_id: "m1", owner: 3 }, uploads)).toBe("email");
   });
+  it("decides by the email-ingested tag once the task created a document, whatever the owner", () => {
+    expect(classifySource({ task_id: "m2", owner: null }, uploads, { emailIngested: true })).toBe("email");
+    expect(classifySource({ task_id: "f2", owner: 3 }, uploads, { emailIngested: false })).toBe("folder");
+  });
+  it("still prefers the recorded upload id", () => {
+    expect(classifySource({ task_id: "u1", owner: 3 }, uploads, { emailIngested: true })).toBe("upload");
+  });
 });
 
 describe("parseDuplicateTarget", () => {

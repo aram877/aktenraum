@@ -105,6 +105,18 @@ CREATE TABLE IF NOT EXISTS "document_spaces" (
 
 CREATE INDEX IF NOT EXISTS "document_spaces_space_id_idx" ON "document_spaces" ("space_id");
 
+-- Who uploaded which Paperless task, so a new document's home space is the
+-- uploader's personal space. paperless_doc_id is filled once the task has
+-- finished: the new document's id, or 0 when it produced none (duplicate,
+-- failure). A separate table because applySchema can't add a column to
+-- upload_tasks. Same 30-day retention.
+CREATE TABLE IF NOT EXISTS "upload_task_members" (
+	"task_id" varchar(64) PRIMARY KEY NOT NULL,
+	"member_id" integer NOT NULL REFERENCES "members"("id"),
+	"paperless_doc_id" integer,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+
 INSERT INTO "alembic_version" ("version_num")
 SELECT '0006'
 WHERE NOT EXISTS (SELECT 1 FROM "alembic_version");

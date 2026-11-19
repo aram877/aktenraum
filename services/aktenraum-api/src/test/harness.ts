@@ -85,6 +85,12 @@ CREATE TABLE document_spaces (
   space_id integer NOT NULL REFERENCES spaces(id),
   assigned_at timestamp with time zone NOT NULL DEFAULT now()
 );
+CREATE TABLE upload_task_members (
+  task_id varchar(64) PRIMARY KEY,
+  member_id integer NOT NULL REFERENCES members(id),
+  paperless_doc_id integer,
+  created_at timestamp with time zone NOT NULL DEFAULT now()
+);
 INSERT INTO app_settings (id) VALUES (1);
 `;
 

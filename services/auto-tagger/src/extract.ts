@@ -8,6 +8,7 @@ import {
 import { DocumentExtractionSchema, LIFECYCLE_TAGS } from "@aktenraum/core";
 
 import type { Settings } from "./config.js";
+import { HomeSpacePendingError, type AssignHomeSpace } from "./home-space.js";
 import { isTransientLlmError, type TransientFailureTracker } from "./transient.js";
 import { runTypeFieldsPass, type SaveTypeFields } from "./type-fields.js";
 import { routeLifecycleTags, UNTRUSTED_SOURCE_TAGS, type RuleSet } from "./routing.js";
@@ -127,6 +128,48 @@ export interface ExtractDeps {
   getRules: () => Promise<RuleSet>;
   transientFailures?: TransientFailureTracker;
   saveTypeFields?: SaveTypeFields;
+  /** Gives the document its home space before anything else (tenancy, ADR-009). */
+  assignHomeSpace?: AssignHomeSpace;
+  /** Separate from `transientFailures` so assignment and LLM retries don't share a budget. */
+  homeSpaceFailures?: TransientFailureTracker;
+}
+
+/**
+ * True when extraction may go ahead. A document is never extracted without a
+ * home space: "still running" defers without counting, any other failure is
+ * retried by the poller and tags ai-error after the tracker's last attempt.
+ */
+async function ensureHomeSpace(docId: number, deps: ExtractDeps): Promise<boolean> {
+  if (!deps.assignHomeSpace) return true;
+  try {
+    await deps.assignHomeSpace(docId);
+    deps.homeSpaceFailures?.clear(docId);
+    return true;
+  } catch (error: unknown) {
+    if (error instanceof HomeSpacePendingError) {
+      logger.info("home_space_pending", { doc_id: docId });
+      return false;
+    }
+    const tracker = deps.homeSpaceFailures;
+    const message = error instanceof Error ? error.message : String(error);
+    if (tracker) {
+      const attempt = tracker.record(docId);
+      if (attempt < tracker.maxAttempts) {
+        logger.warn("home_space_deferred", {
+          doc_id: docId,
+          attempt,
+          max_attempts: tracker.maxAttempts,
+          error: message,
+        });
+        return false;
+      }
+      tracker.clear(docId);
+    }
+    logger.error("home_space_failed", { doc_id: docId, error: message });
+    await deps.paperless.setErrorMessage(docId, formatError("Ablage-Zuordnung fehlgeschlagen", error));
+    await deps.paperless.addTagToDocument(docId, "ai-error");
+    return false;
+  }
 }
 
 export async function processDocument(
@@ -136,6 +179,8 @@ export async function processDocument(
   const { paperless, backend, settings } = deps;
   const docId = doc.id;
   const title = typeof doc.title === "string" ? doc.title : `doc-${docId}`;
+
+  if (!(await ensureHomeSpace(docId, deps))) return;
 
   const content = await paperless.getDocumentContent(docId);
   if (!content.trim()) {

@@ -70,6 +70,7 @@ describe("memberScopes", () => {
   it("gives the worker internal scopes only", () => {
     expect([...workerPrincipal().scopes].sort()).toEqual([
       "internal:settings-read",
+      "internal:tenancy-write",
       "internal:type-fields-write",
     ]);
   });

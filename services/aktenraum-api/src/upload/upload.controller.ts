@@ -17,7 +17,12 @@ import {
 import { FilesInterceptor } from "@nestjs/platform-express";
 
 import { AuthGuard } from "../auth/auth.guard.js";
-import { DocumentAccess, RequireScope } from "../auth/principal.js";
+import {
+  CurrentPrincipal,
+  DocumentAccess,
+  RequireScope,
+  type Principal,
+} from "../auth/principal.js";
 import { SETTINGS, type Settings } from "../config/settings.js";
 import { PaperlessGatewayProvider } from "../paperless/paperless.module.js";
 import { UploadService, type IncomingFile, type UploadResponse } from "./upload.service.js";
@@ -39,6 +44,7 @@ export class UploadController {
   @UseInterceptors(FilesInterceptor("files", MAX_FILES_HARD_CAP))
   uploadDocuments(
     @UploadedFiles() files: IncomingFile[] | undefined,
+    @CurrentPrincipal() principal: Principal,
     @Body("title") title?: string,
   ): Promise<UploadResponse> {
     if (files === undefined || files.length === 0) {
@@ -50,7 +56,8 @@ export class UploadController {
         HttpStatus.PAYLOAD_TOO_LARGE,
       );
     }
-    return this.uploadService.uploadAll(files, title);
+    const memberId = principal.kind === "member" ? principal.memberId : null;
+    return this.uploadService.uploadAll(files, title, memberId);
   }
 
   @Delete(":doc_id")

@@ -14,6 +14,7 @@ import { LibraryModule } from "./library/library.module.js";
 import { PaperlessModule } from "./paperless/paperless.module.js";
 import { RagModule } from "./rag/rag.module.js";
 import { SettingsModule } from "./settings/settings.module.js";
+import { TenancyApiModule } from "./tenancy/tenancy-api.module.js";
 import { TenancyModule } from "./tenancy/tenancy.module.js";
 import { TrashModule } from "./trash/trash.module.js";
 import { TypeFieldsModule } from "./type-fields/type-fields.module.js";
@@ -29,6 +30,7 @@ import { UploadModule } from "./upload/upload.module.js";
     HealthModule,
     AuthModule,
     TenancyModule,
+    TenancyApiModule,
     SettingsModule,
     AiModule,
     DocumentsModule,

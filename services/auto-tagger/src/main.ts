@@ -13,6 +13,7 @@ import { retryUntilSuccess, runInterval, runQueueConsumer } from "./loops.js";
 import { ProcessingState } from "./processing-state.js";
 import { AsyncQueue } from "./queue.js";
 import { lifecycleTagsOn, processDocument } from "./extract.js";
+import { apiHomeSpaceAssigner } from "./home-space.js";
 import {
   enqueueUnindexedDocuments,
   indexDocument,
@@ -44,6 +45,10 @@ export async function bootstrap(): Promise<void> {
   const ragEnabled = Boolean(settings.QDRANT_URL);
   const indexingQueue = ragEnabled ? new AsyncQueue<IndexJob>() : null;
   const transientFailures = new TransientFailureTracker();
+  const homeSpaceFailures = new TransientFailureTracker();
+  const assignHomeSpace = settings.AKTENRAUM_API_URL
+    ? apiHomeSpaceAssigner(settings.AKTENRAUM_API_URL, settings.WEBHOOK_SECRET)
+    : undefined;
   const saveTypeFields = settings.AKTENRAUM_API_URL
     ? apiTypeFieldsSaver(settings.AKTENRAUM_API_URL, settings.WEBHOOK_SECRET)
     : undefined;
@@ -102,6 +107,8 @@ export async function bootstrap(): Promise<void> {
           getRules: () => autoApprove.getRules(),
           transientFailures,
           saveTypeFields,
+          assignHomeSpace,
+          homeSpaceFailures,
         });
       },
     }),

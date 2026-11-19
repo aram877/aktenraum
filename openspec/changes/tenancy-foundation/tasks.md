@@ -23,11 +23,11 @@
 
 ## 4. Home space for new documents
 
-- [ ] 4.1 Record the uploading member per Paperless task. `applySchema` can't add a column to `upload_tasks`, so use a new table (e.g. `upload_task_members(task_id, member_id)`) or an explicit migration — decide at implementation
-- [ ] 4.2 `POST /api/tenancy/assign-home-space` (`InternalGuard`, new worker scope `internal:tenancy-write`): pick the space, write `document_spaces`, apply Paperless permissions; idempotent
-- [ ] 4.3 Worker: call it before extraction (skip when the doc already has a home space); failure → defer like a transient LLM error, never extract unassigned
-- [ ] 4.4 Ingest: explicit source instead of "ownerless task = consume folder"
-- [ ] 4.5 Tests: upload / mail / folder routing, reprocess keeps the space, worker ordering
+- [x] 4.1 Record the uploading member per Paperless task. `applySchema` can't add a column to `upload_tasks`, so use a new table (e.g. `upload_task_members(task_id, member_id)`) or an explicit migration — decide at implementation
+- [x] 4.2 `POST /api/tenancy/assign-home-space` (`InternalGuard`, new worker scope `internal:tenancy-write`): pick the space, write `document_spaces`, apply Paperless permissions; idempotent
+- [x] 4.3 Worker: call it before extraction (skip when the doc already has a home space); failure → defer like a transient LLM error, never extract unassigned
+- [x] 4.4 Ingest: explicit source instead of "ownerless task = consume folder"
+- [x] 4.5 Tests: upload / mail / folder routing, reprocess keeps the space, worker ordering
 
 ## 5. Space-aware AI
 

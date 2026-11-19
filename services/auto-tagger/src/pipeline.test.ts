@@ -12,6 +12,7 @@ import { ActiveModelConfig } from "./active-model.js";
 import { parseRuleSet } from "./auto-approve-config.js";
 import { loadSettings } from "./config.js";
 import { processDocument } from "./extract.js";
+import { HomeSpacePendingError } from "./home-space.js";
 import {
   enqueueUnindexedDocuments,
   indexDocument,
@@ -208,6 +209,79 @@ describe("processDocument", () => {
       getRules: async () => RULES,
     });
     expect(paperless.tagsOf(1)).toEqual(["wichtig", "ai-pending"]);
+  });
+});
+
+describe("home space before extraction", () => {
+  function setup(assign: (docId: number) => Promise<void>) {
+    const paperless = new FakePaperless();
+    paperless.addDoc({ id: 1 });
+    const order: string[] = [];
+    const complete = vi.fn(async () => {
+      order.push("llm");
+      return EXTRACTION as never;
+    });
+    const deps = {
+      paperless: paperless.asClient(),
+      backend: backend(complete),
+      settings: settings(),
+      getRules: async () => RULES,
+      transientFailures: new TransientFailureTracker(3),
+      homeSpaceFailures: new TransientFailureTracker(3),
+      assignHomeSpace: vi.fn(async (docId: number) => {
+        order.push("assign");
+        await assign(docId);
+      }),
+    };
+    const run = async () => processDocument(await paperless.getDocument(1), deps);
+    return { paperless, deps, complete, order, run };
+  }
+
+  it("assigns the home space before the LLM runs", async () => {
+    const { paperless, deps, order, run } = setup(async () => undefined);
+    await run();
+    expect(deps.assignHomeSpace).toHaveBeenCalledWith(1);
+    expect(order).toEqual(["assign", "llm"]);
+    expect(paperless.tagsOf(1)).toEqual(["ai-pending"]);
+  });
+
+  it("waits while an upload is still running — never extracts, never tags, never gives up", async () => {
+    const { paperless, complete, run } = setup(async () => {
+      throw new HomeSpacePendingError(1);
+    });
+    for (let i = 0; i < 5; i += 1) await run();
+    expect(complete).not.toHaveBeenCalled();
+    expect(paperless.tagsOf(1)).toEqual([]);
+  });
+
+  it("defers other failures, then tags ai-error on the third without extracting", async () => {
+    const { paperless, complete, run } = setup(async () => {
+      throw Object.assign(new Error("assign-home-space 502: bad gateway"), { status: 502 });
+    });
+    await run();
+    await run();
+    expect(paperless.tagsOf(1)).toEqual([]);
+    await run();
+    expect(paperless.tagsOf(1)).toEqual(["ai-error"]);
+    expect(paperless.setErrorMessage).toHaveBeenCalledWith(1, expect.stringContaining("Ablage-Zuordnung"));
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it("keeps the LLM retry budget separate from assignment failures", async () => {
+    let failAssign = 2;
+    const { deps, paperless, run } = setup(async () => {
+      if (failAssign-- > 0) throw new Error("api down");
+    });
+    deps.backend = backend(async () => {
+      throw connectionRefused();
+    });
+    await run(); // assign fails (1)
+    await run(); // assign fails (2)
+    await run(); // assign ok, LLM transient (1)
+    await run(); // LLM transient (2)
+    expect(paperless.tagsOf(1)).toEqual([]);
+    await run(); // LLM transient (3) → ai-error
+    expect(paperless.tagsOf(1)).toEqual(["ai-error"]);
   });
 });
 

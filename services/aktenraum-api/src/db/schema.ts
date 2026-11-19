@@ -101,3 +101,11 @@ export const documentSpaces = pgTable("document_spaces", {
 }, (table) => [
 	index("document_spaces_space_id_idx").on(table.spaceId),
 ]);
+
+/** 0 in paperless_doc_id = the task finished without creating a document. */
+export const uploadTaskMembers = pgTable("upload_task_members", {
+	taskId: varchar("task_id", { length: 64 }).primaryKey().notNull(),
+	memberId: integer("member_id").notNull().references(() => members.id),
+	paperlessDocId: integer("paperless_doc_id"),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+});

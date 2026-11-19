@@ -210,6 +210,17 @@ const TASKS: Record<string, unknown>[] = [
     owner: 3,
   },
   {
+    // Mail rule import: the document carries `email-ingested` (tag 40 below).
+    task_id: "t-mail",
+    task_file_name: "rechnung-mail.pdf",
+    date_created: minutesAgo(14),
+    date_done: minutesAgo(14),
+    status: "SUCCESS",
+    result: "Success. New document id 4 created",
+    related_document: "4",
+    owner: 3,
+  },
+  {
     task_id: "t-old",
     task_file_name: "old.pdf",
     date_created: new Date(NOW.getTime() - 40 * 24 * 3_600_000).toISOString(),
@@ -234,7 +245,10 @@ const MAILS: Record<string, unknown>[] = [
 
 describe("import activity", () => {
   async function bootActivity(): Promise<void> {
-    await boot(new FakeGateway({ docs: mixedDocs(), tasks: TASKS, processedMail: MAILS }));
+    const docs = mixedDocs().map((d) => (d.id === 4 ? { ...d, tags: [40] } : d));
+    const fake = new FakeGateway({ docs, tasks: TASKS, processedMail: MAILS });
+    fake.listTagsCovering = async () => ({ ...TAGS, "email-ingested": 40 });
+    await boot(fake);
     await harness!.db.insert(uploadTasks).values({ taskId: "task-uuid-1234", fileName: "upload.pdf" });
   }
 
@@ -252,7 +266,10 @@ describe("import activity", () => {
       outcome: "duplicate",
       duplicate_of: { id: 3, title: "Rechnung Stadtwerke", lifecycle_tags: ["ai-propagated"], missing: false },
     });
+    // Owned task, but the new document has no email-ingested tag → consume folder
+    // (task ownership no longer says anything once documents have owners).
     expect(byId["t-new"]).toMatchObject({
+      source: "folder",
       outcome: "new",
       document: { id: 1, lifecycle_tags: ["ai-error"], missing: false },
     });
@@ -266,13 +283,14 @@ describe("import activity", () => {
       message: "Error occurred while consuming document broken.pdf: PDF is damaged",
     });
     expect(byId["task-uuid-1234"]).toMatchObject({ source: "upload", outcome: "running" });
+    expect(byId["t-mail"]).toMatchObject({ source: "email", outcome: "new", document: { id: 4 } });
 
     expect(response.body.summary).toEqual({
-      new: 1,
+      new: 2,
       duplicate: 2,
       failed: 1,
       running: 1,
-      by_source: { email: 3, upload: 1, folder: 1 },
+      by_source: { email: 3, upload: 1, folder: 2 },
     });
     expect(response.body.items[0].task_id).toBe("task-uuid-1234");
   });

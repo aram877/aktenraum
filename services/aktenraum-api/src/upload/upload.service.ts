@@ -6,7 +6,7 @@ import { lt } from "drizzle-orm";
 
 import { SETTINGS, type Settings } from "../config/settings.js";
 import { DB, type Database } from "../db/db.module.js";
-import { uploadTasks } from "../db/schema.js";
+import { uploadTaskMembers, uploadTasks } from "../db/schema.js";
 import { PaperlessAuthError } from "../paperless/errors.js";
 import { PaperlessGatewayProvider } from "../paperless/paperless.module.js";
 
@@ -66,15 +66,23 @@ export class UploadService {
     @Inject(DB) private readonly db: Database,
   ) {}
 
-  async uploadAll(files: IncomingFile[], title?: string): Promise<UploadResponse> {
+  async uploadAll(
+    files: IncomingFile[],
+    title?: string,
+    memberId: number | null = null,
+  ): Promise<UploadResponse> {
     try {
-      return await this.uploadEach(files, title);
+      return await this.uploadEach(files, title, memberId);
     } finally {
       await removeTempFiles(files);
     }
   }
 
-  private async uploadEach(files: IncomingFile[], title?: string): Promise<UploadResponse> {
+  private async uploadEach(
+    files: IncomingFile[],
+    title: string | undefined,
+    memberId: number | null,
+  ): Promise<UploadResponse> {
     const gateway = this.gatewayProvider.require();
     const results: UploadResult[] = [];
 
@@ -109,7 +117,7 @@ export class UploadService {
           title,
         });
         results.push({ filename, status: "accepted", task_id: taskId });
-        await this.recordTask(taskId, filename);
+        await this.recordTask(taskId, filename, memberId);
       } catch (error: unknown) {
         if (error instanceof PaperlessAuthError) throw error;
         logger.warn("upload_failed", {
@@ -128,18 +136,28 @@ export class UploadService {
   }
 
   /**
-   * Best-effort: lets /api/ingest/activity tell uploads from e-mail. A
-   * failure here must never turn an accepted upload into an error.
+   * Best-effort: lets /api/ingest/activity tell uploads from e-mail, and the
+   * home-space assignment find the uploading member. A failure here must never
+   * turn an accepted upload into an error (the document then lands in the
+   * household admin's space).
    */
-  private async recordTask(taskId: string | null | undefined, filename: string): Promise<void> {
+  private async recordTask(
+    taskId: string | null | undefined,
+    filename: string,
+    memberId: number | null,
+  ): Promise<void> {
     if (!taskId) return;
     try {
       await this.db
         .insert(uploadTasks)
         .values({ taskId, fileName: filename.slice(0, 255) })
         .onConflictDoNothing();
+      if (memberId !== null) {
+        await this.db.insert(uploadTaskMembers).values({ taskId, memberId }).onConflictDoNothing();
+      }
       const cutoff = new Date(Date.now() - UPLOAD_TASK_RETENTION_MS).toISOString();
       await this.db.delete(uploadTasks).where(lt(uploadTasks.createdAt, cutoff));
+      await this.db.delete(uploadTaskMembers).where(lt(uploadTaskMembers.createdAt, cutoff));
     } catch (error: unknown) {
       logger.warn("upload_task_record_failed", {
         task_id: taskId,

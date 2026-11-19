@@ -29,6 +29,9 @@ const STATUS_TAGS: ReadonlySet<string> = new Set([
 
 const DUPLICATE_RE = /It is a duplicate of (.*) \(#(\d+)\)\.?\s*$/s;
 
+/** Set by the mail rule `bootstrap-paperless.sh` provisions on every mail-imported document. */
+export const EMAIL_INGESTED_TAG = "email-ingested";
+
 function str(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   const s = String(value);
@@ -51,15 +54,20 @@ export function classifyOutcome(task: Record<string, unknown>): IngestOutcome {
 }
 
 /**
- * Upload ids are recorded by aktenraum itself. Paperless gives consume-folder
- * tasks no owner and mail-rule tasks the rule's owner — API uploads carry an
- * owner too, which is why the upload table is checked first.
+ * Where an import came from, from explicit signals first (ADR-009 — task and
+ * document ownership change with tenancy, so "ownerless" no longer means
+ * anything): aktenraum records its own upload task ids, and the mail rule tags
+ * every document it creates `email-ingested`. Only a task that produced no
+ * document (duplicate, failure, still running) falls back to the task owner:
+ * Paperless gives consume-folder tasks none and mail-rule tasks the rule's.
  */
 export function classifySource(
   task: Record<string, unknown>,
   uploadTaskIds: ReadonlySet<string>,
+  createdDocument?: { emailIngested: boolean },
 ): IngestSource {
   if (uploadTaskIds.has(String(task.task_id ?? ""))) return "upload";
+  if (createdDocument !== undefined) return createdDocument.emailIngested ? "email" : "folder";
   if (task.owner === null || task.owner === undefined) return "folder";
   return "email";
 }
@@ -135,7 +143,7 @@ export class IngestService {
       const outcome = classifyOutcome(task);
       const newId = outcome === "new" ? toId(task.related_document) : null;
       const target = outcome === "duplicate" ? parseDuplicateTarget(task) : null;
-      return { task, outcome, source: classifySource(task, uploadIds), newId, target };
+      return { task, outcome, newId, target };
     });
 
     const refIds = new Set<number>();
@@ -143,7 +151,7 @@ export class IngestService {
       if (d.newId !== null) refIds.add(d.newId);
       if (d.target !== null) refIds.add(d.target.id);
     }
-    const docs = await this.lookupDocs([...refIds]);
+    const { refs: docs, emailIngested } = await this.lookupDocs([...refIds]);
 
     const ref = (id: number, fallbackTitle: string | null): IngestDocRef => {
       const doc = docs.get(id);
@@ -153,14 +161,17 @@ export class IngestService {
 
     const summary = emptySummary();
     const items: IngestItem[] = drafts.map((d) => {
+      const created =
+        d.newId !== null && docs.has(d.newId) ? { emailIngested: emailIngested.has(d.newId) } : undefined;
+      const source = classifySource(d.task, uploadIds, created);
       summary[d.outcome] += 1;
-      summary.by_source[d.source] += 1;
+      summary.by_source[source] += 1;
       return {
         task_id: String(d.task.task_id ?? ""),
         file_name: str(d.task.task_file_name),
         created: str(d.task.date_created),
         done: str(d.task.date_done),
-        source: d.source,
+        source,
         outcome: d.outcome,
         document: d.newId !== null ? ref(d.newId, null) : null,
         duplicate_of: d.target !== null ? ref(d.target.id, d.target.title) : null,
@@ -194,11 +205,13 @@ export class IngestService {
     return new Set(rows.map((row) => row.taskId));
   }
 
-  private async lookupDocs(
-    ids: number[],
-  ): Promise<Map<number, Omit<IngestDocRef, "missing">>> {
+  private async lookupDocs(ids: number[]): Promise<{
+    refs: Map<number, Omit<IngestDocRef, "missing">>;
+    emailIngested: Set<number>;
+  }> {
     const out = new Map<number, Omit<IngestDocRef, "missing">>();
-    if (ids.length === 0) return out;
+    const emailIngested = new Set<number>();
+    if (ids.length === 0) return { refs: out, emailIngested };
     const gateway = this.gatewayProvider.require();
     const found: PaperlessDocument[] = [];
     for (let i = 0; i < ids.length; i += DOC_LOOKUP_CHUNK) {
@@ -212,11 +225,13 @@ export class IngestService {
     const tagNames = await gateway.listTagsCovering(collectTagIds(found));
     const nameById = new Map(Object.entries(tagNames).map(([name, id]) => [id, name]));
     for (const doc of found) {
-      const lifecycle = ((doc.tags as number[] | undefined) ?? [])
-        .map((tid) => nameById.get(tid))
-        .filter((name): name is string => name !== undefined && STATUS_TAGS.has(name));
+      const names = ((doc.tags as number[] | undefined) ?? []).map((tid) => nameById.get(tid));
+      const lifecycle = names.filter(
+        (name): name is string => name !== undefined && STATUS_TAGS.has(name),
+      );
+      if (names.includes(EMAIL_INGESTED_TAG)) emailIngested.add(doc.id);
       out.set(doc.id, { id: doc.id, title: str(doc.title), lifecycle_tags: lifecycle });
     }
-    return out;
+    return { refs: out, emailIngested };
   }
 }

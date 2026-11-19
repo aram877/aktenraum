@@ -93,6 +93,13 @@ export class FakeGateway {
 
   listProcessedMail = async (): Promise<Record<string, unknown>[]> => this.processedMail;
 
+  /** Paperless `/api/tasks/?task_id=` — an array, empty when unknown. */
+  getTasks = async (taskId: string): Promise<unknown> => {
+    this.taskLookups.push(taskId);
+    return this.tasks.filter((t) => t.task_id === taskId);
+  };
+  readonly taskLookups: string[] = [];
+
   listCorrespondents = async (): Promise<Record<string, number>> => CORRESPONDENTS;
   listDocumentTypes = async (): Promise<Record<string, number>> => DOCUMENT_TYPES;
   listTags = async (): Promise<Record<string, number>> => TAGS;

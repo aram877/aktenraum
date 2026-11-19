@@ -21,9 +21,9 @@
 
 ## 4. Web
 
-- [ ] 4.1 `/settings` "Mitglieder" (admin): members, create link (shown once, copy, expiry), pending invites + revoke; household sections read-only for members
-- [ ] 4.2 `/invite/[token]` page (bare layout, guest): validity check, username + password + confirm, errors (taken, invalid, throttled), redirect to `/`
-- [ ] 4.3 Tests (`mountSuspended`): admin vs member settings, invite creation flow, redeem page states
+- [x] 4.1 `/settings` "Mitglieder" (admin): members, create link (shown once, copy, expiry), pending invites + revoke; household sections read-only for members
+- [x] 4.2 `/invite/[token]` page (bare layout, guest): validity check, username + password + confirm, errors (taken, invalid, throttled), redirect to `/`
+- [x] 4.3 Tests (`mountSuspended`): admin vs member settings, invite creation flow, redeem page states
 
 ## 5. Docs + verify
 

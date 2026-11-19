@@ -1,6 +1,10 @@
 <script setup lang="ts">
 definePageMeta({ middleware: "auth" });
 
+// Household settings and member management are the household admin's;
+// a plain member manages only their own account here.
+const isAdmin = useIsHouseholdAdmin();
+
 const tagger = useLLMSettings();
 const answer = useAnswerLLMSettings();
 const models = useAvailableModels();
@@ -35,6 +39,7 @@ async function onPickAnswer(model: string): Promise<void> {
       <div class="mx-auto flex max-w-2xl flex-col gap-10">
         <h1 class="text-lg font-semibold tracking-tight text-ink">Einstellungen</h1>
 
+        <template v-if="isAdmin">
         <SettingsModelPicker
           title="Modell für Klassifizierung"
           description="Wird für die Extraktion der ai_* Felder beim Hochladen verwendet."
@@ -62,6 +67,9 @@ async function onPickAnswer(model: string): Promise<void> {
         <SettingsAutoApprove />
 
         <SettingsBackup />
+
+        <SettingsMitglieder />
+        </template>
 
         <SettingsKonto />
       </div>

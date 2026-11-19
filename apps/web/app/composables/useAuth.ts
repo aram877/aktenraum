@@ -2,6 +2,8 @@ import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/v
 
 export interface User {
   username: string;
+  /** From `/auth/me`; household management is shown only to `admin`. */
+  household_role?: "admin" | "member";
 }
 
 export const ME_KEY = ["me"] as const;
@@ -24,6 +26,12 @@ export function meQuery(api: ApiClient) {
 
 export function useMe() {
   return useQuery(meQuery(useApi()));
+}
+
+/** True for the household admin (members, models, auto-approve, backup). */
+export function useIsHouseholdAdmin() {
+  const me = useMe();
+  return computed(() => me.data.value?.household_role === "admin");
 }
 
 export function useLogin() {

@@ -1,0 +1,94 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
+import type { MaybeRefOrGetter } from "vue";
+
+export interface HouseholdMember {
+  id: number;
+  username: string;
+  role: "admin" | "member";
+  joined_at: string;
+}
+
+export interface PendingInvite {
+  id: number;
+  created_at: string;
+  expires_at: string;
+}
+
+export interface CreatedInvite extends PendingInvite {
+  /** Shown exactly once — the api stores only its hash. */
+  token: string;
+}
+
+export const HOUSEHOLD_KEY = ["household"] as const;
+export const MEMBERS_KEY = [...HOUSEHOLD_KEY, "members"] as const;
+export const INVITES_KEY = [...HOUSEHOLD_KEY, "invites"] as const;
+
+/** The link an invitee opens; built here because only the browser knows the public origin. */
+export function inviteUrl(token: string, origin: string = window.location.origin): string {
+  return `${origin}/invite/${encodeURIComponent(token)}`;
+}
+
+export function useHouseholdMembers(enabled: MaybeRefOrGetter<boolean>) {
+  const api = useApi();
+  return useQuery(() => ({
+    queryKey: MEMBERS_KEY,
+    queryFn: () => api.get<HouseholdMember[]>("/household/members"),
+    enabled: toValue(enabled),
+    staleTime: 30_000,
+  }));
+}
+
+export function usePendingInvites(enabled: MaybeRefOrGetter<boolean>) {
+  const api = useApi();
+  return useQuery(() => ({
+    queryKey: INVITES_KEY,
+    queryFn: () => api.get<PendingInvite[]>("/household/invites"),
+    enabled: toValue(enabled),
+    staleTime: 30_000,
+  }));
+}
+
+export function useCreateInvite() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<CreatedInvite>("/household/invites"),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: INVITES_KEY });
+    },
+  });
+}
+
+export function useRevokeInvite() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.del<unknown>(`/household/invites/${id}`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: INVITES_KEY });
+    },
+  });
+}
+
+/** Public: is this link still redeemable? (404 = invalid, expired, used or revoked.) */
+export function useInviteCheck(token: MaybeRefOrGetter<string>) {
+  const api = useApi();
+  return useQuery(() => ({
+    queryKey: ["invite", toValue(token)],
+    queryFn: () => api.get<{ expires_at: string }>(`/invites/${encodeURIComponent(toValue(token))}`),
+    retry: false,
+    staleTime: 30_000,
+  }));
+}
+
+export function useRedeemInvite(token: MaybeRefOrGetter<string>) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { username: string; password: string }) =>
+      api.post<{ username: string }>(`/invites/${encodeURIComponent(toValue(token))}/redeem`, vars),
+    onSuccess: (user) => {
+      queryClient.setQueryData(ME_KEY, { username: user.username, household_role: "member" });
+    },
+  });
+}

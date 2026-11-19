@@ -88,6 +88,7 @@ useShortcuts(
             :space="detail.data.value.home_space"
             class="hidden sm:inline-flex"
           />
+          <SpacesMoveControl v-if="id !== null && detail.data.value" :doc-id="id" :space="detail.data.value.home_space" />
           <StarToggle v-if="id !== null && detail.data.value" :doc-id="id" :starred="starred" />
         </div>
         <span class="hidden text-[11px] text-ink-subtle md:inline">

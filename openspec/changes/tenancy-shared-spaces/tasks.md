@@ -23,12 +23,12 @@
 
 ## 4. Web
 
-- [ ] 4.1 `useSpaces` + mutations (create, rename, delete, members, leave, move, bulk move) with invalidation per the spa-data-fetching rules
-- [ ] 4.2 `/akten` page + nav entry (only when `household_member_count ≥ 2`)
-- [ ] 4.3 `/upload` space picker
-- [ ] 4.4 Library: Akte column/card line, Akte filter (`?space=`), archive-tab multi-select + "Verschieben nach…" with result summary
-- [ ] 4.5 "Verschieben" on `/library/[id]` and `/inbox/[id]` (owner of current space only)
-- [ ] 4.6 Tests (`mountSuspended`): hidden for one member, `/akten` owner vs editor vs viewer, upload picker, move flows
+- [x] 4.1 `useSpaces` + mutations (create, rename, delete, members, leave, move, bulk move) with invalidation per the spa-data-fetching rules
+- [x] 4.2 `/akten` page + nav entry (only when `household_member_count ≥ 2`)
+- [x] 4.3 `/upload` space picker
+- [x] 4.4 Library: Akte column/card line, Akte filter (`?space=`), archive-tab multi-select + "Verschieben nach…" with result summary
+- [x] 4.5 "Verschieben" on `/library/[id]` and `/inbox/[id]` (owner of current space only)
+- [x] 4.6 Tests (`mountSuspended`): hidden for one member, `/akten` owner vs editor vs viewer, upload picker, move flows
 
 ## 5. Docs + verify
 

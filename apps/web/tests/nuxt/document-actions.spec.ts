@@ -58,6 +58,7 @@ beforeEach(() => {
     if (path === "/auth/me") return Promise.resolve({ username: "admin" });
     if (path === "/documents/12/detail") return Promise.resolve(current);
     if (path === "/document-types/schema") return Promise.resolve(SCHEMA);
+    if (path === "/spaces") return Promise.resolve({ household_member_count: 1, spaces: [] });
     if (path === "/documents/12/duplicate-candidates") {
       return Promise.resolve({
         doc_id: 12,

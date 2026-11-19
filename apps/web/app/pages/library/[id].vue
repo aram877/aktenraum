@@ -92,6 +92,7 @@ async function onDelete(): Promise<void> {
             :space="detail.data.value.home_space"
             class="hidden sm:inline-flex"
           />
+          <SpacesMoveControl v-if="id !== null && detail.data.value" :doc-id="id" :space="detail.data.value.home_space" />
           <StarToggle v-if="id !== null && detail.data.value" :doc-id="id" :starred="starred" />
           <a
             v-if="id !== null"

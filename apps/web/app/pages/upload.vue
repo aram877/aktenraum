@@ -4,17 +4,31 @@ definePageMeta({ middleware: "auth" });
 const { files, send } = useUploadTracker();
 const dragging = ref(false);
 
+// Space picker: only for households with a second member; personal space by default.
+const { spaces, visible: spacesVisible } = useSpacesVisible();
+const targets = computed(() => placeableSpaces(spaces.data.value));
+const target = ref<number | null>(null);
+const targetId = computed(() => {
+  const personal = targets.value.find((s) => s.kind === "personal");
+  return target.value ?? personal?.id ?? null;
+});
+/** Personal = no space_id at all (the api's default), so nothing changes for one member. */
+const spaceIdToSend = computed(() => {
+  const chosen = targets.value.find((s) => s.id === targetId.value);
+  return chosen === undefined || chosen.kind === "personal" ? null : chosen.id;
+});
+
 function onDrop(event: DragEvent): void {
   dragging.value = false;
   const dropped = Array.from(event.dataTransfer?.files ?? []);
-  if (dropped.length > 0) void send(dropped);
+  if (dropped.length > 0) void send(dropped, spaceIdToSend.value);
 }
 
 function onPick(event: Event): void {
   const input = event.target as HTMLInputElement;
   const picked = Array.from(input.files ?? []);
   input.value = "";
-  if (picked.length > 0) void send(picked);
+  if (picked.length > 0) void send(picked, spaceIdToSend.value);
 }
 
 function phaseClass(phase: UploadPhase): string {
@@ -28,6 +42,18 @@ function phaseClass(phase: UploadPhase): string {
   <div class="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
     <h1 class="text-lg font-semibold tracking-tight text-ink">Hochladen</h1>
     <p class="mt-0.5 text-xs text-ink-muted">PDF oder Bild hochladen — die KI klassifiziert automatisch.</p>
+
+    <label v-if="spacesVisible && targets.length > 1" class="mt-4 flex items-center gap-2 text-xs text-ink-muted">
+      Ablegen in
+      <select
+        :value="targetId"
+        data-testid="upload-space"
+        class="rounded-lg border border-hairline bg-surface px-2 py-1.5 text-sm text-ink"
+        @change="target = Number(($event.target as HTMLSelectElement).value)"
+      >
+        <option v-for="space in targets" :key="space.id" :value="space.id">{{ spaceLabel(space) }}</option>
+      </select>
+    </label>
 
     <div
       class="mt-5 rounded-xl border-2 border-dashed p-10 text-center"

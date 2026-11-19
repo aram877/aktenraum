@@ -24,10 +24,11 @@ export interface DocumentStatus {
 export function useUploadApi() {
   const api = useApi();
   return {
-    upload(files: readonly File[], title?: string): Promise<UploadResponse> {
+    upload(files: readonly File[], options: { title?: string; spaceId?: number | null } = {}): Promise<UploadResponse> {
       const form = new FormData();
+      if (options.title) form.append("title", options.title);
+      if (options.spaceId != null) form.append("space_id", String(options.spaceId));
       for (const file of files) form.append("files", file, file.name);
-      if (title) form.append("title", title);
       return api.upload<UploadResponse>("/documents/upload", form);
     },
     task: (taskId: string) => api.get<TaskStatus>(`/documents/task/${taskId}`),
@@ -100,11 +101,12 @@ export function useUploadTracker() {
     }
   }
 
-  async function send(picked: File[]): Promise<void> {
+  /** `spaceId` = target space ("Akte"); null/absent = the uploader's personal space. */
+  async function send(picked: File[], spaceId: number | null = null): Promise<void> {
     busy.value = true;
     files.value = picked.map((f) => ({ name: f.name, phase: "uploading", detail: null, docId: null }));
     try {
-      const response = await api.upload(picked);
+      const response = await api.upload(picked, { spaceId });
       for (const result of response.results) {
         if (result.status === "error") {
           update(result.filename, { phase: "error", detail: result.detail ?? null });

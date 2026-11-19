@@ -1,0 +1,187 @@
+<script setup lang="ts">
+import type { SpaceSummary } from "~/composables/useSpaces";
+
+definePageMeta({ middleware: "auth" });
+
+const me = useMe();
+const api = useApi();
+const { spaces, visible } = useSpacesVisible();
+const create = useCreateSpace();
+const rename = useRenameSpace();
+const remove = useDeleteSpace();
+const leave = useRemoveSpaceMember();
+
+const ROLE_LABEL: Record<string, string> = { owner: "Eigentümer", editor: "Bearbeiten", viewer: "Nur lesen" };
+
+const list = computed(() => spaces.data.value?.spaces ?? []);
+
+const newName = ref("");
+const error = ref<string | null>(null);
+const renaming = ref<number | null>(null);
+const renameValue = ref("");
+const openMembers = ref<number | null>(null);
+
+async function run(work: () => Promise<unknown>, fallback: string): Promise<boolean> {
+  error.value = null;
+  try {
+    await work();
+    return true;
+  } catch (e: unknown) {
+    error.value = detailFrom(e, fallback);
+    return false;
+  }
+}
+
+async function onCreate(): Promise<void> {
+  const name = newName.value.trim();
+  if (name === "") return;
+  if (await run(() => create.mutateAsync(name), "Akte konnte nicht angelegt werden.")) newName.value = "";
+}
+
+function startRename(space: SpaceSummary): void {
+  renaming.value = space.id;
+  renameValue.value = space.name;
+}
+
+async function onRename(space: SpaceSummary): Promise<void> {
+  const name = renameValue.value.trim();
+  if (name === "" || name === space.name) {
+    renaming.value = null;
+    return;
+  }
+  if (await run(() => rename.mutateAsync({ id: space.id, name }), "Umbenennen fehlgeschlagen.")) {
+    renaming.value = null;
+  }
+}
+
+function onDelete(space: SpaceSummary): Promise<boolean> {
+  return run(() => remove.mutateAsync(space.id), "Akte konnte nicht gelöscht werden.");
+}
+
+/** The caller's own member id, from the space's member list (the session only knows the username). */
+async function onLeave(space: SpaceSummary): Promise<void> {
+  await run(async () => {
+    const members = await api.get<{ member_id: number; username: string }[]>(`/spaces/${space.id}/members`);
+    const self = members.find((m) => m.username === me.data.value?.username);
+    if (self === undefined) throw new Error("Mitgliedschaft nicht gefunden.");
+    await leave.mutateAsync({ spaceId: space.id, memberId: self.member_id });
+  }, "Verlassen fehlgeschlagen.");
+}
+</script>
+
+<template>
+  <div class="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
+    <h1 class="text-lg font-semibold tracking-tight text-ink">Akten</h1>
+
+    <p v-if="spaces.isPending.value" class="mt-4 text-xs text-ink-subtle">Lädt…</p>
+
+    <p v-else-if="!visible" data-testid="akten-single" class="mt-2 text-sm text-ink-muted">
+      Gemeinsame Akten gibt es, sobald ein zweites Mitglied zum Haushalt gehört. Bis dahin liegen
+      alle Dokumente in deiner persönlichen Akte.
+    </p>
+
+    <template v-else>
+      <p class="mt-0.5 text-xs text-ink-muted">
+        Was ihr gemeinsam verwaltet, kommt in eine gemeinsame Akte. Der Eigentümer entscheidet, wer
+        mitliest oder mitbearbeitet.
+      </p>
+
+      <form class="mt-5 flex gap-2" data-testid="akte-create" @submit.prevent="onCreate">
+        <input
+          v-model="newName"
+          maxlength="128"
+          placeholder="Neue Akte, z. B. Haushalt"
+          data-testid="akte-name"
+          class="min-w-0 flex-1 rounded-lg border border-hairline bg-surface px-3 py-1.5 text-sm"
+        >
+        <button
+          type="submit"
+          :disabled="newName.trim() === '' || create.isPending.value"
+          class="rounded-lg bg-ink px-4 py-1.5 text-xs font-semibold text-surface disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Anlegen
+        </button>
+      </form>
+      <p v-if="error" class="mt-2 text-xs text-red-600" data-testid="akten-error">{{ error }}</p>
+
+      <ul class="mt-6 flex flex-col gap-3">
+        <li
+          v-for="space in list"
+          :key="space.id"
+          :data-testid="`akte-${space.id}`"
+          class="rounded-xl border border-hairline bg-surface p-4"
+        >
+          <div class="flex flex-wrap items-center gap-2">
+            <template v-if="renaming === space.id">
+              <input
+                v-model="renameValue"
+                maxlength="128"
+                data-testid="akte-rename-input"
+                class="min-w-0 flex-1 rounded border border-hairline px-2 py-1 text-sm"
+                @keydown.enter.prevent="onRename(space)"
+                @keydown.escape="renaming = null"
+              >
+              <button type="button" class="text-xs font-medium text-accent" @click="onRename(space)">Speichern</button>
+            </template>
+            <h2 v-else class="min-w-0 flex-1 truncate text-sm font-semibold text-ink">
+              📁 {{ spaceLabel(space) }}
+            </h2>
+            <span class="rounded-full bg-canvas px-2 py-0.5 text-[11px] text-ink-muted" data-testid="akte-role">
+              {{ ROLE_LABEL[space.role] }}
+            </span>
+          </div>
+          <p class="mt-1 text-xs text-ink-subtle">
+            <template v-if="space.kind === 'shared'">Eigentümer {{ space.owner }} · {{ space.member_count }} Mitglieder · </template>
+            <NuxtLink :to="`/library?space=${space.id}`" class="text-accent hover:underline">
+              {{ space.document_count }} Dokumente
+            </NuxtLink>
+          </p>
+
+          <div v-if="space.kind === 'shared'" class="mt-3 flex flex-wrap items-center gap-3 text-xs">
+            <button
+              type="button"
+              data-testid="akte-members-toggle"
+              class="font-medium text-ink-muted hover:text-ink"
+              @click="openMembers = openMembers === space.id ? null : space.id"
+            >
+              Mitglieder {{ openMembers === space.id ? "ausblenden" : "anzeigen" }}
+            </button>
+            <template v-if="space.role === 'owner'">
+              <button
+                v-if="renaming !== space.id"
+                type="button"
+                data-testid="akte-rename"
+                class="font-medium text-ink-muted hover:text-ink"
+                @click="startRename(space)"
+              >
+                Umbenennen
+              </button>
+              <button
+                type="button"
+                data-testid="akte-delete"
+                :disabled="space.document_count > 0 || remove.isPending.value"
+                :title="space.document_count > 0 ? 'Erst alle Dokumente herausverschieben (auch aus dem Papierkorb)' : ''"
+                class="font-medium text-red-600 hover:underline disabled:cursor-not-allowed disabled:text-ink-subtle disabled:no-underline"
+                @click="onDelete(space)"
+              >
+                Löschen
+              </button>
+              <span v-if="space.document_count > 0" class="text-ink-subtle">Löschen geht nur, wenn die Akte leer ist.</span>
+            </template>
+            <button
+              v-else
+              type="button"
+              data-testid="akte-leave"
+              class="font-medium text-red-600 hover:underline"
+              @click="onLeave(space)"
+            >
+              Verlassen
+            </button>
+          </div>
+
+          <SpacesSpaceMembers v-if="openMembers === space.id" :space="space" class="mt-3" />
+        </li>
+      </ul>
+    </template>
+  </div>
+</template>

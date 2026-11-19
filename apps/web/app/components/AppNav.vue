@@ -23,15 +23,19 @@ const backupAlert = computed(() => backupNotice(backup.data.value));
 
 const menuOpen = ref(false);
 
-const links = [
+// "Akten" only once the household has a second member (ADR-009).
+const { visible: spacesVisible } = useSpacesVisible(authenticated);
+
+const links = computed(() => [
   { to: "/", label: "Start", exact: true },
   { to: "/ask", label: "Ask AI", exact: false },
   { to: "/library", label: "Bibliothek", exact: false },
+  ...(spacesVisible.value ? [{ to: "/akten", label: "Akten", exact: false }] : []),
   { to: "/upload", label: "Hochladen", exact: false },
   { to: "/activity", label: "Aktivität", exact: false },
   { to: "/trash", label: "Papierkorb", exact: false },
   { to: "/settings", label: "Einstellungen", exact: false },
-];
+]);
 
 function isActive(link: { to: string; exact: boolean }): boolean {
   if (link.exact) return route.path === link.to;

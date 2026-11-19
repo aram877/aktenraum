@@ -13,6 +13,8 @@ export interface LibraryItem {
   tags: string[];
   ai_error_message: string | null;
   is_processing: boolean;
+  /** Home space ("Akte"); absent on old responses, null while unassigned. */
+  home_space?: { id: number; name: string; kind: "personal" | "shared" } | null;
 }
 
 export interface LibraryList {
@@ -30,6 +32,8 @@ export interface LibraryQuery {
   text?: string | null;
   tags?: string[] | null;
   status?: string | null;
+  /** Home space id ("Akte"). */
+  space?: string | null;
   page?: number | null;
   page_size?: number | null;
   ordering?: string | null;

@@ -18,6 +18,7 @@ const filters = computed(() => {
     ordering: firstParam(q.ordering) || DEFAULT_ORDERING,
     tags: allParams(q.tags),
     status: libraryStatusParam(firstParam(q.status)),
+    space: firstParam(q.space),
     page: Number.isFinite(page) && page > 0 ? page : 1,
   };
 });
@@ -32,6 +33,7 @@ const query = computed<LibraryQuery>(() => ({
   text: filters.value.text || null,
   tags: filters.value.tags.length > 0 ? filters.value.tags : null,
   status: filters.value.status || null,
+  space: filters.value.space || null,
   ordering: filters.value.ordering,
   page: filters.value.page,
   page_size: PAGE_SIZE,
@@ -43,6 +45,45 @@ const typeFacet = useTypeFacet();
 const reprocessFailed = useReprocessFailed();
 const bulkConfirm = ref(false);
 const bulkResult = ref<string | null>(null);
+
+// Spaces ("Akten"): column, filter and bulk move only once the household has a second member.
+const { spaces, visible: spacesVisible } = useSpacesVisible();
+const mySpaces = computed(() => spaces.data.value?.spaces ?? []);
+const moveTargets = computed(() => placeableSpaces(spaces.data.value));
+const bulkMove = useBulkMove();
+const selected = ref<ReadonlySet<number>>(new Set());
+const moveTarget = ref<number | null>(null);
+const moveResult = ref<string | null>(null);
+
+watch(query, () => {
+  selected.value = new Set();
+});
+
+const allSelected = computed(() => rows.value.length > 0 && rows.value.every((r) => selected.value.has(r.id)));
+
+function toggleRow(id: number): void {
+  const next = new Set(selected.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  selected.value = next;
+}
+
+function toggleAll(): void {
+  selected.value = allSelected.value ? new Set() : new Set(rows.value.map((r) => r.id));
+}
+
+async function onBulkMove(): Promise<void> {
+  const spaceId = moveTarget.value;
+  if (spaceId === null || selected.value.size === 0) return;
+  moveResult.value = null;
+  try {
+    const { results } = await bulkMove.mutateAsync({ spaceId, docIds: [...selected.value] });
+    moveResult.value = summarizeMoves(results);
+    selected.value = new Set(results.filter((r) => r.status !== "moved" && r.status !== "unchanged").map((r) => r.doc_id));
+  } catch (error: unknown) {
+    moveResult.value = detailFrom(error, "Verschieben fehlgeschlagen.");
+  }
+}
 
 const text = ref("");
 const correspondent = ref("");
@@ -71,7 +112,7 @@ const errorText = computed(() =>
 const hasActiveFilters = computed(() => {
   const f = filters.value;
   return (
-    Boolean(f.document_type || f.correspondent || f.date_from || f.date_to || f.text || f.status) ||
+    Boolean(f.document_type || f.correspondent || f.date_from || f.date_to || f.text || f.status || f.space) ||
     f.tags.length > 0
   );
 });
@@ -210,6 +251,20 @@ function valueOf(event: Event): string {
                 </select>
               </label>
 
+              <label v-if="spacesVisible" class="block text-xs font-medium text-ink-muted">
+                Akte
+                <select
+                  name="space"
+                  data-testid="space-filter"
+                  :value="filters.space"
+                  class="mt-1 w-full rounded-lg border border-hairline bg-surface px-3 py-2 text-sm text-ink"
+                  @change="onFilterChange({ space: valueOf($event) })"
+                >
+                  <option value="">Alle</option>
+                  <option v-for="s in mySpaces" :key="s.id" :value="String(s.id)">{{ spaceLabel(s) }}</option>
+                </select>
+              </label>
+
               <label class="block text-xs font-medium text-ink-muted">
                 Dokumenttyp
                 <select
@@ -330,6 +385,33 @@ function valueOf(event: Event): string {
                 </button>
                 <p v-if="bulkResult" data-testid="bulk-result" class="text-xs text-red-800">{{ bulkResult }}</p>
               </div>
+              <div
+                v-if="spacesVisible && (selected.size > 0 || moveResult)"
+                data-testid="move-bar"
+                class="sticky top-0 z-10 mb-3 flex flex-wrap items-center gap-3 rounded-lg bg-ink px-3 py-2 text-xs text-surface"
+              >
+                <span v-if="selected.size > 0">{{ selected.size }} ausgewählt</span>
+                <template v-if="selected.size > 0">
+                  <select
+                    v-model="moveTarget"
+                    data-testid="move-target"
+                    class="rounded border border-transparent bg-surface px-2 py-1 text-ink"
+                  >
+                    <option :value="null" disabled>Verschieben nach…</option>
+                    <option v-for="s in moveTargets" :key="s.id" :value="s.id">{{ spaceLabel(s) }}</option>
+                  </select>
+                  <button
+                    type="button"
+                    data-testid="move-submit"
+                    :disabled="moveTarget === null || bulkMove.isPending.value"
+                    class="rounded bg-surface px-3 py-1 font-semibold text-ink disabled:opacity-50"
+                    @click="onBulkMove"
+                  >
+                    {{ bulkMove.isPending.value ? "Verschiebe…" : "Verschieben" }}
+                  </button>
+                </template>
+                <span v-if="moveResult" data-testid="move-result">{{ moveResult }}</span>
+              </div>
               <p v-if="errorText" class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                 {{ errorText }}
               </p>
@@ -345,15 +427,34 @@ function valueOf(event: Event): string {
                   <table class="w-full text-sm">
                     <thead class="bg-canvas text-left text-xs text-ink-muted">
                       <tr>
+                        <th v-if="spacesVisible" class="w-8 px-3 py-2">
+                          <input
+                            type="checkbox"
+                            aria-label="Alle auswählen"
+                            data-testid="select-all"
+                            :checked="allSelected"
+                            @change="toggleAll"
+                          >
+                        </th>
                         <th class="px-3 py-2 font-medium">Titel</th>
                         <th class="px-3 py-2 font-medium">Typ</th>
                         <th class="px-3 py-2 font-medium">Korrespondent</th>
                         <th class="px-3 py-2 font-medium">Datum</th>
+                        <th v-if="spacesVisible" class="px-3 py-2 font-medium">Akte</th>
                         <th class="px-3 py-2 font-medium">Status</th>
                       </tr>
                     </thead>
                     <tbody>
                       <tr v-for="row in rows" :key="row.id" class="border-t border-hairline hover:bg-canvas/50">
+                        <td v-if="spacesVisible" class="px-3 py-2">
+                          <input
+                            type="checkbox"
+                            :aria-label="`${row.title} auswählen`"
+                            :data-testid="`select-${row.id}`"
+                            :checked="selected.has(row.id)"
+                            @change="toggleRow(row.id)"
+                          >
+                        </td>
                         <td class="px-3 py-2">
                           <NuxtLink :to="`/library/${row.id}`" class="text-ink hover:text-accent">{{ row.title }}</NuxtLink>
                           <div v-if="userTags(row).length" class="mt-1 flex flex-wrap gap-1">
@@ -370,6 +471,9 @@ function valueOf(event: Event): string {
                         <td class="px-3 py-2 text-ink-muted">{{ row.document_type ?? "—" }}</td>
                         <td class="px-3 py-2 text-ink-muted">{{ row.correspondent ?? "—" }}</td>
                         <td class="px-3 py-2 text-ink-muted">{{ row.created ?? "—" }}</td>
+                        <td v-if="spacesVisible" class="px-3 py-2 text-ink-muted" data-testid="row-space">
+                          {{ row.home_space ? spaceLabel(row.home_space) : "—" }}
+                        </td>
                         <td class="px-3 py-2">
                           <ProcessingBadge
                             :tags="row.lifecycle_tags"
@@ -387,6 +491,9 @@ function valueOf(event: Event): string {
                     <NuxtLink :to="`/library/${row.id}`" class="text-sm font-medium text-ink">{{ row.title }}</NuxtLink>
                     <p class="mt-1 text-xs text-ink-muted">{{ row.document_type ?? "—" }} · {{ row.correspondent ?? "—" }}</p>
                     <p class="mt-0.5 text-xs text-ink-subtle">{{ row.created ?? "—" }}</p>
+                    <p v-if="spacesVisible && row.home_space" class="mt-0.5 text-xs text-ink-subtle">
+                      📁 {{ spaceLabel(row.home_space) }}
+                    </p>
                     <div class="mt-2">
                       <ProcessingBadge
                         :tags="row.lifecycle_tags"

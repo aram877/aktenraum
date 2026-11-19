@@ -45,8 +45,8 @@
 
 ## 7. Rehearsal on the e2e stack
 
-- [ ] 7.1 Seed: e2e corpus + ownerless documents + >200 tags
-- [ ] 7.2 Dry run → real run → re-run → verification through the member's Paperless user; spike scripts still pass
+- [x] 7.1 Seed: e2e corpus + ownerless documents + >200 tags
+- [x] 7.2 Dry run → real run → re-run → verification through the member's Paperless user; spike scripts still pass
 
 ## 8. Docs + verify
 

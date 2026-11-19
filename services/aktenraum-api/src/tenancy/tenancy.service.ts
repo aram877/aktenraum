@@ -1,12 +1,14 @@
 import { Inject, Injectable, type OnApplicationBootstrap } from "@nestjs/common";
 import type { SearchAccess } from "@aktenraum/core";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 
 import { DB, type Database } from "../db/db.module.js";
 import {
   documentSpaces,
   members,
   spaceMembers,
+  spaces,
+  users,
   type HouseholdRoleValue,
   type SpaceRole,
 } from "../db/schema.js";
@@ -81,6 +83,49 @@ export class TenancyService implements OnApplicationBootstrap, TenancyLookup {
       .where(eq(documentSpaces.paperlessDocId, docId))
       .limit(1);
     return rows[0]?.spaceId ?? null;
+  }
+
+  /** Name, kind and owning member's username of a document's home space, for display. */
+  async homeSpaceSummary(docId: number): Promise<{
+    id: number;
+    name: string;
+    kind: "personal" | "shared";
+    owner: string | null;
+  } | null> {
+    const rows = await this.db
+      .select({
+        id: spaces.id,
+        name: spaces.name,
+        kind: spaces.kind,
+        personalMemberId: spaces.personalMemberId,
+      })
+      .from(documentSpaces)
+      .innerJoin(spaces, eq(spaces.id, documentSpaces.spaceId))
+      .where(eq(documentSpaces.paperlessDocId, docId))
+      .limit(1);
+    const space = rows[0];
+    if (space === undefined) return null;
+    let ownerMemberId = space.personalMemberId;
+    if (ownerMemberId === null) {
+      const owners = await this.db
+        .select({ memberId: spaceMembers.memberId })
+        .from(spaceMembers)
+        .where(and(eq(spaceMembers.spaceId, space.id), eq(spaceMembers.role, "owner")))
+        .orderBy(asc(spaceMembers.memberId))
+        .limit(1);
+      ownerMemberId = owners[0]?.memberId ?? null;
+    }
+    let owner: string | null = null;
+    if (ownerMemberId !== null) {
+      const found = await this.db
+        .select({ username: users.username })
+        .from(members)
+        .innerJoin(users, eq(users.id, members.userId))
+        .where(eq(members.id, ownerMemberId))
+        .limit(1);
+      owner = found[0]?.username ?? null;
+    }
+    return { id: space.id, name: space.name, kind: space.kind, owner };
   }
 
   async spaceDocumentIds(spaceId: number): Promise<number[]> {

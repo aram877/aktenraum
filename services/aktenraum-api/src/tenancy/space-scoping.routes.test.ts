@@ -108,3 +108,42 @@ describe("duplicate candidates stay inside the home space", () => {
     expect(ids).toEqual([11]);
   });
 });
+
+describe("detail responses show the home space", () => {
+  it("personal space with its owner's username, on both detail endpoints", async () => {
+    const { h, admin, spaceOf, agent } = await setup([makeDoc({ id: 42 })]);
+    await h.db.insert(documentSpaces).values({ paperlessDocId: 42, spaceId: spaceOf(admin.id) });
+
+    const expected = { id: spaceOf(admin.id), name: "Persönlich", kind: "personal", owner: "admin" };
+    expect((await agent.get("/api/documents/42/detail").expect(200)).body.home_space).toEqual(expected);
+    expect((await agent.get("/api/inbox/42").expect(200)).body.home_space).toEqual(expected);
+  });
+
+  it("null for a document without a home space", async () => {
+    const { agent } = await setup([makeDoc({ id: 42 })]);
+    expect((await agent.get("/api/documents/42/detail").expect(200)).body.home_space).toBeNull();
+  });
+
+  it("a shared space shows its first owner", async () => {
+    const { h, admin, partner, agent } = await setup([makeDoc({ id: 42 })]);
+    const [household] = await h.db.select().from((await import("../db/schema.js")).households);
+    const [shared] = await h.db
+      .insert(spaces)
+      .values({ householdId: household!.id, name: "Haushalt", kind: "shared" })
+      .returning();
+    const { spaceMembers } = await import("../db/schema.js");
+    await h.db.insert(spaceMembers).values([
+      { spaceId: shared!.id, memberId: partner.id, role: "owner" },
+      { spaceId: shared!.id, memberId: admin.id, role: "owner" },
+    ]);
+    await h.db.insert(documentSpaces).values({ paperlessDocId: 42, spaceId: shared!.id });
+
+    const body = (await agent.get("/api/documents/42/detail").expect(200)).body;
+    expect(body.home_space).toEqual({
+      id: shared!.id,
+      name: "Haushalt",
+      kind: "shared",
+      owner: admin.id < partner.id ? "admin" : "partner",
+    });
+  });
+});

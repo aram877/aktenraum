@@ -87,6 +87,11 @@ async function onDelete(): Promise<void> {
         </NuxtLink>
         <span class="truncate text-sm font-medium text-ink">{{ detail.data.value?.title ?? "…" }}</span>
         <div class="ml-auto flex shrink-0 items-center gap-2">
+          <HomeSpaceBadge
+            v-if="detail.data.value && detail.data.value.home_space !== undefined"
+            :space="detail.data.value.home_space"
+            class="hidden sm:inline-flex"
+          />
           <StarToggle v-if="id !== null && detail.data.value" :doc-id="id" :starred="starred" />
           <a
             v-if="id !== null"

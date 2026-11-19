@@ -157,3 +157,51 @@ describe("inbox detail", () => {
     wrapper.unmount();
   });
 });
+
+describe("home space badge", () => {
+  const personal = { id: 1, name: "Persönlich", kind: "personal", owner: "aram" };
+
+  function serve(homeSpace: unknown) {
+    get.mockImplementation((path: string) => {
+      if (path === "/auth/me") return Promise.resolve({ username: "admin" });
+      if (/^\/documents\/\d+\/detail$/.test(path) || /^\/inbox\/\d+$/.test(path)) {
+        const id = Number(/(\d+)/.exec(path)?.[1]);
+        return Promise.resolve(homeSpace === undefined ? detail(id) : detail(id, { home_space: homeSpace }));
+      }
+      if (path.startsWith("/inbox/?")) return Promise.resolve({ results: [], total: 0, page: 1, page_size: 50 });
+      return new Promise(() => undefined);
+    });
+  }
+
+  it("shows the space and its owner on the library detail page", async () => {
+    serve(personal);
+    const wrapper = await mountSuspended(LibraryDetailPage, { route: "/library/12" });
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="home-space"]').exists()).toBe(true));
+    const badge = wrapper.find('[data-testid="home-space"]');
+    expect(badge.text()).toContain("Persönlich · aram");
+    expect(badge.attributes("title")).toBe("Persönliche Akte von aram");
+  });
+
+  it("shows it on the review page too", async () => {
+    serve({ id: 2, name: "Haushalt", kind: "shared", owner: "partner" });
+    const wrapper = await mountSuspended(InboxDetailPage, { route: "/inbox/7" });
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="home-space"]').exists()).toBe(true));
+    const badge = wrapper.find('[data-testid="home-space"]');
+    expect(badge.text()).toContain("Haushalt · partner");
+    expect(badge.attributes("title")).toBe("Gemeinsame Akte von partner");
+  });
+
+  it("says so when the document has no space yet", async () => {
+    serve(null);
+    const wrapper = await mountSuspended(LibraryDetailPage, { route: "/library/12" });
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="home-space"]').exists()).toBe(true));
+    expect(wrapper.find('[data-testid="home-space"]').text()).toContain("Keiner Akte zugeordnet");
+  });
+
+  it("renders nothing against an api that doesn't send the field", async () => {
+    serve(undefined);
+    const wrapper = await mountSuspended(LibraryDetailPage, { route: "/library/12" });
+    await vi.waitFor(() => expect(wrapper.find('input[name="ai_title"]').exists()).toBe(true));
+    expect(wrapper.find('[data-testid="home-space"]').exists()).toBe(false);
+  });
+});

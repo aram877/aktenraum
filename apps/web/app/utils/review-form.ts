@@ -30,6 +30,16 @@ export interface InboxDetail extends InboxItem {
   content_excerpt: string;
   tags: string[];
   type_fields: Record<string, string> | null;
+  /** The document's home space ("Akte"); null = not assigned yet. Optional for older api builds. */
+  home_space?: HomeSpaceSummary | null;
+}
+
+export interface HomeSpaceSummary {
+  id: number;
+  name: string;
+  kind: "personal" | "shared";
+  /** aktenraum username of the owning member. */
+  owner: string | null;
 }
 
 export const FORM_FIELDS = [

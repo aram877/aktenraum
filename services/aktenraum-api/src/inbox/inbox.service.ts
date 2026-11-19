@@ -4,6 +4,7 @@ import { AutoTaggerClient } from "../auto-tagger/auto-tagger.client.js";
 import type { CustomFieldEntry, PaperlessDocument, PaperlessGateway } from "../paperless/paperless.gateway.js";
 import { PaperlessGatewayProvider } from "../paperless/paperless.module.js";
 import { collectTagIds } from "../paperless/tag-ids.js";
+import { TenancyService } from "../tenancy/tenancy.service.js";
 import { TypeFieldsService } from "../type-fields/type-fields.service.js";
 import {
   populatedFields,
@@ -58,6 +59,7 @@ export class InboxService {
     private readonly gatewayProvider: PaperlessGatewayProvider,
     private readonly typeFields: TypeFieldsService,
     private readonly autoTagger: AutoTaggerClient,
+    private readonly tenancy: TenancyService,
   ) {}
 
   private gateway(): PaperlessGateway {
@@ -109,6 +111,7 @@ export class InboxService {
       ),
     );
     const detail = this.projectDetail(doc, fieldIdToName, tagIdToName);
+    detail.home_space = await this.tenancy.homeSpaceSummary(docId);
     if (options.withTypeFields !== false) {
       const row = await this.typeFields.get(docId);
       detail.type_fields =
@@ -209,6 +212,7 @@ export class InboxService {
       tags: tagNames,
       content_excerpt: content.slice(0, CONTENT_EXCERPT_LIMIT),
       type_fields: null,
+      home_space: null,
     };
   }
 }

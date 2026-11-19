@@ -25,6 +25,16 @@ export interface InboxDetail extends InboxItem {
   content_excerpt: string;
   tags: string[];
   type_fields: Record<string, string> | null;
+  /** The document's home space (ADR-009); null = not assigned yet. */
+  home_space: HomeSpaceSummary | null;
+}
+
+export interface HomeSpaceSummary {
+  id: number;
+  name: string;
+  kind: "personal" | "shared";
+  /** aktenraum username of the owning member (personal: its member; shared: first owner). */
+  owner: string | null;
 }
 
 export interface InboxList {

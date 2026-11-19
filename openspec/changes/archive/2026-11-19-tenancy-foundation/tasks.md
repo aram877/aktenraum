@@ -1,6 +1,6 @@
 ## 0. Before starting
 
-- [ ] 0.1 Re-read ADR-009 (incl. spike results + migration), ADR-010 §4 and this design; check `scripts/spikes/paperless-perm-spike*.mjs` still pass on the e2e stack (Paperless version unchanged?)
+- [x] 0.1 Re-read ADR-009 (incl. spike results + migration), ADR-010 §4 and this design; check `scripts/spikes/paperless-perm-spike*.mjs` still pass on the e2e stack (Paperless version unchanged?) — covered by §7.2 (spikes re-run on 2.20.15, unchanged)
 
 ## 1. Schema + reconcile
 
@@ -58,4 +58,4 @@
 - [x] 9.1 `task backup:verify` + manual snapshot
 - [x] 9.2 `task build`, then `scripts/migrate-tenancy.sh --dry-run`; review the plan together
 - [x] 9.3 Real run (maintainer OK), verification output reviewed
-- [ ] 9.4 Browser check: library, detail, Ask, upload of a new document (gets a home space before extraction)
+- [x] 9.4 Browser check: library, detail, Ask, upload of a new document (gets a home space before extraction)

@@ -144,6 +144,49 @@ contains `original documents` and ends with
   `docker/backup.env` for the right one; ask the user if neither works.
 - verify says `0 original documents` → report it; do not continue.
 
+## 8a. Tenancy migration (once — the upgrade that introduces households/spaces)
+
+Only when this install has not been migrated yet. Check first — `members`
+existing is not enough (the api creates them at startup); look at the home
+spaces:
+
+```bash
+MSYS_NO_PATHCONV=1 docker compose --project-directory docker exec -T postgres \
+  psql -U paperless -d aktenraum -tAc "select count(*) from document_spaces"
+```
+
+If that prints the number of documents (or the table is missing), skip to
+step 9. Otherwise, with the backup from step 8 still under 2 hours old:
+
+```bash
+bash scripts/migrate-tenancy.sh --dry-run
+```
+
+**Expected:** the summary on stderr lists steps 1–7; step 3 clears the owner
+of every tag / correspondent / document type, step 4 assigns all documents
+without a home space, step 5 updates their Paperless permissions. Nothing is
+written. **Show the summary to the user and get an explicit OK** — the next
+command changes every document's Paperless owner and permissions, and the
+only undo is restoring the step-8 snapshot. Ownerless documents (consume
+folder / mail) become owned by the user's Paperless user; that is intended.
+
+```bash
+bash scripts/migrate-tenancy.sh
+```
+
+**Expected:** exit 0 and `7. verification: OK — N documents, 0 without home
+space, 0 with permission drift, 0 owned tags/types/correspondents`, plus
+`ak-1: expects N, Paperless shows N`. Running it again reports
+`nothing to do` for every step.
+
+**If it fails:**
+- exit 3 `Refusing to migrate: …` → the backup is too old or unhealthy; redo
+  step 8 and run it again. Do not pass `--i-have-a-backup` on your own.
+- exit 1 (verification NOT OK) → run it once more (every step resumes); if the
+  drift list stays non-empty, report the summary.
+- anything else → report the output; the steps are idempotent, so a crash
+  mid-way is resolved by running it again once the cause is fixed.
+
 ## 9. Log in again
 
 Every session was invalidated by the upgrade (sessions are now bound to the

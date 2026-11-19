@@ -50,8 +50,8 @@
 
 ## 8. Docs + verify
 
-- [ ] 8.1 ADR-009 migration section (as executed), CLAUDE.md (schema, tenancy notes, gotchas, test counts), upgrade runbook (migration step), session note
-- [ ] 8.2 `pnpm -r lint`, `pnpm -r build`, `pnpm -r test`, api + web typecheck; CI green
+- [x] 8.1 ADR-009 migration section (as executed), CLAUDE.md (schema, tenancy notes, gotchas, test counts), upgrade runbook (migration step), session note
+- [x] 8.2 `pnpm -r lint`, `pnpm -r build`, `pnpm -r test`, api + web typecheck; CI green
 
 ## 9. Live migration (maintainer present, explicit OK per step)
 

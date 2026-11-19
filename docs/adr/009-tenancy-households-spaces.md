@@ -132,6 +132,14 @@ State of the maintainer's install on 2026-11-19 (read-only check): 498 tags, 22 
 4. Backfill the Qdrant payload (`space_id`, empty `shared_with`) via the metadata-only update.
 5. Switch the worker and the bootstrap script to create metadata with `owner: null`, and new documents with the target member as owner.
 
+#### As built (`tenancy-foundation`) and rehearsed — live run pending
+
+The migration is a CLI, `bash scripts/migrate-tenancy.sh [--dry-run]` (→ `node dist/tenancy/migrate.js` in the api container). Seven ordered, idempotent steps, each logged as a JSON event: (1) household / admin member / personal space (`reconcileTenancy`, the same code the api runs at startup), (2) Paperless user `ak-<members.id>` (non-superuser, the spike's permission set, random unstored password) and group `space-<spaces.id>`, (3) `owner = null` on every tag, correspondent and document type, (4) a `document_spaces` row for every Paperless document → the admin's personal space, (5) owner + view/change for the space group via `bulk_edit` → `set_permissions` (per-document fallback), (6) Qdrant `space_id` backfill via `set_payload` (no re-embed), (7) verification: documents without home space, permission drift, owned vocabulary, and a document count through each member's own Paperless user. A real run refuses unless the backup status is healthy and the newest complete snapshot is < 2 h old (`--i-have-a-backup` overrides).
+
+Steps 5's "new documents with the target member as owner" is done by the worker, not at upload: before extraction it calls `POST /api/tenancy/assign-home-space`, which picks the uploader's personal space (aktenraum uploads, recorded in `upload_task_members`) or the household admin's (mail, consume folder) and mirrors it into Paperless.
+
+Rehearsal on the e2e stack (2026-11-19, Paperless 2.20.15): worker e2e 20/20 on the new code; seeded pre-tenancy shape (210 tags, owned + ownerless documents) → dry run matched the plan and wrote nothing, a run without a backup was refused, the real run verified 6/6 through `ak-1`'s own token, a re-run had nothing to do; the permission spikes gave the same results as before. Observed on the real API: a POST without `owner` makes the caller the owner, a POST with `owner: null` keeps it null; `full_perms` + `fields` and `bulk_edit` with `owner` both work.
+
 ### Spike results (2026-11-19)
 
 Run against the throwaway e2e Paperless (2.20.15, project `aktenraum-e2e`), never the live stack. Scripts: `scripts/spikes/paperless-perm-spike.mjs` (38 checks) and `scripts/spikes/paperless-perm-spike-2.mjs` (metadata/count/task follow-up). Re-run after every Paperless upgrade.

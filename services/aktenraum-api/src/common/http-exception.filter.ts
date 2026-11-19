@@ -14,6 +14,7 @@ import {
   PaperlessAuthError,
   PaperlessConflictError,
   PaperlessNotFoundError,
+  PaperlessUnknownTagError,
 } from "../paperless/errors.js";
 
 function toDetail(payload: unknown): unknown {
@@ -32,6 +33,9 @@ function translate(exception: unknown): HttpException | null {
   }
   if (exception instanceof PaperlessAuthError) {
     return new HttpException("Paperless rejected the API token", HttpStatus.BAD_GATEWAY);
+  }
+  if (exception instanceof PaperlessUnknownTagError) {
+    return new HttpException(exception.message, HttpStatus.BAD_GATEWAY);
   }
   if (exception instanceof PaperlessConflictError) {
     return new ConflictException(

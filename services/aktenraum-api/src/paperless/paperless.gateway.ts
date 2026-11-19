@@ -5,6 +5,7 @@ import {
   PaperlessConflictError,
   PaperlessNotFoundError,
   PaperlessRequestError,
+  PaperlessUnknownTagError,
 } from "./errors.js";
 
 const DATE_FIELDS: ReadonlySet<string> = new Set(["ai_issue_date"]);
@@ -99,6 +100,9 @@ export function planTagSwap(options: {
   return surviving;
 }
 
+/** Safety cap for paginated name lists: 50 × 200 = 10,000 entries. */
+const MAX_NAMED_PAGES = 50;
+
 export class PaperlessGateway {
   private readonly baseUrl: string;
   private readonly headers: Record<string, string>;
@@ -173,13 +177,25 @@ export class PaperlessGateway {
     return entry.value;
   }
 
+  /**
+   * Name → id map over EVERY page. It used to read only the first 200 entries;
+   * with 498 tags, names late in the alphabet (e.g. `wichtig`) were missing,
+   * so starring silently did nothing and library rows dropped those tags.
+   */
   private async listNamed(endpoint: string): Promise<Record<string, number>> {
-    const resp = await this.request("GET", endpoint, { params: { page_size: 200 } });
-    this.raiseAuth(resp);
-    await this.raiseForStatus(resp);
-    const payload = (await resp.json()) as { results?: { name: string; id: number }[] };
     const mapping: Record<string, number> = {};
-    for (const entry of payload.results ?? []) mapping[entry.name] = entry.id;
+    for (let page = 1; page <= MAX_NAMED_PAGES; page += 1) {
+      const resp = await this.request("GET", endpoint, { params: { page_size: 200, page } });
+      this.raiseAuth(resp);
+      await this.raiseForStatus(resp);
+      const payload = (await resp.json()) as {
+        results?: { name: string; id: number }[];
+        next?: string | null;
+      };
+      const results = payload.results ?? [];
+      for (const entry of results) mapping[entry.name] = entry.id;
+      if (!payload.next || results.length === 0) break;
+    }
     return mapping;
   }
 
@@ -250,6 +266,21 @@ export class PaperlessGateway {
       }
     }
     return mapping;
+  }
+
+  /**
+   * Every name to ADD must resolve to an id — refetching once in case the tag
+   * was created out-of-band — or the swap fails loudly instead of quietly
+   * writing nothing. (Unknown names to REMOVE are fine: nothing to remove.)
+   */
+  private async requireTagNames(names: string[]): Promise<void> {
+    if (names.length === 0) return;
+    let mapping = await this.listTags();
+    if (names.every((name) => mapping[name] !== undefined)) return;
+    this.invalidateTagCache();
+    mapping = await this.listTags();
+    const missing = names.filter((name) => mapping[name] === undefined);
+    if (missing.length > 0) throw new PaperlessUnknownTagError(missing);
   }
 
   async ensureTag(name: string): Promise<number> {
@@ -346,6 +377,7 @@ export class PaperlessGateway {
     docId: number,
     options: { remove: string[]; add: string[] },
   ): Promise<number[]> {
+    await this.requireTagNames(options.add);
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const doc = await this.getDocument(docId);
       const currentIds = (doc.tags as number[] | undefined) ?? [];

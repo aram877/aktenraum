@@ -4,6 +4,7 @@ import {
   PaperlessAuthError,
   PaperlessConflictError,
   PaperlessNotFoundError,
+  PaperlessUnknownTagError,
 } from "./errors.js";
 import {
   mergeCustomFields,
@@ -521,5 +522,84 @@ describe("listTagsCovering", () => {
       wichtig: 5,
     });
     expect(requests).toHaveLength(1);
+  });
+});
+
+describe("tag lists beyond one page", () => {
+  /** 498 tags like the maintainer's install: `wichtig` sorts onto page 3. */
+  function manyTags() {
+    const all = [
+      { id: 1, name: "ai-pending" },
+      ...Array.from({ length: 496 }, (_, i) => ({ id: 1000 + i, name: `tag-${String(i).padStart(3, "0")}` })),
+      { id: 204, name: "wichtig" },
+    ];
+    let docTags = [1];
+    const { gateway, requests } = gatewayWithHandler(({ method, url, body }) => {
+      if (url.pathname === "/api/tags/") {
+        if (url.searchParams.has("name__iexact")) {
+          const name = url.searchParams.get("name__iexact");
+          return { status: 200, json: { results: all.filter((t) => t.name === name) } };
+        }
+        const page = Number(url.searchParams.get("page") ?? "1");
+        const size = Number(url.searchParams.get("page_size") ?? "25");
+        const results = all.slice((page - 1) * size, page * size);
+        const next = page * size < all.length ? `http://paperless.test/api/tags/?page=${page + 1}` : null;
+        return { status: 200, json: { count: all.length, next, results } };
+      }
+      if (method === "GET" && url.pathname === "/api/documents/277/") {
+        return { status: 200, json: { id: 277, tags: docTags } };
+      }
+      if (method === "PATCH" && url.pathname === "/api/documents/277/") {
+        docTags = (body as { tags: number[] }).tags;
+        return { status: 200, json: { id: 277, tags: docTags } };
+      }
+      return { status: 404 };
+    });
+    return { gateway, requests, docTags: () => docTags };
+  }
+
+  it("reads every page of the tag list", async () => {
+    const { gateway, requests } = manyTags();
+    const tags = await gateway.listTags();
+    expect(Object.keys(tags)).toHaveLength(498);
+    expect(tags.wichtig).toBe(204);
+    expect(requests.filter((r) => r.url.pathname === "/api/tags/")).toHaveLength(3);
+  });
+
+  it("stars a document whose tag sits on page 3", async () => {
+    const { gateway, docTags } = manyTags();
+    await gateway.ensureTag("wichtig");
+    await gateway.swapLifecycleTag(277, { remove: [], add: ["wichtig"] });
+    expect(docTags()).toEqual([1, 204]);
+  });
+});
+
+describe("swapLifecycleTag with an unknown tag", () => {
+  it("refreshes once, then fails loudly instead of writing nothing", async () => {
+    const { gateway, requests } = gatewayWithHandler(({ url }) => {
+      if (url.pathname === "/api/tags/") return { status: 200, json: TAGS_PAGE };
+      if (url.pathname === "/api/documents/42/") return { status: 200, json: { id: 42, tags: [5] } };
+      return { status: 404 };
+    });
+    await expect(
+      gateway.swapLifecycleTag(42, { remove: [], add: ["does-not-exist"] }),
+    ).rejects.toBeInstanceOf(PaperlessUnknownTagError);
+    expect(requests.filter((r) => r.url.pathname === "/api/tags/")).toHaveLength(2);
+    expect(requests.filter((r) => r.method === "PATCH")).toHaveLength(0);
+  });
+
+  it("still tolerates unknown names in remove", async () => {
+    let tags = [1, 5];
+    const { gateway } = gatewayWithHandler(({ method, url, body }) => {
+      if (url.pathname === "/api/tags/") return { status: 200, json: TAGS_PAGE };
+      if (url.pathname === "/api/documents/42/") {
+        if (method === "PATCH") tags = (body as { tags: number[] }).tags;
+        return { status: 200, json: { id: 42, tags } };
+      }
+      return { status: 404 };
+    });
+    await expect(
+      gateway.swapLifecycleTag(42, { remove: ["no-such-tag", "ai-pending"], add: [] }),
+    ).resolves.toEqual([5]);
   });
 });

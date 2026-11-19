@@ -7,7 +7,8 @@ set -euo pipefail
 PAPERLESS_URL="${PAPERLESS_BASE_URL:-http://localhost:8000}"
 TOKEN="${PAPERLESS_API_TOKEN:?PAPERLESS_API_TOKEN is required}"
 
-PYTHON="$(command -v python3 || command -v python || true)"
+. "$(dirname "${BASH_SOURCE[0]}")/lib/python.sh"
+PYTHON="$(find_python || true)"
 if [ -z "${PYTHON}" ]; then
   echo "Error: python3 or python is required on PATH" >&2
   exit 1

@@ -23,7 +23,8 @@ PAPERLESS="http://127.0.0.1:${PAPERLESS_PORT}"
 API="http://127.0.0.1:${API_PORT}"
 QDRANT="http://127.0.0.1:${QDRANT_PORT}"
 
-PY="$(command -v python3 || command -v python)"
+. "$(dirname "${BASH_SOURCE[0]}")/lib/python.sh"
+PY="$(find_python)" || { echo "python3 or python is required on PATH" >&2; exit 1; }
 
 pass=0
 fail=0
@@ -154,7 +155,7 @@ DOC
 
 TASK_ID="$(curl -sf -X POST "${PAPERLESS}/api/documents/post_document/" \
   -H "Authorization: Token ${TOKEN}" \
-  -F "document=@${DOC_FILE};type=text/plain" \
+  -F "document=@$(native_path "${DOC_FILE}");type=text/plain" \
   | tr -d '"')"
 check "Paperless accepted the upload" "$([ -n "${TASK_ID}" ] && echo 1 || echo 0)" "task=${TASK_ID}"
 
@@ -291,7 +292,7 @@ sed 's/Position 2: Grundpreis                         41,49 EUR/Position 2: Grun
   "${DOC_FILE}" > "${DUP_FILE}"
 DUP_TASK="$(curl -sf -X POST "${PAPERLESS}/api/documents/post_document/" \
   -H "Authorization: Token ${TOKEN}" \
-  -F "document=@${DUP_FILE};type=text/plain" | tr -d '"')"
+  -F "document=@$(native_path "${DUP_FILE}");type=text/plain" | tr -d '"')"
 DUP_ID=""
 for _ in $(seq 1 90); do
   DUP_ID="$(curl -sf -H "Authorization: Token ${TOKEN}" \

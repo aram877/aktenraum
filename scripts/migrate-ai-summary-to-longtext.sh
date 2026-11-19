@@ -30,7 +30,8 @@ if [[ -z "$TOKEN" ]]; then
   exit 1
 fi
 
-PY="$(command -v python3 || command -v python)"
+. "$(dirname "${BASH_SOURCE[0]}")/lib/python.sh"
+PY="$(find_python || true)"
 if [[ -z "$PY" ]]; then
   echo "ERROR: python3 / python not found" >&2
   exit 1

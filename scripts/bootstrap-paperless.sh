@@ -28,7 +28,14 @@ if [ -f "${ENV_FILE}" ]; then
   done < <(grep -E '^AKTENRAUM_MAIL_[A-Z_]+=' "${ENV_FILE}" 2>/dev/null || true)
 fi
 
-PYTHON="$(command -v python3 || command -v python || true)"
+# first-run.sh copies this file alone into the paperless container, so the
+# shared helper (Windows python3-stub / UTF-8 handling) is optional here.
+if [ -f "$(dirname "${BASH_SOURCE[0]}")/lib/python.sh" ]; then
+  . "$(dirname "${BASH_SOURCE[0]}")/lib/python.sh"
+  PYTHON="$(find_python || true)"
+else
+  PYTHON="$(command -v python3 || command -v python || true)"
+fi
 if [ -z "${PYTHON}" ]; then
   echo "Error: python3 or python is required on PATH" >&2
   exit 1

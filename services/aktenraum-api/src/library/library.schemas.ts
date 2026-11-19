@@ -1,3 +1,9 @@
+export interface LibrarySpace {
+  id: number;
+  name: string;
+  kind: "personal" | "shared";
+}
+
 export interface LibraryItem {
   id: number;
   title: string;
@@ -10,6 +16,8 @@ export interface LibraryItem {
   tags: string[];
   ai_error_message: string | null;
   is_processing: boolean;
+  /** The document's home space; null while it has none yet. */
+  home_space: LibrarySpace | null;
 }
 
 export interface LibraryList {

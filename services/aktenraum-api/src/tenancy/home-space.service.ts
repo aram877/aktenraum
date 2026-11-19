@@ -1,9 +1,9 @@
 import { logger } from "@aktenraum/core";
 import { BadGatewayException, ConflictException, Inject, Injectable } from "@nestjs/common";
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { DB, type Database } from "../db/db.module.js";
-import { documentSpaces, members, spaces, uploadTaskMembers } from "../db/schema.js";
+import { documentSpaces, members, spaceMembers, spaces, uploadTaskMembers, uploadTaskSpaces } from "../db/schema.js";
 import { extractDocId } from "../documents/documents.service.js";
 import { PaperlessRequestError } from "../paperless/errors.js";
 import { PaperlessGatewayProvider } from "../paperless/paperless.module.js";
@@ -28,6 +28,11 @@ export interface HomeSpaceAssignment {
   paperless: MirrorOutcome;
 }
 
+interface Uploader {
+  memberId: number;
+  taskId: string;
+}
+
 export class UploadStillRunningError extends ConflictException {
   constructor(docId: number) {
     super(`Document ${docId}: an aktenraum upload is still being processed; retry shortly`);
@@ -36,8 +41,8 @@ export class UploadStillRunningError extends ConflictException {
 
 /**
  * Gives a new document its home space (ADR-009) before the worker extracts it:
- * the uploading member's personal space for aktenraum uploads, otherwise the
- * household admin's. A document that already has one keeps it (reprocess), and
+ * for aktenraum uploads the space chosen at upload (still owner/editor) or
+ * else the uploader's personal space, otherwise the household admin's. A document that already has one keeps it (reprocess), and
  * the Paperless owner + permissions are brought in line either way.
  */
 @Injectable()
@@ -55,7 +60,7 @@ export class HomeSpaceService {
 
     if (spaceId === null) {
       const uploader = await this.uploaderOf(docId);
-      const target = uploader !== null ? await this.personalSpaceOf(uploader) : await this.adminSpace();
+      const target = uploader !== null ? await this.uploadTarget(docId, uploader) : await this.adminSpace();
       await this.db
         .insert(documentSpaces)
         .values({ paperlessDocId: docId, spaceId: target })
@@ -79,6 +84,39 @@ export class HomeSpaceService {
     return { document_id: docId, space_id: spaceId, source, paperless };
   }
 
+  /**
+   * The space picked at upload, if the uploader may still place documents
+   * there; otherwise (no pick, or rights revoked meanwhile) their personal space.
+   */
+  private async uploadTarget(docId: number, uploader: Uploader): Promise<number> {
+    const picked = await this.db
+      .select({ spaceId: uploadTaskSpaces.spaceId })
+      .from(uploadTaskSpaces)
+      .where(eq(uploadTaskSpaces.taskId, uploader.taskId))
+      .limit(1);
+    const spaceId = picked[0]?.spaceId;
+    if (spaceId !== undefined) {
+      const allowed = await this.db
+        .select({ role: spaceMembers.role })
+        .from(spaceMembers)
+        .where(
+          and(
+            eq(spaceMembers.spaceId, spaceId),
+            eq(spaceMembers.memberId, uploader.memberId),
+            inArray(spaceMembers.role, ["owner", "editor"]),
+          ),
+        )
+        .limit(1);
+      if (allowed.length > 0) return spaceId;
+      logger.warn("home_space_upload_target_revoked", {
+        doc_id: docId,
+        space_id: spaceId,
+        member_id: uploader.memberId,
+      });
+    }
+    return this.personalSpaceOf(uploader.memberId);
+  }
+
   private async homeSpaceOf(docId: number): Promise<number | null> {
     const rows = await this.db
       .select({ spaceId: documentSpaces.spaceId })
@@ -94,13 +132,13 @@ export class HomeSpaceService {
    * recent one is still running the answer isn't known yet, so this refuses
    * (409) instead of guessing — the worker retries on its next poll.
    */
-  private async uploaderOf(docId: number): Promise<number | null> {
+  private async uploaderOf(docId: number): Promise<Uploader | null> {
     const known = await this.db
-      .select({ memberId: uploadTaskMembers.memberId })
+      .select({ memberId: uploadTaskMembers.memberId, taskId: uploadTaskMembers.taskId })
       .from(uploadTaskMembers)
       .where(eq(uploadTaskMembers.paperlessDocId, docId))
       .limit(1);
-    if (known[0] !== undefined) return known[0].memberId;
+    if (known[0] !== undefined) return known[0];
 
     const unresolved = await this.db
       .select({
@@ -114,7 +152,7 @@ export class HomeSpaceService {
     if (unresolved.length === 0) return null;
 
     const gateway = this.gatewayProvider.service();
-    let match: number | null = null;
+    let match: Uploader | null = null;
     let stillRunning = false;
     for (const row of unresolved) {
       const payload = await gateway.getTasks(row.taskId);
@@ -123,7 +161,7 @@ export class HomeSpaceService {
       const created = task !== undefined ? extractDocId(task) : null;
       if (created !== null) {
         await this.resolve(row.taskId, created);
-        if (created === docId) match = row.memberId;
+        if (created === docId) match = { memberId: row.memberId, taskId: row.taskId };
       } else if (status === "SUCCESS" || status === "FAILURE" || status === "REVOKED") {
         await this.resolve(row.taskId, NO_DOCUMENT);
       } else if ((task === undefined || RUNNING_STATUSES.has(status)) && row.recent) {

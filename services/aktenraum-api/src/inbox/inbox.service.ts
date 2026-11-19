@@ -43,6 +43,31 @@ export function customFieldValues(
   return out;
 }
 
+/** Pending documents fetched to filter out viewer spaces (pending sets are small). */
+export const PENDING_SCAN_LIMIT = 500;
+
+/**
+ * The pending documents a member may review, or null when nothing needs
+ * filtering — the member is a viewer of no space holding documents, which
+ * is the common case. Viewers read pending documents in the library only.
+ */
+export async function reviewablePendingIds(
+  gateway: Pick<PaperlessGateway, "searchDocuments">,
+  tenancy: Pick<TenancyService, "viewerDocumentIds">,
+  principal: Principal,
+  pendingTagId: number,
+): Promise<number[] | null> {
+  if (principal.kind !== "member") return null;
+  const excluded = await tenancy.viewerDocumentIds(principal.memberId);
+  if (excluded.size === 0) return null;
+  const payload = await gateway.searchDocuments(
+    { tags__id: pendingTagId, fields: "id", ordering: "id" },
+    { pageSize: PENDING_SCAN_LIMIT },
+  );
+  const ids = ((payload.results as { id: number }[] | undefined) ?? []).map((d) => d.id);
+  return ids.filter((id) => !excluded.has(id));
+}
+
 function asString(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   return typeof value === "string" ? value : String(value);
@@ -86,10 +111,19 @@ export class InboxService {
       return { results: [], total: 0, page: options.page, page_size: options.pageSize };
     }
 
-    const payload = await gateway.searchDocuments(
-      { tags__id: pendingId, ordering: options.ordering, page: options.page },
-      { pageSize: options.pageSize },
-    );
+    const query: Record<string, string | number> = {
+      tags__id: pendingId,
+      ordering: options.ordering,
+      page: options.page,
+    };
+    const reviewable = await reviewablePendingIds(gateway, this.tenancy, principal, pendingId);
+    if (reviewable !== null) {
+      if (reviewable.length === 0) {
+        return { results: [], total: 0, page: options.page, page_size: options.pageSize };
+      }
+      query.id__in = reviewable.join(",");
+    }
+    const payload = await gateway.searchDocuments(query, { pageSize: options.pageSize });
     const fieldIdToName = await this.fieldIdToName(gateway);
     const docs = (payload.results as PaperlessDocument[] | undefined) ?? [];
     const results = docs.map((doc) =>

@@ -2,7 +2,9 @@ import { Injectable } from "@nestjs/common";
 import { MemberGateways } from "../tenancy/member-gateways.js";
 import type { Principal } from "../auth/principal.js";
 
+import { reviewablePendingIds } from "../inbox/inbox.service.js";
 import { errorTagIds } from "../paperless/status-tags.js";
+import { TenancyService } from "../tenancy/tenancy.service.js";
 
 export interface LiveCounts {
   inbox: number;
@@ -25,6 +27,7 @@ function countOf(payload: Record<string, unknown>): number {
 export class EventsService {
   constructor(
     private readonly gateways: MemberGateways,
+    private readonly tenancy: TenancyService,
   ) {}
 
   /**
@@ -45,9 +48,7 @@ export class EventsService {
     const [inbox, inFlight, trash, errors] = await Promise.all([
       pendingId === undefined
         ? Promise.resolve(0)
-        : gateway
-            .searchDocuments({ tags__id__in: String(pendingId) }, { pageSize: 1 })
-            .then(countOf),
+        : this.inboxCount(gateway, principal, pendingId),
       flightIds.length === 0
         ? Promise.resolve(0)
         : gateway
@@ -62,5 +63,16 @@ export class EventsService {
     ]);
 
     return { inbox, in_flight: inFlight, trash, errors };
+  }
+
+  /** Same rule as the review inbox: viewer-space documents don't count. */
+  private async inboxCount(
+    gateway: Awaited<ReturnType<MemberGateways["forPrincipal"]>>,
+    principal: Principal,
+    pendingId: number,
+  ): Promise<number> {
+    const reviewable = await reviewablePendingIds(gateway, this.tenancy, principal, pendingId);
+    if (reviewable !== null) return reviewable.length;
+    return gateway.searchDocuments({ tags__id__in: String(pendingId) }, { pageSize: 1 }).then(countOf);
   }
 }

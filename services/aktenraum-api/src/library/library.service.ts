@@ -1,5 +1,5 @@
 import { LIFECYCLE_TAGS } from "@aktenraum/core";
-import { Injectable } from "@nestjs/common";
+import { ForbiddenException, Injectable } from "@nestjs/common";
 import { MemberGateways } from "../tenancy/member-gateways.js";
 import type { Principal } from "../auth/principal.js";
 
@@ -8,6 +8,7 @@ import { customFieldValues, parseDate } from "../inbox/inbox.service.js";
 import type { PaperlessDocument, PaperlessGateway, QueryParams } from "../paperless/paperless.gateway.js";
 import { statusFilter, type LibraryStatus } from "../paperless/status-tags.js";
 import { collectTagIds } from "../paperless/tag-ids.js";
+import { TenancyService } from "../tenancy/tenancy.service.js";
 import type { LibraryItem, LibraryList, TagFacetList } from "./library.schemas.js";
 
 const BADGE_TAGS: ReadonlySet<string> = new Set([
@@ -37,6 +38,8 @@ export interface LibraryQuery {
   text?: string;
   tags?: string[];
   status?: LibraryStatus;
+  /** Only documents of this space (must be one of the caller's). */
+  space?: number;
   page: number;
   pageSize: number;
   ordering: string;
@@ -60,6 +63,63 @@ export function resolveTagIds(
   return out;
 }
 
+/**
+ * Most document ids sent as one Paperless `id__in` (a GET query string).
+ * Larger spaces are fetched in chunks of this size and merged here.
+ */
+export const ID_IN_LIMIT = 1000;
+
+const ORDERING_FIELDS: Record<string, (doc: PaperlessDocument) => string> = {
+  created: (doc) => String(doc.created_date ?? doc.created ?? ""),
+  added: (doc) => String(doc.added ?? ""),
+  modified: (doc) => String(doc.modified ?? ""),
+  title: (doc) => String(doc.title ?? "").toLocaleLowerCase("de"),
+};
+
+/** Client-side equivalent of Paperless `ordering` for the allowlisted fields. */
+export function sortDocuments(docs: PaperlessDocument[], ordering: string): PaperlessDocument[] {
+  const desc = ordering.startsWith("-");
+  const key = ORDERING_FIELDS[ordering.replace(/^-/, "")] ?? ORDERING_FIELDS.created!;
+  return [...docs].sort((a, b) => {
+    const cmp = key(a).localeCompare(key(b), "de") || a.id - b.id;
+    return desc ? -cmp : cmp;
+  });
+}
+
+/**
+ * One library page restricted to `docIds`. Up to `limit` ids go to Paperless
+ * as one `id__in`; above that the ids are queried in chunks with the same
+ * filters, then merged and paginated here (request-line safety net).
+ */
+export async function searchWithinIds(
+  gateway: Pick<PaperlessGateway, "searchDocuments">,
+  params: QueryParams,
+  docIds: readonly number[],
+  page: { page: number; pageSize: number; ordering: string },
+  limit = ID_IN_LIMIT,
+): Promise<{ results: PaperlessDocument[]; count: number }> {
+  if (docIds.length <= limit) {
+    const payload = await gateway.searchDocuments(
+      { ...params, id__in: docIds.join(",") },
+      { pageSize: page.pageSize },
+    );
+    const results = (payload.results as PaperlessDocument[] | undefined) ?? [];
+    return { results, count: typeof payload.count === "number" ? payload.count : results.length };
+  }
+  const merged: PaperlessDocument[] = [];
+  for (let i = 0; i < docIds.length; i += limit) {
+    const chunk = docIds.slice(i, i + limit);
+    const payload = await gateway.searchDocuments(
+      { ...params, id__in: chunk.join(","), page: 1 },
+      { pageSize: chunk.length },
+    );
+    merged.push(...((payload.results as PaperlessDocument[] | undefined) ?? []));
+  }
+  const sorted = sortDocuments(merged, page.ordering);
+  const start = (page.page - 1) * page.pageSize;
+  return { results: sorted.slice(start, start + page.pageSize), count: sorted.length };
+}
+
 function invert(mapping: Record<string, number>): Map<number, string> {
   return new Map(Object.entries(mapping).map(([name, id]) => [id, name]));
 }
@@ -74,6 +134,7 @@ export class LibraryService {
   constructor(
     private readonly gateways: MemberGateways,
     private readonly autoTagger: AutoTaggerClient,
+    private readonly tenancy: TenancyService,
   ) {}
 
   /** The member's own Paperless gateway (service gateway for the worker). */
@@ -129,10 +190,19 @@ export class LibraryService {
       params.tags__id__all = allIds.join(",");
     }
 
-    const payload = await gateway.searchDocuments(params, { pageSize: query.pageSize });
-    const rawResults = (payload.results as PaperlessDocument[] | undefined) ?? [];
-    const totalNative =
-      typeof payload.count === "number" ? payload.count : rawResults.length;
+    let rawResults: PaperlessDocument[];
+    let totalNative: number;
+    if (query.space !== undefined) {
+      const mine = principal.kind === "member" ? await this.tenancy.spaceIdsOf(principal.memberId) : [];
+      if (!mine.includes(query.space)) throw new ForbiddenException("Not a member of this space");
+      const docIds = await this.tenancy.spaceDocumentIds(query.space);
+      if (docIds.length === 0) return empty;
+      ({ results: rawResults, count: totalNative } = await searchWithinIds(gateway, params, docIds, query));
+    } else {
+      const payload = await gateway.searchDocuments(params, { pageSize: query.pageSize });
+      rawResults = (payload.results as PaperlessDocument[] | undefined) ?? [];
+      totalNative = typeof payload.count === "number" ? payload.count : rawResults.length;
+    }
 
     const correspondentById = invert(correspondents);
     const documentTypeById = invert(documentTypes);
@@ -143,8 +213,8 @@ export class LibraryService {
       this.project(doc, correspondentById, documentTypeById, tagNameById, fieldIdToName),
     );
 
-    // Pinned in-flight rows would not match a status filter.
-    if (query.page === 1 && query.status === undefined) {
+    // Pinned in-flight rows would not match a status or space filter.
+    if (query.page === 1 && query.status === undefined && query.space === undefined) {
       const inFlightIds = await this.fetchInFlightIds();
       if (inFlightIds.length > 0) {
         const pinnedRows: LibraryItem[] = [];
@@ -165,6 +235,9 @@ export class LibraryService {
         }
       }
     }
+
+    const homes = await this.tenancy.homeSpacesOf(items.map((item) => item.id));
+    items = items.map((item) => ({ ...item, home_space: homes.get(item.id) ?? null }));
 
     return { results: items, total: totalNative, page: query.page, page_size: query.pageSize };
   }
@@ -275,6 +348,7 @@ export class LibraryService {
       tags: tagNames.filter((name) => !INTERNAL_TAGS.has(name)),
       ai_error_message: asString(fields.ai_error_message),
       is_processing: false,
+      home_space: null,
     };
   }
 }

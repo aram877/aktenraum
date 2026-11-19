@@ -128,12 +128,39 @@ export class TenancyService implements OnApplicationBootstrap, TenancyLookup {
     return { id: space.id, name: space.name, kind: space.kind, owner };
   }
 
+  /** Home space (id, name, kind) per document, one query for a whole page. */
+  async homeSpacesOf(
+    docIds: readonly number[],
+  ): Promise<Map<number, { id: number; name: string; kind: "personal" | "shared" }>> {
+    if (docIds.length === 0) return new Map();
+    const rows = await this.db
+      .select({ docId: documentSpaces.paperlessDocId, id: spaces.id, name: spaces.name, kind: spaces.kind })
+      .from(documentSpaces)
+      .innerJoin(spaces, eq(spaces.id, documentSpaces.spaceId))
+      .where(inArray(documentSpaces.paperlessDocId, [...docIds]));
+    return new Map(rows.map((r) => [r.docId, { id: r.id, name: r.name, kind: r.kind }]));
+  }
+
   async spaceDocumentIds(spaceId: number): Promise<number[]> {
     const rows = await this.db
       .select({ docId: documentSpaces.paperlessDocId })
       .from(documentSpaces)
       .where(eq(documentSpaces.spaceId, spaceId));
     return rows.map((r) => r.docId).sort((a, b) => a - b);
+  }
+
+  /**
+   * Documents in spaces where the member is only a viewer — kept out of their
+   * review inbox (ADR-009). Empty for most members (and always for a
+   * household of one), which lets callers skip the extra work.
+   */
+  async viewerDocumentIds(memberId: number): Promise<Set<number>> {
+    const rows = await this.db
+      .select({ docId: documentSpaces.paperlessDocId })
+      .from(spaceMembers)
+      .innerJoin(documentSpaces, eq(documentSpaces.spaceId, spaceMembers.spaceId))
+      .where(and(eq(spaceMembers.memberId, memberId), eq(spaceMembers.role, "viewer")));
+    return new Set(rows.map((r) => r.docId));
   }
 
   /** Spaces the member belongs to (any role). */

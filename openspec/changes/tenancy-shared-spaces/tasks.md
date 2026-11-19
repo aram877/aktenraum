@@ -16,10 +16,10 @@
 
 ## 3. Upload, library, inbox
 
-- [ ] 3.1 Upload `space_id` (validated before sending, 403), `upload_task_spaces`; `HomeSpaceService` uses it, falls back to personal when revoked; tests
-- [ ] 3.2 Library rows + detail payloads carry `home_space`; `?space=` filter (member's spaces only)
+- [x] 3.1 Upload `space_id` (validated before sending, 403), `upload_task_spaces`; `HomeSpaceService` uses it, falls back to personal when revoked; tests
+- [x] 3.2 Library rows + detail payloads carry `home_space`; `?space=` filter (member's spaces only)
 - [ ] 3.3 Measure the `id__in` request-line limit on the e2e Paperless; implement the chunked fallback above the threshold; tests
-- [ ] 3.4 Inbox list + live-counts inbox number exclude viewer-space documents; tests (viewer, editor, single member unchanged)
+- [x] 3.4 Inbox list + live-counts inbox number exclude viewer-space documents; tests (viewer, editor, single member unchanged)
 
 ## 4. Web
 

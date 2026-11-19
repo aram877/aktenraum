@@ -8,7 +8,7 @@ import { lt } from "drizzle-orm";
 
 import { SETTINGS, type Settings } from "../config/settings.js";
 import { DB, type Database } from "../db/db.module.js";
-import { uploadTaskMembers, uploadTasks } from "../db/schema.js";
+import { uploadTaskMembers, uploadTaskSpaces, uploadTasks } from "../db/schema.js";
 import { PaperlessAuthError } from "../paperless/errors.js";
 
 export const UPLOAD_ALLOWED_CONTENT_TYPES: ReadonlySet<string> = new Set([
@@ -71,18 +71,25 @@ export class UploadService {
     principal: Principal,
     files: IncomingFile[],
     title?: string,
+    spaceId: number | null = null,
   ): Promise<UploadResponse> {
     try {
-      return await this.uploadEach(principal, files, title);
+      return await this.uploadEach(principal, files, title, spaceId);
     } finally {
       await removeTempFiles(files);
     }
+  }
+
+  /** Deletes the multer temp files of a rejected request. */
+  async discard(files: IncomingFile[]): Promise<void> {
+    await removeTempFiles(files);
   }
 
   private async uploadEach(
     principal: Principal,
     files: IncomingFile[],
     title: string | undefined,
+    spaceId: number | null,
   ): Promise<UploadResponse> {
     // Uploaded as the member: Paperless records the task and the new document
     // under their Paperless user, so they can follow it and nobody else sees it.
@@ -121,7 +128,7 @@ export class UploadService {
           title,
         });
         results.push({ filename, status: "accepted", task_id: taskId });
-        await this.recordTask(taskId, filename, memberId);
+        await this.recordTask(taskId, filename, memberId, spaceId);
       } catch (error: unknown) {
         if (error instanceof PaperlessAuthError) throw error;
         logger.warn("upload_failed", {
@@ -149,6 +156,7 @@ export class UploadService {
     taskId: string | null | undefined,
     filename: string,
     memberId: number | null,
+    spaceId: number | null,
   ): Promise<void> {
     if (!taskId) return;
     try {
@@ -159,9 +167,13 @@ export class UploadService {
       if (memberId !== null) {
         await this.db.insert(uploadTaskMembers).values({ taskId, memberId }).onConflictDoNothing();
       }
+      if (spaceId !== null) {
+        await this.db.insert(uploadTaskSpaces).values({ taskId, spaceId }).onConflictDoNothing();
+      }
       const cutoff = new Date(Date.now() - UPLOAD_TASK_RETENTION_MS).toISOString();
       await this.db.delete(uploadTasks).where(lt(uploadTasks.createdAt, cutoff));
       await this.db.delete(uploadTaskMembers).where(lt(uploadTaskMembers.createdAt, cutoff));
+      await this.db.delete(uploadTaskSpaces).where(lt(uploadTaskSpaces.createdAt, cutoff));
     } catch (error: unknown) {
       logger.warn("upload_task_record_failed", {
         task_id: taskId,

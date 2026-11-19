@@ -65,7 +65,15 @@ export class LibraryController {
     @Query("page_size") pageSize?: string,
     @Query("ordering") ordering?: string,
     @Query("status") status?: string,
+    @Query("space") space?: string,
   ): Promise<LibraryList> {
+    let spaceId: number | undefined;
+    if (space !== undefined && space !== "") {
+      spaceId = Number(space);
+      if (!Number.isInteger(spaceId) || spaceId <= 0) {
+        throw new HttpException("space must be a positive integer", HttpStatus.UNPROCESSABLE_ENTITY);
+      }
+    }
     const resolvedOrdering = ordering ?? "-created";
     if (!ALLOWED_ORDERING.includes(resolvedOrdering)) {
       throw new HttpException(
@@ -88,6 +96,7 @@ export class LibraryController {
       text,
       tags: toArray(tags),
       status: resolvedStatus,
+      space: spaceId,
       page: clampInt(page, 1, 1, Number.MAX_SAFE_INTEGER),
       pageSize: clampInt(pageSize, 25, 1, 100),
       ordering: resolvedOrdering,

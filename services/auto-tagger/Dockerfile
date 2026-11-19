@@ -5,6 +5,11 @@ FROM node:22-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d
 
 RUN corepack enable
 
+# onnxruntime-node's postinstall downloads the optional CUDA/GPU binaries from
+# a GitHub release on Linux x64; that URL 404s, failing the whole install.
+# Nothing here uses CUDA; the CPU binaries ship inside the npm package.
+ENV ONNXRUNTIME_NODE_INSTALL_CUDA=skip
+
 WORKDIR /repo
 
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./

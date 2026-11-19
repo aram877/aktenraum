@@ -10,6 +10,11 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # onnxruntime-node's postinstall fetches optional CUDA binaries from a GitHub
+  # release that now 404s, failing `pnpm install`. CPU binaries are bundled.
+  ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+
 jobs:
   ci:
     name: lint + build + tests

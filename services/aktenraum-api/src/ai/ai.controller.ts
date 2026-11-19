@@ -11,6 +11,7 @@ import {
 import type { Response } from "express";
 
 import { AuthGuard } from "../auth/auth.guard.js";
+import { RequireScope } from "../auth/principal.js";
 import { ZodValidationPipe } from "../common/zod-validation.pipe.js";
 import {
   answerOutputSchema,
@@ -53,6 +54,7 @@ export class AiController {
   ) {}
 
   @Post("find")
+  @RequireScope("ai:ask")
   @HttpCode(HttpStatus.OK)
   async find(
     @Body(new ZodValidationPipe(askRequestSchema)) body: AskRequest,
@@ -74,6 +76,7 @@ export class AiController {
   }
 
   @Post("answer/stream")
+  @RequireScope("ai:ask")
   async answerStream(
     @Body(new ZodValidationPipe(answerRequestSchema)) body: AnswerRequest,
     @Res() response: Response,
@@ -170,6 +173,7 @@ export class AiController {
   }
 
   @Post("answer")
+  @RequireScope("ai:ask")
   @HttpCode(HttpStatus.OK)
   async answer(
     @Body(new ZodValidationPipe(answerRequestSchema)) body: AnswerRequest,

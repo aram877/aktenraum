@@ -18,7 +18,7 @@ import type { CookieOptions, Request, Response } from "express";
 
 import { SETTINGS, type Settings } from "../config/settings.js";
 import { ZodValidationPipe } from "../common/zod-validation.pipe.js";
-import { AuthGuard, CurrentUser } from "./auth.guard.js";
+import { AuthGuard } from "./auth.guard.js";
 import {
   changePasswordRequestSchema,
   loginRequestSchema,
@@ -26,10 +26,11 @@ import {
   type LoginRequest,
   type UserResponse,
 } from "./auth.schemas.js";
-import { AuthService, passwordFingerprint, type AuthUser } from "./auth.service.js";
+import { AuthService, passwordFingerprint } from "./auth.service.js";
 import { LoginThrottle } from "./login-throttle.js";
 import { createToken } from "./jwt.js";
 import { verifyPassword } from "./passwords.js";
+import { CurrentPrincipal, RequireScope, type MemberPrincipal, type Principal } from "./principal.js";
 
 @Controller("auth")
 export class AuthController {
@@ -92,19 +93,23 @@ export class AuthController {
 
   @Get("me")
   @UseGuards(AuthGuard)
-  me(@CurrentUser() user: AuthUser): UserResponse {
-    return { username: user.username };
+  @RequireScope()
+  me(@CurrentPrincipal() principal: Principal): UserResponse {
+    return { username: memberOf(principal).username };
   }
 
   @Post("change-password")
   @UseGuards(AuthGuard)
+  @RequireScope()
   @HttpCode(HttpStatus.NO_CONTENT)
   async changePassword(
     @Body(new ZodValidationPipe(changePasswordRequestSchema)) body: ChangePasswordRequest,
-    @CurrentUser() user: AuthUser,
+    @CurrentPrincipal() principal: Principal,
     @Res({ passthrough: true }) response: Response,
   ): Promise<void> {
-    if (!(await verifyPassword(body.current_password, user.passwordHash))) {
+    // The principal carries no secrets; the current hash comes from the database.
+    const user = await this.authService.findById(memberOf(principal).memberId);
+    if (user === null || !(await verifyPassword(body.current_password, user.passwordHash))) {
       throw new UnauthorizedException("Current password is incorrect");
     }
     if (body.new_password === body.current_password) {
@@ -113,4 +118,10 @@ export class AuthController {
     await this.authService.setPassword(user.id, body.new_password);
     response.clearCookie(this.settings.COOKIE_NAME, { path: "/" });
   }
+}
+
+/** AuthGuard only ever produces member principals; this narrows the type. */
+function memberOf(principal: Principal): MemberPrincipal {
+  if (principal.kind !== "member") throw new UnauthorizedException("Not authenticated");
+  return principal;
 }

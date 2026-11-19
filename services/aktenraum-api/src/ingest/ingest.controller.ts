@@ -1,6 +1,7 @@
 import { Controller, Get, HttpException, HttpStatus, Query, UseGuards } from "@nestjs/common";
 
 import { AuthGuard } from "../auth/auth.guard.js";
+import { RequireScope } from "../auth/principal.js";
 import { PaperlessRequestError } from "../paperless/errors.js";
 import type { IngestActivity } from "./ingest.schemas.js";
 import { IngestService } from "./ingest.service.js";
@@ -20,6 +21,7 @@ export class IngestController {
   constructor(private readonly ingestService: IngestService) {}
 
   @Get("activity")
+  @RequireScope("documents:read")
   async activity(@Query("days") days?: string): Promise<IngestActivity> {
     try {
       return await this.ingestService.activity(clampDays(days));

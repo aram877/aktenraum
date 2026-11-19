@@ -72,6 +72,14 @@ describe("PATCH /api/documents/:id/type-fields (UserOrInternalGuard)", () => {
   });
 });
 
+describe("worker principal on member routes", () => {
+  it("does not open a member-only route with the internal secret", async () => {
+    const library = await request(server).get("/api/library/").set("X-Aktenraum-Secret", SECRET);
+    expect(library.status).toBe(401);
+    expect(library.body).toEqual({ detail: "Not authenticated" });
+  });
+});
+
 describe("internal settings endpoints (InternalGuard)", () => {
   it("serve the worker with the correct secret", async () => {
     const model = await request(server)

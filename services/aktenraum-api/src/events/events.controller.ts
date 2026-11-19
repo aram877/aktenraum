@@ -3,6 +3,7 @@ import { Controller, Get, Res, UseGuards } from "@nestjs/common";
 import type { Response } from "express";
 
 import { AuthGuard } from "../auth/auth.guard.js";
+import { RequireScope } from "../auth/principal.js";
 import { PaperlessAuthError } from "../paperless/errors.js";
 import { EventsService, type LiveCounts } from "./events.service.js";
 
@@ -38,6 +39,7 @@ export class EventsController {
    * calls every 3s. A shared task with fanout would be premature.
    */
   @Get("counts")
+  @RequireScope("documents:read")
   @UseGuards(AuthGuard)
   async streamCounts(@Res() response: Response): Promise<void> {
     response.setHeader("Content-Type", "text/event-stream");

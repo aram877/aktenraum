@@ -6,27 +6,36 @@ import {
   Injectable,
   UnauthorizedException,
 } from "@nestjs/common";
-import type { Request } from "express";
+import { Reflector } from "@nestjs/core";
 
 import { SETTINGS, type Settings } from "../config/settings.js";
+import { PolicyService } from "../policy/policy.service.js";
 import { AuthGuard } from "./auth.guard.js";
+import { type PrincipalRequest, authorize, workerPrincipal } from "./principal.js";
 
 export const INTERNAL_SECRET_HEADER = "x-aktenraum-secret";
 
 /**
  * Service-to-service routes (worker → api). Accepts only a matching
  * `X-Aktenraum-Secret`; fails closed when `WEBHOOK_SECRET` is empty.
- * Becomes the `kind: "service"` principal in ADR-010 step 5.
+ * Produces the worker service principal (per-caller credentials: ADR-010 step 5).
  */
 @Injectable()
 export class InternalGuard implements CanActivate {
-  constructor(@Inject(SETTINGS) private readonly settings: Settings) {}
+  constructor(
+    private readonly reflector: Reflector,
+    private readonly policy: PolicyService,
+    @Inject(SETTINGS) private readonly settings: Settings,
+  ) {}
 
-  canActivate(context: ExecutionContext): boolean {
-    const request = context.switchToHttp().getRequest<Request>();
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const request = context.switchToHttp().getRequest<PrincipalRequest>();
     if (!secretMatches(request.headers[INTERNAL_SECRET_HEADER], this.settings.WEBHOOK_SECRET)) {
       throw new UnauthorizedException("Bad secret");
     }
+    const principal = workerPrincipal();
+    request.principal = principal;
+    await authorize(context, principal, this.reflector, this.policy);
     return true;
   }
 }
@@ -42,16 +51,23 @@ export class InternalGuard implements CanActivate {
 export class UserOrInternalGuard implements CanActivate {
   constructor(
     private readonly authGuard: AuthGuard,
+    private readonly reflector: Reflector,
+    private readonly policy: PolicyService,
     @Inject(SETTINGS) private readonly settings: Settings,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest<Request>();
+    const request = context.switchToHttp().getRequest<PrincipalRequest>();
     const provided = request.headers[INTERNAL_SECRET_HEADER];
-    if (provided !== undefined) {
-      if (secretMatches(provided, this.settings.WEBHOOK_SECRET)) return true;
+    if (provided === undefined) {
+      return this.authGuard.canActivate(context);
+    }
+    if (!secretMatches(provided, this.settings.WEBHOOK_SECRET)) {
       throw new UnauthorizedException("Invalid secret");
     }
-    return this.authGuard.canActivate(context);
+    const principal = workerPrincipal();
+    request.principal = principal;
+    await authorize(context, principal, this.reflector, this.policy);
+    return true;
   }
 }

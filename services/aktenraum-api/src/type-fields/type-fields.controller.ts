@@ -15,6 +15,7 @@ import {
 import { z } from "zod";
 
 import { AuthGuard } from "../auth/auth.guard.js";
+import { DocumentAccess, RequireScope } from "../auth/principal.js";
 import { UserOrInternalGuard } from "../auth/internal.guard.js";
 import { ZodValidationPipe } from "../common/zod-validation.pipe.js";
 import { TypeFieldsService, validateFieldNames } from "./type-fields.service.js";
@@ -35,6 +36,7 @@ export class TypeFieldsController {
   constructor(private readonly typeFieldsService: TypeFieldsService) {}
 
   @Get("document-types/schema")
+  @RequireScope("documents:read")
   @UseGuards(AuthGuard)
   @Header("Cache-Control", "private, max-age=3600")
   getSchema(): Record<string, { name: string; label_de: string; field_type: string }[]> {
@@ -50,6 +52,8 @@ export class TypeFieldsController {
   }
 
   @Get("documents/:doc_id/type-fields")
+  @RequireScope("documents:read")
+  @DocumentAccess("read")
   @UseGuards(AuthGuard)
   async getTypeFields(
     @Param("doc_id", ParseIntPipe) docId: number,
@@ -61,6 +65,8 @@ export class TypeFieldsController {
 
   // The worker (secret) and the library/inbox detail pages (session) both write here.
   @Patch("documents/:doc_id/type-fields")
+  @RequireScope("documents:write", "internal:type-fields-write")
+  @DocumentAccess("write")
   @UseGuards(UserOrInternalGuard)
   async patchTypeFields(
     @Param("doc_id", ParseIntPipe) docId: number,

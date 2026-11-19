@@ -18,6 +18,7 @@ import type { Response } from "express";
 import type { DocumentSummary } from "../ai/ai.schemas.js";
 import { projectResults } from "../ai/translate.js";
 import { AuthGuard } from "../auth/auth.guard.js";
+import { DocumentAccess, RequireScope } from "../auth/principal.js";
 import { PaperlessGatewayProvider } from "../paperless/paperless.module.js";
 import { collectTagIds } from "../paperless/tag-ids.js";
 import { inlineSafe, pipeUpstreamToResponse } from "../common/stream.js";
@@ -50,27 +51,33 @@ export class DocumentsController {
   ) {}
 
   @Get("in-flight")
+  @RequireScope("documents:read")
   inFlight(): Promise<InFlightCount> {
     return this.documentsService.inFlightCount();
   }
 
   @Get("processing")
+  @RequireScope("documents:read")
   processing(): Promise<ProcessingStateResponse> {
     return this.documentsService.processingState();
   }
 
   @Get("task/:task_id")
+  @RequireScope("documents:read")
   taskStatus(@Param("task_id") taskId: string): Promise<TaskStatusResponse> {
     return this.documentsService.taskStatus(taskId);
   }
 
   @Post("reprocess-failed")
+  @RequireScope("documents:write")
   @HttpCode(HttpStatus.OK)
   reprocessFailed(): Promise<ReprocessFailedResponse> {
     return this.documentsService.reprocessFailed();
   }
 
   @Get(":doc_id/status")
+  @RequireScope("documents:read")
+  @DocumentAccess("read")
   documentStatus(
     @Param("doc_id", ParseIntPipe) docId: number,
   ): Promise<DocumentStatusResponse> {
@@ -78,30 +85,40 @@ export class DocumentsController {
   }
 
   @Post(":doc_id/reprocess")
+  @RequireScope("documents:write")
+  @DocumentAccess("write")
   @HttpCode(HttpStatus.OK)
   reprocess(@Param("doc_id", ParseIntPipe) docId: number): Promise<ReprocessResponse> {
     return this.documentsService.reprocess(docId);
   }
 
   @Post(":doc_id/dismiss-duplicate")
+  @RequireScope("documents:write")
+  @DocumentAccess("write")
   @HttpCode(HttpStatus.OK)
   dismissDuplicate(@Param("doc_id", ParseIntPipe) docId: number): Promise<DocIdResponse> {
     return this.documentsService.dismissDuplicate(docId);
   }
 
   @Post(":doc_id/star")
+  @RequireScope("documents:write")
+  @DocumentAccess("write")
   @HttpCode(HttpStatus.OK)
   star(@Param("doc_id", ParseIntPipe) docId: number): Promise<DocIdResponse> {
     return this.documentsService.star(docId);
   }
 
   @Delete(":doc_id/star")
+  @RequireScope("documents:write")
+  @DocumentAccess("write")
   @HttpCode(HttpStatus.OK)
   unstar(@Param("doc_id", ParseIntPipe) docId: number): Promise<DocIdResponse> {
     return this.documentsService.unstar(docId);
   }
 
   @Get(":doc_id/duplicate-candidates")
+  @RequireScope("documents:read")
+  @DocumentAccess("read")
   async duplicateCandidates(
     @Param("doc_id", ParseIntPipe) docId: number,
   ): Promise<{ doc_id: number; candidates: DocumentSummary[] }> {
@@ -126,11 +143,15 @@ export class DocumentsController {
   }
 
   @Get(":doc_id/detail")
+  @RequireScope("documents:read")
+  @DocumentAccess("read")
   getDocumentDetail(@Param("doc_id", ParseIntPipe) docId: number): Promise<InboxDetail> {
     return this.inboxService.getDetail(docId);
   }
 
   @Patch(":doc_id/fields")
+  @RequireScope("documents:write")
+  @DocumentAccess("write")
   patchDocumentFields(
     @Param("doc_id", ParseIntPipe) docId: number,
     @Body(new ZodValidationPipe(inboxFieldUpdateSchema)) body: InboxFieldUpdate,
@@ -139,6 +160,8 @@ export class DocumentsController {
   }
 
   @Get(":doc_id/preview")
+  @RequireScope("documents:read")
+  @DocumentAccess("read")
   async getPreview(
     @Param("doc_id", ParseIntPipe) docId: number,
     @Res() response: Response,
@@ -154,6 +177,8 @@ export class DocumentsController {
   }
 
   @Get(":doc_id/download")
+  @RequireScope("documents:read")
+  @DocumentAccess("read")
   async getDownload(
     @Param("doc_id", ParseIntPipe) docId: number,
     @Res() response: Response,

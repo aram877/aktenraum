@@ -11,6 +11,7 @@ import {
 } from "@nestjs/common";
 
 import { AuthGuard } from "../auth/auth.guard.js";
+import { DocumentAccess, RequireScope } from "../auth/principal.js";
 import type { EmptyTrashResponse, TrashList } from "./trash.schemas.js";
 import { TrashService } from "./trash.service.js";
 
@@ -35,6 +36,7 @@ export class TrashController {
   constructor(private readonly trashService: TrashService) {}
 
   @Get()
+  @RequireScope("documents:read")
   listTrash(
     @Query("page") page?: string,
     @Query("page_size") pageSize?: string,
@@ -49,18 +51,23 @@ export class TrashController {
   }
 
   @Post("empty")
+  @RequireScope("documents:delete")
   @HttpCode(HttpStatus.OK)
   emptyTrash(): Promise<EmptyTrashResponse> {
     return this.trashService.empty();
   }
 
   @Post(":doc_id/restore")
+  @RequireScope("documents:delete")
+  @DocumentAccess("delete")
   @HttpCode(HttpStatus.NO_CONTENT)
   restoreDoc(@Param("doc_id", ParseIntPipe) docId: number): Promise<void> {
     return this.trashService.restore(docId);
   }
 
   @Post(":doc_id/delete")
+  @RequireScope("documents:delete")
+  @DocumentAccess("delete")
   @HttpCode(HttpStatus.NO_CONTENT)
   deleteDocForever(@Param("doc_id", ParseIntPipe) docId: number): Promise<void> {
     return this.trashService.deleteForever(docId);

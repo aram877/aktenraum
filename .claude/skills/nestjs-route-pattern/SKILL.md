@@ -192,7 +192,9 @@ no excuse for an untested endpoint.
 
 ## Checklist for a new endpoint
 
-1. ☐ Controller method with `@UseGuards(AuthGuard)` unless deliberately public
+1. ☐ Controller method with `@UseGuards(AuthGuard)` unless deliberately public (then add it to `PUBLIC_ROUTES` in `test/route-inventory.test.ts`)
+1a. ☐ `@RequireScope(...)` from `auth/principal.ts` (see the scope map in `openspec/changes/principal-and-policy/design.md`); without it the route answers 403 and the inventory test fails
+1b. ☐ `:doc_id` route? Add `@DocumentAccess("read" | "write" | "delete")` so `PolicyService` decides; need the caller? `@CurrentPrincipal()`, never `request.cookies`
 2. ☐ zod schema for params/query/body, wired through `ZodValidationPipe`
 3. ☐ Logic in the service, not the controller
 4. ☐ Gateway errors left to propagate — the filter maps them

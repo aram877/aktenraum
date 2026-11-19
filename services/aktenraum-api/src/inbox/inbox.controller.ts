@@ -15,6 +15,7 @@ import {
 import type { Response } from "express";
 
 import { AuthGuard } from "../auth/auth.guard.js";
+import { DocumentAccess, RequireScope } from "../auth/principal.js";
 import { pipeUpstreamToResponse } from "../common/stream.js";
 import { ZodValidationPipe } from "../common/zod-validation.pipe.js";
 import {
@@ -48,6 +49,7 @@ export class InboxController {
   constructor(private readonly inboxService: InboxService) {}
 
   @Get()
+  @RequireScope("documents:read")
   listInbox(
     @Query("page") page?: string,
     @Query("page_size") pageSize?: string,
@@ -62,11 +64,15 @@ export class InboxController {
   }
 
   @Get(":doc_id")
+  @RequireScope("documents:read")
+  @DocumentAccess("read")
   getInboxDetail(@Param("doc_id", ParseIntPipe) docId: number): Promise<InboxDetail> {
     return this.inboxService.getDetail(docId);
   }
 
   @Patch(":doc_id")
+  @RequireScope("documents:write")
+  @DocumentAccess("write")
   patchInbox(
     @Param("doc_id", ParseIntPipe) docId: number,
     @Body(new ZodValidationPipe(inboxFieldUpdateSchema)) body: InboxFieldUpdate,
@@ -75,6 +81,8 @@ export class InboxController {
   }
 
   @Post(":doc_id/approve")
+  @RequireScope("documents:write")
+  @DocumentAccess("write")
   @HttpCode(HttpStatus.OK)
   approveInbox(
     @Param("doc_id", ParseIntPipe) docId: number,
@@ -84,12 +92,16 @@ export class InboxController {
   }
 
   @Post(":doc_id/reject")
+  @RequireScope("documents:write")
+  @DocumentAccess("write")
   @HttpCode(HttpStatus.OK)
   rejectInbox(@Param("doc_id", ParseIntPipe) docId: number): Promise<InboxDetail> {
     return this.inboxService.reject(docId);
   }
 
   @Get(":doc_id/preview")
+  @RequireScope("documents:read")
+  @DocumentAccess("read")
   async previewInbox(
     @Param("doc_id", ParseIntPipe) docId: number,
     @Res() response: Response,

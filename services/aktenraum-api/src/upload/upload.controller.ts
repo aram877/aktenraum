@@ -17,6 +17,7 @@ import {
 import { FilesInterceptor } from "@nestjs/platform-express";
 
 import { AuthGuard } from "../auth/auth.guard.js";
+import { DocumentAccess, RequireScope } from "../auth/principal.js";
 import { SETTINGS, type Settings } from "../config/settings.js";
 import { PaperlessGatewayProvider } from "../paperless/paperless.module.js";
 import { UploadService, type IncomingFile, type UploadResponse } from "./upload.service.js";
@@ -33,6 +34,7 @@ export class UploadController {
   ) {}
 
   @Post("upload")
+  @RequireScope("upload")
   @HttpCode(HttpStatus.OK)
   @UseInterceptors(FilesInterceptor("files", MAX_FILES_HARD_CAP))
   uploadDocuments(
@@ -52,6 +54,8 @@ export class UploadController {
   }
 
   @Delete(":doc_id")
+  @RequireScope("documents:delete")
+  @DocumentAccess("delete")
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteDocument(@Param("doc_id", ParseIntPipe) docId: number): Promise<void> {
     await this.gatewayProvider.require().deleteDocument(docId);

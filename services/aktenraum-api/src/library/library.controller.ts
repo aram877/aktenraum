@@ -8,6 +8,7 @@ import {
 } from "@nestjs/common";
 
 import { AuthGuard } from "../auth/auth.guard.js";
+import { RequireScope } from "../auth/principal.js";
 import { isLibraryStatus, LIBRARY_STATUSES } from "../paperless/status-tags.js";
 import type { LibraryList, TagFacetList } from "./library.schemas.js";
 import { LibraryService } from "./library.service.js";
@@ -51,6 +52,7 @@ export class LibraryController {
   constructor(private readonly libraryService: LibraryService) {}
 
   @Get()
+  @RequireScope("documents:read")
   listLibrary(
     @Query("document_type") documentType?: string,
     @Query("correspondent") correspondent?: string,
@@ -92,11 +94,13 @@ export class LibraryController {
   }
 
   @Get("tags")
+  @RequireScope("documents:read")
   listTagFacet(): Promise<TagFacetList> {
     return this.libraryService.listTagFacet();
   }
 
   @Get("types")
+  @RequireScope("documents:read")
   listTypeFacet(): Promise<TagFacetList> {
     return this.libraryService.listTypeFacet();
   }

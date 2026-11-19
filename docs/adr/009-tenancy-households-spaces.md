@@ -95,7 +95,7 @@ Privacy trade-off, accepted: members can see the **names** of all tags, types an
 
 ### Encryption mapping (for the later cloud feature, not built now)
 
-Envelope encryption: each document has its own data key, wrapped by its space key; each space key is wrapped once per space member (from a passkey-PRF-derived key plus a recovery key). A share wraps the document key for the recipient. Limitation stated in the UI: under end-to-end encryption revoking stops future access but cannot recall copies already downloaded.
+Envelope encryption: each document has its own data key, wrapped by its space key; each space key is wrapped once per **passkey** of every space member (a PRF-derived key — the PRF output differs per passkey, verified in the ADR-010 spike) plus once per member recovery key. A share wraps the document key for the recipient. Limitation stated in the UI: under end-to-end encryption revoking stops future access but cannot recall copies already downloaded.
 
 ### Out of scope
 

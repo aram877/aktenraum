@@ -1,6 +1,6 @@
 # ADR-010: Auth layer — passkeys, server-side sessions, principals, scopes, service credentials
 
-**Status**: Accepted (2026-11-19; build in-house and remove passwords confirmed by the maintainer; WebAuthn RP-ID spike pending)
+**Status**: Accepted (2026-11-19; build in-house and remove passwords confirmed by the maintainer; WebAuthn spike done 2026-11-19, see "Spike results")
 
 **Date**: 2026-11-19
 
@@ -46,14 +46,14 @@ We will implement auth in aktenraum-api with established libraries — `@simplew
 ### 2. Identity: passkeys first
 
 - **Passkeys (WebAuthn / FIDO2) are the primary login**: discoverable credentials, `userVerification: "required"`, attestation `none`. Several passkeys per member (phone, laptop, security key), each named and listed in the device page.
-- **Recovery codes**: 10 single-use codes generated at enrollment, stored hashed, shown once. Using one forces enrolment of a new passkey.
+- **Recovery codes are mandatory**: 10 single-use codes generated at enrollment, stored hashed, shown once. Using one forces enrolment of a new passkey. They are not optional: the spike showed that the same browser setup can store a passkey device-bound (Windows Hello, gone with the PC) as easily as synced (Google Password Manager).
 - **TOTP**: optional second fallback for members without a second passkey device. Not required.
 - **Passwords are removed from normal login.** Existing installs: the current password works exactly once after the upgrade, only to enrol the first passkey and receive recovery codes; then password login is disabled for that member. (Rejected alternative: keep passwords, but only together with a mandatory second factor.)
 - **First run without any credential**: `task setup` / first-run prints a one-time **setup link** (random token, 30 min, single use) that opens passkey enrolment for the bootstrap admin. Replaces `BOOTSTRAP_PASSWORD`.
 - **Adding a member** (ADR-009): the household admin creates an invite link (single use, 7 days); the invitee enrols a passkey. **Adding a device**: from a logged-in device ("Gerät hinzufügen" → cross-device passkey / QR), or with a recovery code.
-- **PRF extension**: requested at registration where the authenticator supports it, so the cloud phase can derive a key-wrapping key from the passkey (ADR-009 encryption mapping). Nothing is derived or stored yet.
+- **PRF extension**: requested at registration where the authenticator supports it, so the cloud phase can derive a key-wrapping key from the passkey (ADR-009 encryption mapping). Nothing is derived or stored yet. The PRF output is stable per passkey but **different for every passkey**, so key material is wrapped once per passkey, not once per member.
 
-**RP ID constraint (must be handled, see spike):** a passkey is bound to the WebAuthn relying-party ID (the domain). One registered on `localhost` does not work on `https://<host>.<tailnet>.ts.net`, and neither necessarily works inside the Tauri WebView. We will store the `rp_id` with every credential, allow a configured list (`WEBAUTHN_RP_IDS`, `WEBAUTHN_ORIGINS`), and show in the device list which address each passkey belongs to. Enrolling a second passkey per address is the documented path.
+**RP ID constraint (must be handled, see spike):** a passkey is bound to the WebAuthn relying-party ID (the domain). One registered on `localhost` does not work on `https://<host>.<tailnet>.ts.net`, and neither necessarily works inside the Tauri WebView. We will store the `rp_id` with every credential, allow a configured list (`WEBAUTHN_RP_IDS`, `WEBAUTHN_ORIGINS`), and show in the device list which address each passkey belongs to. Enrolling a second passkey per address is the documented path. **Passkeys never work via an IP address** (`127.0.0.1`, `http://192.168.x.x:8080`): browsers reject IP RP IDs (`SecurityError: invalid domain`, verified). LAN access by IP therefore has no passkey login; the supported addresses are `localhost` on the host and an HTTPS hostname (Tailscale MagicDNS) elsewhere.
 
 ### 3. Sessions: opaque, server-side, revocable
 
@@ -61,7 +61,7 @@ We will implement auth in aktenraum-api with established libraries — `@simplew
 - Cookie: `httpOnly`, `SameSite=Lax`, `Secure` on HTTPS with the `__Host-` prefix; plain-HTTP localhost keeps today's `COOKIE_SECURE=false` path.
 - `sessions` table: `id`, `token_hash`, `member_id`, `household_id`, `client_id`, `auth_method` (passkey / recovery / setup), `created_at`, `last_seen_at`, `idle_expires_at`, `absolute_expires_at`, `step_up_at`, `user_agent`, `ip`, `revoked_at`.
 - Lifetimes (defaults, configurable): **idle 7 days, absolute 30 days** for a browser session. Sliding `last_seen_at` is written at most once per minute.
-- **Device list** in `/settings`: every session and passkey, "this device" marker, revoke one, revoke all others.
+- **Device list** in `/settings`: every session and passkey, "this device" marker, revoke one, revoke all others. Each passkey shows its provider (from the AAGUID, e.g. "Windows Hello", "Google Password Manager", "iCloud-Schlüsselbund"), whether it is synced or bound to one device, and the address (RP ID) it belongs to.
 - **Step-up**: sensitive actions require a passkey assertion within the last 5 minutes: emptying the trash / permanent delete, export, adding or removing passkeys or recovery codes, member and space management, creating personal access tokens, changing backup or LLM settings.
 - **SSE** (finding E): long-lived streams re-check their session at least every 30 s (cached lookup) and close on revocation or expiry.
 - **CSRF** (ADR-003) stays for cookie-authenticated requests. Requests authenticated by bearer or service credentials carry no cookie and are not subject to it.
@@ -92,7 +92,7 @@ A browser session gets every scope the member's household role permits. Tokens a
 | Client | Mechanism | Phase |
 | --- | --- | --- |
 | SPA (same origin, served by nginx) | Cookie session (backend-for-frontend; tokens never reach JS) | 1 |
-| Tauri desktop shell | Same as SPA while the UI is served from a local origin; OAuth code + PKCE with the refresh token in the OS keychain once it talks to a remote/cloud instance | 1 / 3 |
+| Tauri desktop shell | **Sign-in through the system browser** on every platform: the shell opens `http://localhost:8080/login` in the default browser, the passkey ceremony runs there, and the shell receives its session via OAuth code + PKCE (loopback redirect), refresh token in the OS keychain. One code path for Windows, macOS and Linux. Passkeys inside the WebView work only on Windows (WebView2 on `http://localhost`, verified); macOS WKWebView needs Associated Domains for a real domain and WebKitGTK has no WebAuthn, so the in-WebView path is at most a Windows optimisation | with the shell |
 | Scripts, integrations | **Personal access tokens**: `akt_pat_` + random, stored hashed, scoped, mandatory expiry (≤ 1 year), `last_used_at`, revocable, created behind step-up | 2 |
 | CLI | OAuth device authorization grant (RFC 8628) | 3 |
 | AI agents / MCP clients / third-party apps | OAuth 2.1 authorization server (`oidc-provider`): authorization code + PKCE only, consent screen listing scopes, refresh-token rotation, per-client revocation | 3 |
@@ -160,8 +160,23 @@ On a self-hosted machine, whoever controls the host (Docker, the database, the d
 5. Service credentials replacing `WEBHOOK_SECRET` (section 7).
 6. Personal access tokens (phase 2), then OAuth/device flow when a client needs it (phase 3).
 
+### Spike results (2026-11-19)
+
+Harness: `scripts/spikes/webauthn/` (Node + `@simplewebauthn/server`, test page, WebView2 window via pywebview). Host: Windows 11 25H2 build 26200.9974, Chrome 157, WebView2/Edge 157.
+
+| Test | Result |
+| --- | --- |
+| Chrome on `http://localhost:8790` | ✅ Register + sign in twice, user verification required. Chrome stored the passkey in **Google Password Manager** (`multiDevice`, backed up, transports `hybrid`/`internal`) |
+| WebView2 window on `http://localhost:8790` | ✅ Register + sign in. Stored in **Windows Hello** (`singleDevice`, not backed up) — WebView2 can serve as a passkey-capable shell on Windows |
+| PRF | ✅ On both: 32-byte output at creation and every sign-in, identical per credential (Chrome `854bbb…` ×3, WebView2 `87599d…` ×2), different between credentials |
+| `http://127.0.0.1:8790` | ❌ as expected — `SecurityError: This is an invalid domain` both with the IP as RP ID and when asserting RP ID `localhost` |
+| Phone (hybrid / QR) | Not run (no change expected; standard WebAuthn) |
+| Tailscale HTTPS hostname | Not run — Tailscale is not installed on this host |
+
+Research (no local test possible): macOS WKWebView supports WebAuthn only for RP IDs the app is associated with (Associated Domains + `apple-app-site-association`), which `tauri://localhost` cannot satisfy; WebKitGTK (Linux) exposes no WebAuthn at all; native plugins (`tauri-plugin-passkey`) still need a signed macOS app with Associated Domains. Hence system-browser sign-in for the desktop shell.
+
 ### Open points
 
-- **Spike**: WebAuthn on `http://localhost:8080`, `https://<host>.<tailnet>.ts.net` and inside a Tauri WebView2/WKWebView — RP IDs, PRF support, cross-device (hybrid) enrolment.
+- Re-run the harness on a Mac (Safari; later a signed Tauri build) and against an HTTPS hostname via Tailscale; try phone hybrid enrolment.
 - Session lifetimes (7 d idle / 30 d absolute) and the step-up action list — defaults to review.
 - Whether TOTP is worth its UI cost or recovery codes + a second passkey are enough.

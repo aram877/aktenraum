@@ -27,7 +27,7 @@
 
 ## 5. Docs + verify
 
-- [ ] 5.1 Worker e2e (`bash scripts/e2e-worker.sh`) + a share rehearsal on the e2e stack: viewer share read through the recipient's own token, editor edits but can't approve, inbox absence, Ask retrieves it only for the recipient, revoke → 404 + Paperless denies, expiry ends access, audit entries present
+- [x] 5.1 Worker e2e (`bash scripts/e2e-worker.sh`) + a share rehearsal on the e2e stack: viewer share read through the recipient's own token, editor edits but can't approve, inbox absence, Ask retrieves it only for the recipient, revoke → 404 + Paperless denies, expiry ends access, audit entries present
 - [x] 5.2 ADR-009 "as built" note, CLAUDE.md (shares, counts, gotchas), api-reference.md, session note
 
 ## Workflow follow-up

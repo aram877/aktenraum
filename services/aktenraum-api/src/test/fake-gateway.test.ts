@@ -32,6 +32,16 @@ describe("FakeGateway per-token views", () => {
     expect((await alice.getDocument(1)).id).toBe(1);
   });
 
+  it("rejects the token of a deactivated user with 401 and drops the user's groups", async () => {
+    const { fake, alice } = await twoUsers();
+    fake.users.get(100)!.groups = [500];
+    expect((await alice.getDocument(1)).id).toBe(1);
+    await fake.deactivateUser(100);
+    await expect(alice.getDocument(1)).rejects.toBeInstanceOf(PaperlessAuthError);
+    await expect(alice.listTrashedDocuments()).rejects.toBeInstanceOf(PaperlessAuthError);
+    expect(fake.users.get(100)!.groups).toEqual([]);
+  });
+
   it("tasks and uploads belong to the token's user", async () => {
     const { fake, alice, bob } = await twoUsers();
     await alice.uploadDocument({ content: new Uint8Array(), filename: "a.pdf" });

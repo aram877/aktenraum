@@ -92,3 +92,91 @@ export function useRedeemInvite(token: MaybeRefOrGetter<string>) {
     },
   });
 }
+
+// ---------------------------------------------------------------- member removal
+
+export interface RemovalPreview {
+  member_id: number;
+  username: string;
+  successor_member_id: number;
+  successor: string;
+  documents: number;
+  trashed: number | null;
+  spaces_owned: { id: number; name: string }[];
+  spaces_left: { id: number; name: string }[];
+  shares_revoked: number;
+  shares_kept: number;
+}
+
+export interface RemovalEntry {
+  member_id: number;
+  username: string;
+  successor: string;
+  removed_at: string;
+  status: "done" | "completing";
+  last_error: string | null;
+}
+
+export interface RemovalResult {
+  member_id: number;
+  successor_member_id: number;
+  status: "done" | "completing";
+}
+
+export const REMOVALS_KEY = [...HOUSEHOLD_KEY, "removals"] as const;
+export const REMOVAL_PREVIEW_KEY = [...HOUSEHOLD_KEY, "removal-preview"] as const;
+/** Poll while a removal is still catching up with Paperless/Qdrant. */
+export const REMOVALS_POLL_MS = 10_000;
+
+/** What removing `memberId` with `successorId` would do; disabled while `memberId` is null. */
+export function useRemovalPreview(
+  memberId: MaybeRefOrGetter<number | null>,
+  successorId: MaybeRefOrGetter<number | null>,
+) {
+  const api = useApi();
+  return useQuery(() => {
+    const member = toValue(memberId);
+    const successor = toValue(successorId);
+    return {
+      queryKey: [...REMOVAL_PREVIEW_KEY, member, successor],
+      queryFn: () =>
+        api.get<RemovalPreview>(
+          `/household/members/${member}/removal-preview${successor === null ? "" : `?successor=${successor}`}`,
+        ),
+      enabled: member !== null,
+      retry: false,
+      staleTime: 0,
+    };
+  });
+}
+
+export function useRemovals(enabled: MaybeRefOrGetter<boolean>) {
+  const api = useApi();
+  return useQuery(() => ({
+    queryKey: REMOVALS_KEY,
+    queryFn: () => api.get<RemovalEntry[]>("/household/removals"),
+    enabled: toValue(enabled),
+    staleTime: 30_000,
+    refetchInterval: (query: { state: { data?: RemovalEntry[] } }) =>
+      (query.state.data ?? []).some((r) => r.status !== "done") ? REMOVALS_POLL_MS : false,
+  }));
+}
+
+export function useRemoveMember() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { memberId: number; confirmUsername: string; successorId: number | null }) =>
+      api.post<RemovalResult>(`/household/members/${vars.memberId}/remove`, {
+        confirm_username: vars.confirmUsername,
+        ...(vars.successorId === null ? {} : { successor_member_id: vars.successorId }),
+      }),
+    onSuccess: () => {
+      // household covers members, directory, removals and previews.
+      void queryClient.invalidateQueries({ queryKey: HOUSEHOLD_KEY });
+      void queryClient.invalidateQueries({ queryKey: SPACES_KEY });
+      void queryClient.invalidateQueries({ queryKey: SHARES_KEY });
+      void queryClient.invalidateQueries({ queryKey: ["library"] });
+    },
+  });
+}

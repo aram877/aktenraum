@@ -3,7 +3,15 @@ import { BadGatewayException, ConflictException, Inject, Injectable } from "@nes
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { DB, type Database } from "../db/db.module.js";
-import { documentSpaces, members, spaceMembers, spaces, uploadTaskMembers, uploadTaskSpaces } from "../db/schema.js";
+import {
+  documentSpaces,
+  memberRemovals,
+  members,
+  spaceMembers,
+  spaces,
+  uploadTaskMembers,
+  uploadTaskSpaces,
+} from "../db/schema.js";
 import { extractDocId } from "../documents/documents.service.js";
 import { PaperlessRequestError } from "../paperless/errors.js";
 import { PaperlessGatewayProvider } from "../paperless/paperless.module.js";
@@ -15,6 +23,8 @@ import { TenancyService } from "./tenancy.service.js";
  * document. Compared inside Postgres so app and database clocks can't disagree.
  */
 const PENDING_UPLOAD_WINDOW = sql.raw("interval '1 hour'");
+/** How many removals deep a successor chain is followed before falling back to the admin. */
+const MAX_SUCCESSOR_DEPTH = 10;
 const RUNNING_STATUSES: ReadonlySet<string> = new Set(["PENDING", "RECEIVED", "STARTED", "RETRY"]);
 /** `upload_task_members.paperless_doc_id` for a task that finished without a document. */
 export const NO_DOCUMENT = 0;
@@ -89,6 +99,17 @@ export class HomeSpaceService {
    * there; otherwise (no pick, or rights revoked meanwhile) their personal space.
    */
   private async uploadTarget(docId: number, uploader: Uploader): Promise<number> {
+    // An upload by a member removed meanwhile lands with their successor
+    // (tenancy-member-removal), whatever space was picked.
+    const current = await this.currentMemberFor(uploader.memberId);
+    if (current !== uploader.memberId) {
+      logger.info("home_space_upload_by_removed_member", {
+        doc_id: docId,
+        member_id: uploader.memberId,
+        successor_id: current,
+      });
+      return current === null ? this.adminSpace() : this.personalSpaceOf(current);
+    }
     const picked = await this.db
       .select({ spaceId: uploadTaskSpaces.spaceId })
       .from(uploadTaskSpaces)
@@ -178,6 +199,26 @@ export class HomeSpaceService {
       .update(uploadTaskMembers)
       .set({ paperlessDocId: docId })
       .where(and(eq(uploadTaskMembers.taskId, taskId), isNull(uploadTaskMembers.paperlessDocId)));
+  }
+
+  /**
+   * The member itself, or — when removed — its successor, followed through
+   * later removals (A → B → C). null when the chain is deeper than
+   * `MAX_SUCCESSOR_DEPTH` (or loops): the caller falls back to the admin.
+   */
+  private async currentMemberFor(memberId: number): Promise<number | null> {
+    let current = memberId;
+    for (let depth = 0; depth <= MAX_SUCCESSOR_DEPTH; depth += 1) {
+      const rows = await this.db
+        .select({ successorId: memberRemovals.successorId })
+        .from(memberRemovals)
+        .where(eq(memberRemovals.memberId, current))
+        .limit(1);
+      const next = rows[0]?.successorId;
+      if (next === undefined) return current;
+      current = next;
+    }
+    return null;
   }
 
   private async personalSpaceOf(memberId: number): Promise<number> {

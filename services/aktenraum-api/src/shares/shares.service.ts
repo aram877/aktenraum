@@ -28,6 +28,7 @@ import type { PaperlessDocument, PaperlessGateway } from "../paperless/paperless
 import { PaperlessGatewayProvider } from "../paperless/paperless.module.js";
 import { VECTOR_STORE } from "../rag/rag.module.js";
 import { MemberGateways } from "../tenancy/member-gateways.js";
+import { notRemoved } from "../tenancy/removed.js";
 import { mirrorDocument } from "../tenancy/paperless-mirror.js";
 import { shareActive } from "../tenancy/share-active.js";
 import { TenancyService } from "../tenancy/tenancy.service.js";
@@ -407,7 +408,7 @@ export class SharesService implements OnApplicationBootstrap, OnModuleDestroy {
     const rows = await this.db
       .select({ id: members.id })
       .from(members)
-      .where(and(eq(members.id, memberId), eq(members.householdId, caller.householdId)))
+      .where(and(eq(members.id, memberId), eq(members.householdId, caller.householdId), notRemoved(members.id)))
       .limit(1);
     if (rows.length === 0) throw new UnprocessableEntityException(`Mitglied ${memberId} gibt es nicht`);
   }

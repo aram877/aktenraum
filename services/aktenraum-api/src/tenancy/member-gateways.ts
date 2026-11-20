@@ -1,11 +1,11 @@
 import { logger } from "@aktenraum/core";
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, UnauthorizedException } from "@nestjs/common";
 import { eq } from "drizzle-orm";
 
 import type { Principal } from "../auth/principal.js";
 import { SETTINGS, type Settings } from "../config/settings.js";
 import { DB, type Database } from "../db/db.module.js";
-import { memberPaperlessTokens, spaceMembers } from "../db/schema.js";
+import { memberPaperlessTokens, memberRemovals, spaceMembers } from "../db/schema.js";
 import { PaperlessAuthError } from "../paperless/errors.js";
 import type { PaperlessGateway } from "../paperless/paperless.gateway.js";
 import {
@@ -89,6 +89,14 @@ export class MemberGateways {
   }
 
   private async doMint(memberId: number): Promise<string> {
+    // A removed member's Paperless user stays deactivated; minting would also
+    // put it back into its personal space's group.
+    const removed = await this.db
+      .select({ id: memberRemovals.memberId })
+      .from(memberRemovals)
+      .where(eq(memberRemovals.memberId, memberId))
+      .limit(1);
+    if (removed.length > 0) throw new UnauthorizedException("Mitglied wurde entfernt");
     const service = this.paperless.service();
     const { paperlessUserId } = await provisionMemberUser(this.db, service, memberId);
     const memberSpaces = await this.db

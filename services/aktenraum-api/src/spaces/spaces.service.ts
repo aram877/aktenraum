@@ -27,6 +27,7 @@ import { PaperlessGatewayProvider } from "../paperless/paperless.module.js";
 import { PolicyService } from "../policy/policy.service.js";
 import { VECTOR_STORE } from "../rag/rag.module.js";
 import { MemberGateways } from "../tenancy/member-gateways.js";
+import { notRemoved } from "../tenancy/removed.js";
 import { TenancyService } from "../tenancy/tenancy.service.js";
 import {
   mirrorDocument,
@@ -104,7 +105,7 @@ export class SpacesService {
   // ------------------------------------------------------------------ queries
 
   async list(caller: MemberPrincipal): Promise<SpaceList> {
-    const [household] = await this.db.select({ n: count() }).from(members);
+    const [household] = await this.db.select({ n: count() }).from(members).where(notRemoved(members.id));
     const mine = await this.db
       .select({ id: spaces.id, name: spaces.name, kind: spaces.kind, role: spaceMembers.role })
       .from(spaceMembers)
@@ -471,7 +472,7 @@ export class SpacesService {
       .select({ id: members.id, username: users.username })
       .from(members)
       .innerJoin(users, eq(users.id, members.userId))
-      .where(eq(members.id, memberId))
+      .where(and(eq(members.id, memberId), notRemoved(members.id)))
       .limit(1);
     if (rows[0] === undefined) throw new NotFoundException(`Member ${memberId} not found`);
     return rows[0];

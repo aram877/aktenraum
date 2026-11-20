@@ -10,9 +10,11 @@ import {
   Param,
   ParseIntPipe,
   Post,
+  Query,
   Req,
   Res,
   UnauthorizedException,
+  UnprocessableEntityException,
   UseGuards,
 } from "@nestjs/common";
 import type { Request, Response } from "express";
@@ -29,11 +31,31 @@ import {
   type HouseholdMember,
   type PendingInvite,
 } from "./household.service.js";
+import {
+  MemberRemovalService,
+  type RemovalEntry,
+  type RemovalPreview,
+  type RemovalResult,
+} from "./member-removal.service.js";
+
+const removeSchema = z.object({
+  confirm_username: z.string().min(1).max(64),
+  successor_member_id: z.number().int().positive().optional(),
+});
+type RemoveRequest = z.infer<typeof removeSchema>;
+
+function memberOf(principal: Principal) {
+  if (principal.kind !== "member") throw new UnauthorizedException("Not authenticated");
+  return principal;
+}
 
 @Controller("household")
 @UseGuards(AuthGuard)
 export class HouseholdController {
-  constructor(private readonly household: HouseholdService) {}
+  constructor(
+    private readonly household: HouseholdService,
+    private readonly removals: MemberRemovalService,
+  ) {}
 
   @Get("members")
   @RequireScope("household:admin")
@@ -46,6 +68,41 @@ export class HouseholdController {
   @RequireScope("spaces:manage")
   directory(): Promise<{ id: number; username: string }[]> {
     return this.household.directory();
+  }
+
+  /** What removing `id` would do, with `successor` (default: the admin). Changes nothing. */
+  @Get("members/:id/removal-preview")
+  @RequireScope("household:admin")
+  removalPreview(
+    @CurrentPrincipal() principal: Principal,
+    @Param("id", ParseIntPipe) id: number,
+    @Query("successor") successor?: string,
+  ): Promise<RemovalPreview> {
+    let successorId: number | undefined;
+    if (successor !== undefined && successor !== "") {
+      successorId = Number(successor);
+      if (!Number.isInteger(successorId) || successorId <= 0) {
+        throw new UnprocessableEntityException("Ungültiger Nachfolger");
+      }
+    }
+    return this.removals.preview(memberOf(principal), id, successorId);
+  }
+
+  @Post("members/:id/remove")
+  @RequireScope("household:admin")
+  @HttpCode(HttpStatus.OK)
+  removeMember(
+    @CurrentPrincipal() principal: Principal,
+    @Param("id", ParseIntPipe) id: number,
+    @Body(new ZodValidationPipe(removeSchema)) body: RemoveRequest,
+  ): Promise<RemovalResult> {
+    return this.removals.remove(memberOf(principal), id, body);
+  }
+
+  @Get("removals")
+  @RequireScope("household:admin")
+  removalList(): Promise<RemovalEntry[]> {
+    return this.removals.list();
   }
 
   @Get("invites")

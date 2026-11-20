@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import { SETTINGS, type Settings } from "../config/settings.js";
 import { DB, type Database } from "../db/db.module.js";
 import { users } from "../db/schema.js";
+import { TenancyService } from "../tenancy/tenancy.service.js";
 import type { Response } from "express";
 
 import { createToken, verifyToken } from "./jwt.js";
@@ -34,6 +35,7 @@ export class AuthService implements OnModuleInit {
   constructor(
     @Inject(DB) private readonly db: Database,
     @Inject(SETTINGS) private readonly settings: Settings,
+    private readonly tenancy: TenancyService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -84,6 +86,10 @@ export class AuthService implements OnModuleInit {
       return null;
     }
     if (!(await verifyPassword(password, user.passwordHash))) return null;
+    // Checked after the bcrypt compare and answered like a wrong password, so
+    // neither timing nor answer tells that the username belongs to a removed
+    // member (tenancy-member-removal). The controller counts it as a failure.
+    if (await this.tenancy.isUserRemoved(user.id)) return null;
     return user;
   }
 

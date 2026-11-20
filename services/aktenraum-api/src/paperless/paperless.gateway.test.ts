@@ -451,6 +451,21 @@ describe("error mapping", () => {
   });
 });
 
+describe("deactivateUser", () => {
+  it("PATCHes is_active false and an empty group list in one request", async () => {
+    const { gateway, requests } = gatewayWithHandler(() => ({
+      status: 200,
+      json: { id: 7, username: "ak-2", groups: [], user_permissions: [], is_superuser: false, is_active: false },
+    }));
+    const user = await gateway.deactivateUser(7);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]!.method).toBe("PATCH");
+    expect(requests[0]!.url.pathname).toBe("/api/users/7/");
+    expect(requests[0]!.body).toEqual({ is_active: false, groups: [] });
+    expect(user.is_active).toBe(false);
+  });
+});
+
 describe("entity caches", () => {
   it("serves repeat tag lookups from the per-process cache", async () => {
     const { gateway, requests } = gatewayWithHandler(() => ({ status: 200, json: TAGS_PAGE }));

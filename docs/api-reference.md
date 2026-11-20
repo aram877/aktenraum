@@ -50,6 +50,11 @@ Household admin only (`household:admin`), session cookie:
 | GET | `/api/household/invites` | pending invites `[{id, created_at, expires_at}]` |
 | POST | `/api/household/invites` | `201 {id, token, expires_at}` — the token is shown only here; the SPA turns it into `<origin>/invite/<token>` |
 | DELETE | `/api/household/invites/{id}` | `204`; `404` when not pending |
+| GET | `/api/household/members/{id}/removal-preview?successor={member_id}` | what removing `{id}` would do, changes nothing: `{member_id, username, successor_member_id, successor, documents, trashed, spaces_owned: [{id, name}], spaces_left: [{id, name}], shares_revoked, shares_kept}`. `successor` defaults to the admin. `documents` = personal-space documents (trashed ones included), `trashed` = of those in the Paperless trash (`null` when Paperless couldn't be asked). Same errors as the removal, minus the confirmation |
+| POST | `/api/household/members/{id}/remove` | body `{confirm_username, successor_member_id?}` → `200 {member_id, successor_member_id, status: "done"\|"completing"}`. `completing` = locked out and database changes done, Paperless/Qdrant still catching up (the sync retries every 5 min). `404` unknown or already removed, `409` the admin / yourself, `422` username mismatch or invalid successor (removed, unknown, the member itself). Irreversible |
+| GET | `/api/household/removals` | `[{member_id, username, successor, removed_at, status: "done"\|"completing", last_error}]`, oldest first |
+
+Removed members (`tenancy-member-removal`) disappear from `/members`, `/directory` and every picker, count no longer in `household_member_count`, and are refused as space member (`404`) and share recipient (`422`). Their sessions answer `401`, their login answers like a wrong password (and counts towards the throttle), and their username stays taken (`409` on redeem).
 
 Public (no session; throttled per client address, 10 failures / 15 min → `429` + `Retry-After`):
 

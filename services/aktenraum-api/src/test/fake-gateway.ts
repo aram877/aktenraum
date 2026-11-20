@@ -294,6 +294,14 @@ export class FakeGateway {
     return structuredClone(user);
   };
 
+  deactivateUser = async (userId: number): Promise<PaperlessUser> => {
+    const user = this.user(userId);
+    user.is_active = false;
+    user.groups = [];
+    this.tenancyWrites.push({ op: "deactivateUser", target: userId });
+    return structuredClone(user);
+  };
+
   findGroupByName = async (name: string): Promise<PaperlessGroup | null> =>
     [...this.groups.values()].find((g) => g.name === name) ?? null;
 
@@ -421,6 +429,8 @@ function viewForToken(base: FakeGateway, token: string): FakeGateway {
   const guard = (): number => {
     if (userId === undefined) throw new PaperlessAuthError(401);
     if (base.rejectOnce.delete(token)) throw new PaperlessAuthError(401);
+    // DRF token auth rejects tokens of inactive users.
+    if (base.users.get(userId)?.is_active === false) throw new PaperlessAuthError(401);
     return userId;
   };
   const canSee = (docId: number): boolean => {

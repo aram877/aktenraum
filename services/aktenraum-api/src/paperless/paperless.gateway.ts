@@ -39,6 +39,7 @@ export interface PaperlessUser {
   groups: number[];
   user_permissions: string[];
   is_superuser: boolean;
+  is_active?: boolean;
 }
 
 export interface PaperlessGroup {
@@ -682,6 +683,15 @@ export class PaperlessGateway {
     patch: { groups?: number[]; user_permissions?: readonly string[] },
   ): Promise<PaperlessUser> {
     return this.sendJson<PaperlessUser>("PATCH", `/api/users/${userId}/`, patch);
+  }
+
+  /**
+   * Locks a Paperless user out (member removal): inactive users can't
+   * authenticate, so their tokens stop working (DRF rejects inactive users),
+   * and an empty group list drops every space permission in the same PATCH.
+   */
+  async deactivateUser(userId: number): Promise<PaperlessUser> {
+    return this.sendJson<PaperlessUser>("PATCH", `/api/users/${userId}/`, { is_active: false, groups: [] });
   }
 
   async findGroupByName(name: string): Promise<PaperlessGroup | null> {

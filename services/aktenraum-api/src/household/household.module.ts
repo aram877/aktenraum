@@ -4,10 +4,11 @@ import { AuthModule } from "../auth/auth.module.js";
 import { TenancyModule } from "../tenancy/tenancy.module.js";
 import { HouseholdController, InvitesController } from "./household.controller.js";
 import { HouseholdService } from "./household.service.js";
+import { MemberRemovalService } from "./member-removal.service.js";
 
 @Module({
   imports: [AuthModule, TenancyModule],
   controllers: [HouseholdController, InvitesController],
-  providers: [HouseholdService],
+  providers: [HouseholdService, MemberRemovalService],
 })
 export class HouseholdModule {}

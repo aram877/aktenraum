@@ -3,7 +3,7 @@ import request from "supertest";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { hashPassword } from "../auth/passwords.js";
-import { documentSpaces, members, spaceMembers, spaces, uploadTaskSpaces, users } from "../db/schema.js";
+import { documentSpaces, memberRemovals, members, spaceMembers, spaces, uploadTaskSpaces, users } from "../db/schema.js";
 import type { PaperlessGateway } from "../paperless/paperless.gateway.js";
 import { FakeGateway, makeDoc } from "../test/fake-gateway.js";
 import { createHarness, type Harness } from "../test/harness.js";
@@ -99,5 +99,30 @@ describe("upload into a space", { timeout: 30_000 }, () => {
       .where(and(eq(spaceMembers.spaceId, shared), eq(spaceMembers.memberId, bob.id)));
 
     expect((await assign()).body.space_id).toBe(await personalOf(bob.id));
+  });
+
+  it("an upload by a member removed meanwhile lands in the successor's personal space, whatever was picked", async () => {
+    const { h, asAlice, asBob, alice, bob, shared, personalOf, upload, assign } = await setup();
+    await asAlice.post(`/api/spaces/${shared}/members`).send({ member_id: bob.id, role: "editor" }).expect(201);
+    await upload(asBob, shared).expect(200);
+    await asAlice.post(`/api/household/members/${bob.id}/remove`).send({ confirm_username: "bob" }).expect(200);
+    // Bob's upload_task_spaces row still points at a space he no longer belongs to.
+    expect(await h.db.select().from(uploadTaskSpaces)).toMatchObject([{ spaceId: shared }]);
+
+    expect((await assign()).body).toMatchObject({ space_id: await personalOf(alice.id), source: "upload" });
+  });
+
+  it("follows a chain of successors", async () => {
+    const { h, asBob, alice, bob, personalOf, upload, assign } = await setup();
+    await h.db.insert(users).values({ username: "carol", passwordHash: "x" });
+    await h.app.get(TenancyService).reconcile();
+    const carol = (await h.db.select().from(members)).find((m) => m.id !== alice.id && m.id !== bob.id)!;
+    await upload(asBob).expect(200);
+    // Bob → Carol, later Carol → Alice.
+    await h.db.insert(memberRemovals).values([
+      { memberId: bob.id, successorId: carol.id, removedBy: alice.id, phase: "done" },
+      { memberId: carol.id, successorId: alice.id, removedBy: alice.id, phase: "done" },
+    ]);
+    expect((await assign()).body.space_id).toBe(await personalOf(alice.id));
   });
 });

@@ -140,6 +140,24 @@ CREATE TABLE share_audit (
   access_kind varchar(16) CHECK (access_kind IS NULL OR access_kind IN ('detail', 'preview', 'download', 'ask')),
   at timestamp with time zone NOT NULL DEFAULT now()
 );
+CREATE TABLE member_removals (
+  member_id integer PRIMARY KEY REFERENCES members(id),
+  successor_id integer NOT NULL REFERENCES members(id),
+  removed_by integer NOT NULL REFERENCES members(id),
+  removed_at timestamp with time zone NOT NULL DEFAULT now(),
+  phase varchar(16) NOT NULL DEFAULT 'db' CHECK (phase IN ('db', 'derived', 'done')),
+  attempts integer NOT NULL DEFAULT 0,
+  last_error text,
+  completed_at timestamp with time zone,
+  CHECK (successor_id <> member_id)
+);
+CREATE TABLE member_removal_documents (
+  member_id integer NOT NULL REFERENCES member_removals(member_id),
+  paperless_doc_id integer NOT NULL,
+  synced_at timestamp with time zone,
+  trashed boolean NOT NULL DEFAULT false,
+  PRIMARY KEY (member_id, paperless_doc_id)
+);
 INSERT INTO app_settings (id) VALUES (1);
 `;
 

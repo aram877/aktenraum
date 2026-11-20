@@ -201,6 +201,36 @@ CREATE TABLE IF NOT EXISTS "share_audit" (
 
 CREATE INDEX IF NOT EXISTS "share_audit_doc_at_idx" ON "share_audit" ("paperless_doc_id", "at");
 
+-- Member removal (tenancy-member-removal, ADR-009): a row here = the member is
+-- removed. The member, user, personal space and audit history stay; every
+-- member-facing lookup filters on this table. phase: 'db' (database changes
+-- pending), 'derived' (Paperless + Qdrant pending), 'done'. A separate table
+-- because applySchema can't add a column to members.
+CREATE TABLE IF NOT EXISTS "member_removals" (
+	"member_id" integer PRIMARY KEY NOT NULL REFERENCES "members"("id"),
+	"successor_id" integer NOT NULL REFERENCES "members"("id"),
+	"removed_by" integer NOT NULL REFERENCES "members"("id"),
+	"removed_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"phase" varchar(16) DEFAULT 'db' NOT NULL,
+	"attempts" integer DEFAULT 0 NOT NULL,
+	"last_error" text,
+	"completed_at" timestamp with time zone,
+	CONSTRAINT "member_removals_phase_check" CHECK ("phase" IN ('db', 'derived', 'done')),
+	CONSTRAINT "member_removals_successor_check" CHECK ("successor_id" <> "member_id")
+);
+
+-- Documents a removal must re-mirror (Paperless + Qdrant); synced_at marks
+-- the ones already done so a resumed removal skips them. trashed = the
+-- document was in the Paperless trash and is restored → mirrored → trashed
+-- again; set before the restore so a resumed run puts it back in the trash.
+CREATE TABLE IF NOT EXISTS "member_removal_documents" (
+	"member_id" integer NOT NULL REFERENCES "member_removals"("member_id"),
+	"paperless_doc_id" integer NOT NULL,
+	"synced_at" timestamp with time zone,
+	"trashed" boolean DEFAULT false NOT NULL,
+	CONSTRAINT "member_removal_documents_pkey" PRIMARY KEY("member_id", "paperless_doc_id")
+);
+
 INSERT INTO "alembic_version" ("version_num")
 SELECT '0006'
 WHERE NOT EXISTS (SELECT 1 FROM "alembic_version");

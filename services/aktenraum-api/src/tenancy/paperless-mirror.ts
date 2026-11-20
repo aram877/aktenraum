@@ -34,6 +34,7 @@ export type PaperlessTenancyPort = Pick<
   | "getUser"
   | "createUser"
   | "updateUser"
+  | "deactivateUser"
   | "findGroupByName"
   | "createGroup"
   | "getDocumentPermissions"

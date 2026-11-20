@@ -7,6 +7,7 @@ import { DB, type Database } from "../db/db.module.js";
 import {
   documentShares,
   documentSpaces,
+  memberRemovals,
   members,
   shareAudit,
   spaceMembers,
@@ -19,6 +20,9 @@ import {
 } from "../db/schema.js";
 import { logTenancyReport, reconcileTenancy, type TenancyReconcileReport } from "./reconcile.js";
 import { shareActive } from "./share-active.js";
+
+/** `findMember`'s answer for a removed member (tenancy-member-removal). */
+const REMOVED = Symbol("removed");
 
 export interface MemberRecord {
   id: number;
@@ -91,9 +95,17 @@ export class TenancyService implements OnApplicationBootstrap, TenancyLookup {
    */
   async resolveMember(userId: number): Promise<MemberRecord | null> {
     const found = await this.findMember(userId);
+    // A removed member is never a member again; no reconcile can change that.
+    if (found === REMOVED) return null;
     if (found !== null) return found;
     await this.reconcile();
-    return this.findMember(userId);
+    const again = await this.findMember(userId);
+    return again === REMOVED ? null : again;
+  }
+
+  /** Whether the user behind `users.id` belongs to a removed member (login check). */
+  async isUserRemoved(userId: number): Promise<boolean> {
+    return (await this.findMember(userId)) === REMOVED;
   }
 
   async documentAccess(docId: number, memberId: number): Promise<DocumentSpaceAccess> {
@@ -373,17 +385,22 @@ export class TenancyService implements OnApplicationBootstrap, TenancyLookup {
     return new Set(docIds.filter((id) => (spaceByDoc.get(id) ?? null) === home));
   }
 
-  private async findMember(userId: number): Promise<MemberRecord | null> {
+  private async findMember(userId: number): Promise<MemberRecord | typeof REMOVED | null> {
     const rows = await this.db
       .select({
         id: members.id,
         userId: members.userId,
         householdId: members.householdId,
         role: members.role,
+        removedId: memberRemovals.memberId,
       })
       .from(members)
+      .leftJoin(memberRemovals, eq(memberRemovals.memberId, members.id))
       .where(eq(members.userId, userId))
       .limit(1);
-    return rows[0] ?? null;
+    const row = rows[0];
+    if (row === undefined) return null;
+    if (row.removedId !== null) return REMOVED;
+    return { id: row.id, userId: row.userId, householdId: row.householdId, role: row.role };
   }
 }

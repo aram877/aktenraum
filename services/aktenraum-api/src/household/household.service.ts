@@ -10,6 +10,7 @@ import type { MemberPrincipal } from "../auth/principal.js";
 import { DB, type Database } from "../db/db.module.js";
 import { invites, members, users } from "../db/schema.js";
 import { MemberGateways } from "../tenancy/member-gateways.js";
+import { notRemoved } from "../tenancy/removed.js";
 import { TenancyService } from "../tenancy/tenancy.service.js";
 
 export const INVITE_INVALID = "Einladung ungültig oder abgelaufen";
@@ -96,6 +97,7 @@ export class HouseholdService {
       .select({ id: members.id, username: users.username, role: members.role, joinedAt: members.createdAt })
       .from(members)
       .innerJoin(users, eq(users.id, members.userId))
+      .where(notRemoved(members.id))
       .orderBy(asc(members.id));
     return rows.map((r) => ({ id: r.id, username: r.username, role: r.role, joined_at: r.joinedAt }));
   }
@@ -105,6 +107,7 @@ export class HouseholdService {
       .select({ id: members.id, username: users.username })
       .from(members)
       .innerJoin(users, eq(users.id, members.userId))
+      .where(notRemoved(members.id))
       .orderBy(asc(members.id));
   }
 

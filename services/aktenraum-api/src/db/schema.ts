@@ -183,3 +183,31 @@ export const shareAudit = pgTable("share_audit", {
 	check("share_audit_access_kind_check", sql`${table.accessKind} IS NULL OR ${table.accessKind} IN ('detail', 'preview', 'download', 'ask')`),
 	index("share_audit_doc_at_idx").on(table.paperlessDocId, table.at),
 ]);
+
+export type MemberRemovalPhase = "db" | "derived" | "done";
+
+/** A row = the member is removed (tenancy-member-removal). Never deleted. */
+export const memberRemovals = pgTable("member_removals", {
+	memberId: integer("member_id").primaryKey().notNull().references(() => members.id),
+	successorId: integer("successor_id").notNull().references(() => members.id),
+	removedBy: integer("removed_by").notNull().references(() => members.id),
+	removedAt: timestamp("removed_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	phase: varchar({ length: 16 }).$type<MemberRemovalPhase>().default("db").notNull(),
+	attempts: integer().default(0).notNull(),
+	lastError: text("last_error"),
+	completedAt: timestamp("completed_at", { withTimezone: true, mode: 'string' }),
+}, (table) => [
+	check("member_removals_phase_check", sql`${table.phase} IN ('db', 'derived', 'done')`),
+	check("member_removals_successor_check", sql`${table.successorId} <> ${table.memberId}`),
+]);
+
+/** Documents a removal re-mirrors; `synced_at` set once Paperless + Qdrant follow. */
+export const memberRemovalDocuments = pgTable("member_removal_documents", {
+	memberId: integer("member_id").notNull().references(() => memberRemovals.memberId),
+	paperlessDocId: integer("paperless_doc_id").notNull(),
+	syncedAt: timestamp("synced_at", { withTimezone: true, mode: 'string' }),
+	/** In the Paperless trash: restored → mirrored → trashed again (set before the restore). */
+	trashed: boolean().default(false).notNull(),
+}, (table) => [
+	primaryKey({ name: "member_removal_documents_pkey", columns: [table.memberId, table.paperlessDocId] }),
+]);

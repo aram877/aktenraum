@@ -6,12 +6,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import { asc, eq } from "drizzle-orm";
 
 import {
+  authAudit,
   documentShares,
   documentSpaces,
   memberPaperlessTokens,
   memberRemovalDocuments,
   memberRemovals,
   members,
+  sessions,
   shareAudit,
   spaceMembers,
   spaces,
@@ -95,7 +97,11 @@ describe("removed members: lockout", () => {
     const f = await setup();
     await markRemoved(f, f.bob.id);
     const server = f.h.app.getHttpServer();
-    const wrong = await request(server).post("/api/auth/login").send({ username: "carol", password: "nope-nope-1" });
+    // From another address, so only bob's attempts count against this one.
+    const wrong = await request(server)
+      .post("/api/auth/login")
+      .set("X-Forwarded-For", "198.51.100.9")
+      .send({ username: "carol", password: "nope-nope-1" });
     const removed = await request(server).post("/api/auth/login").send({ username: "bob", password: "password-123" });
     expect(removed.status).toBe(wrong.status);
     expect(removed.body).toEqual(wrong.body);
@@ -473,5 +479,58 @@ describe("member removal: preview and list", () => {
     const audit = (await f.asCarol.get("/api/documents/5/shares/audit").expect(200)).body as { member: string; event: string }[];
     expect(audit.map((a) => a.event)).toEqual(expect.arrayContaining(["granted", "revoked"]));
     expect(JSON.stringify(audit)).toContain("bob");
+  });
+});
+
+describe("member removal: open live-counts stream", () => {
+  it("ends a removed member's open stream with session_ended instead of polling on", { timeout: 20_000 }, async () => {
+    const f = await setup();
+    const stream = f.asBob
+      .get("/api/events/counts")
+      .buffer(true)
+      .parse((res, done) => {
+        let body = "";
+        res.on("data", (chunk: Buffer) => (body += chunk.toString()));
+        res.on("end", () => done(null, body));
+      })
+      .then((res) => res.body as string);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await markRemoved(f, f.bob.id);
+    const body = await stream;
+    expect(body).toMatch(/^data: \{/m); // counts before the removal
+    // A removed member's session counts as revoked.
+    expect(body).toContain("event: session_ended\ndata: revoked\n\n");
+    // Reconnecting is refused by the guard.
+    await f.asBob.get("/api/events/counts").expect(401);
+  });
+});
+
+describe("member removal: sessions", () => {
+  it("revokes every session of the removed member in the lockout step, audited with the admin as actor", async () => {
+    const f = await setup();
+    // A second device for bob.
+    await request
+      .agent(f.h.app.getHttpServer())
+      .post("/api/auth/login")
+      .send({ username: "bob", password: "password-123" })
+      .expect(200);
+    const before = await f.h.db.select().from(sessions).where(eq(sessions.memberId, f.bob.id));
+    expect(before).toHaveLength(2);
+
+    await removeBob(f, { confirm_username: "bob" }).expect(200);
+
+    const after = await f.h.db.select().from(sessions).where(eq(sessions.memberId, f.bob.id));
+    expect(after).toHaveLength(2);
+    for (const row of after) {
+      expect(row.revokedAt).not.toBeNull();
+      expect(row.revokedReason).toBe("member_removed");
+    }
+    const audit = await f.h.db.select().from(authAudit).where(eq(authAudit.event, "session_revoked"));
+    expect(audit.map((row) => [row.memberId, row.actorMemberId, row.reason]).sort()).toEqual([
+      [f.bob.id, f.alice.id, "member_removed"],
+      [f.bob.id, f.alice.id, "member_removed"],
+    ]);
+    // Other members' sessions are untouched.
+    await f.asCarol.get("/api/auth/me").expect(200);
   });
 });

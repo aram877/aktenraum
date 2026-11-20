@@ -35,7 +35,7 @@ The remaining sections walk through every step in detail; do them only if `task 
 bash scripts/bootstrap-secrets.sh
 ```
 
-This copies `docker/.env.example` → `docker/.env` if absent and fills `PAPERLESS_SECRET_KEY`, `PAPERLESS_ADMIN_PASSWORD`, `PAPERLESS_DBPASS`, `JWT_SECRET`, `BOOTSTRAP_PASSWORD`, `WEBHOOK_SECRET` and `RESTIC_PASSWORD`. Record the passwords it prints — they are shown only once. Re-runs are no-ops once everything is populated.
+This copies `docker/.env.example` → `docker/.env` if absent and fills `PAPERLESS_SECRET_KEY`, `PAPERLESS_ADMIN_PASSWORD`, `PAPERLESS_DBPASS`, `AKTENRAUM_SECRET_KEY`, `QDRANT_API_KEY`, `BOOTSTRAP_PASSWORD`, `WEBHOOK_SECRET` and `RESTIC_PASSWORD`. Record the passwords it prints — they are shown only once. Re-runs are no-ops once everything is populated.
 
 Then open `docker/.env` and set:
 - `AKTENRAUM_DATA_DIR` — absolute data path (required)

@@ -34,6 +34,13 @@ export function createLiveCountsStream(queryClient: QueryClient): LiveCountsStre
         return;
       }
     };
+    // The server ended the session (member removed): stop for good instead of
+    // reconnecting into 401s, and let `me` find out — it resolves to null,
+    // which also keeps the plugin from restarting the stream.
+    current.addEventListener("session_ended", () => {
+      stop();
+      void queryClient.invalidateQueries({ queryKey: ME_KEY });
+    });
     current.onerror = () => {
       current.close();
       if (source === current) source = null;
@@ -45,21 +52,23 @@ export function createLiveCountsStream(queryClient: QueryClient): LiveCountsStre
     };
   }
 
+  function stop(): void {
+    started = false;
+    if (retryTimer !== null) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
+    source?.close();
+    source = null;
+  }
+
   return {
     start() {
       if (started) return;
       started = true;
       connect();
     },
-    stop() {
-      started = false;
-      if (retryTimer !== null) {
-        clearTimeout(retryTimer);
-        retryTimer = null;
-      }
-      source?.close();
-      source = null;
-    },
+    stop,
   };
 }
 

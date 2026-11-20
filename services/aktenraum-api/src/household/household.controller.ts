@@ -21,8 +21,10 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 
 import { AuthGuard } from "../auth/auth.guard.js";
+import { AuthAuditService } from "../auth/auth-audit.service.js";
 import { AuthService } from "../auth/auth.service.js";
-import { LoginThrottle } from "../auth/login-throttle.js";
+import { AuthRateLimiter, inviteIpKey } from "../auth/rate-limiter.js";
+import { clientIp } from "../auth/session.service.js";
 import { CurrentPrincipal, RequireScope, type Principal } from "../auth/principal.js";
 import { ZodValidationPipe } from "../common/zod-validation.pipe.js";
 import {
@@ -145,16 +147,16 @@ type RedeemRequest = z.infer<typeof redeemSchema>;
  */
 @Controller("invites")
 export class InvitesController {
-  private readonly throttle = new LoginThrottle();
-
   constructor(
     private readonly household: HouseholdService,
     private readonly auth: AuthService,
+    private readonly limiter: AuthRateLimiter,
+    private readonly audit: AuthAuditService,
   ) {}
 
-  private guard(request: Request, response: Response): string {
-    const key = `invite:${request.ip ?? "unknown"}`;
-    const retryAfter = this.throttle.retryAfterSeconds(key);
+  private async guard(request: Request, response: Response): Promise<string> {
+    const key = inviteIpKey(clientIp(request));
+    const retryAfter = await this.limiter.retryAfterSeconds([key]);
     if (retryAfter !== null) {
       response.setHeader("Retry-After", String(retryAfter));
       throw new HttpException(
@@ -169,7 +171,7 @@ export class InvitesController {
     try {
       return await work();
     } catch (error: unknown) {
-      if (error instanceof NotFoundException) this.throttle.recordFailure(key);
+      if (error instanceof NotFoundException) await this.limiter.recordFailure([key]);
       throw error;
     }
   }
@@ -180,7 +182,7 @@ export class InvitesController {
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ): Promise<{ expires_at: string }> {
-    const key = this.guard(request, response);
+    const key = await this.guard(request, response);
     return this.counted(key, () => this.household.checkInvite(token));
   }
 
@@ -192,9 +194,11 @@ export class InvitesController {
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ): Promise<{ username: string }> {
-    const key = this.guard(request, response);
+    const key = await this.guard(request, response);
     const user = await this.counted(key, () => this.household.redeem(token, body));
-    this.auth.issueSession(response, user);
+    const issued = await this.auth.issueSession(response, request, user, "invite");
+    if (issued === null) throw new UnauthorizedException("Invalid session");
+    await this.audit.record("invite_redeemed", { memberId: issued.memberId, sessionId: issued.sessionId, request });
     return { username: user.username };
   }
 }

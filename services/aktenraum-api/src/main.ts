@@ -2,6 +2,7 @@ import "reflect-metadata";
 
 import { logger } from "@aktenraum/core";
 import { NestFactory } from "@nestjs/core";
+import type { NestExpressApplication } from "@nestjs/platform-express";
 import cookieParser from "cookie-parser";
 
 import { AppModule } from "./app.module.js";
@@ -24,7 +25,12 @@ export async function bootstrap(): Promise<void> {
 
   await applySchema(settings.DATABASE_URL);
 
-  const app = await NestFactory.create(AppModule, { bufferLogs: false });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: false });
+  // Exactly one proxy hop (nginx) is trusted: request.ip is the right-most
+  // X-Forwarded-For entry, which nginx appends from the real socket, so the
+  // rate limits, the device list and the auth audit see the browser's address.
+  // Only nginx is published; never expose the api port directly.
+  app.set("trust proxy", 1);
   app.setGlobalPrefix("api");
   app.use(cookieParser());
   app.use(securityHeadersMiddleware);

@@ -63,6 +63,7 @@ describe("AutoApprove", () => {
 
 describe("Konto", () => {
   async function fill(current: string, next: string, confirm: string) {
+    get.mockResolvedValue([]); // the device list inside Konto
     const wrapper = await mountSuspended(Konto);
     await wrapper.find('input[name="current"]').setValue(current);
     await wrapper.find('input[name="next"]').setValue(next);

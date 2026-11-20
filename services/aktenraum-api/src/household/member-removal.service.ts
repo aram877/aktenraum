@@ -10,7 +10,9 @@ import {
 } from "@nestjs/common";
 import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 
+import { AuthAuditService } from "../auth/auth-audit.service.js";
 import type { MemberPrincipal } from "../auth/principal.js";
+import { SessionService } from "../auth/session.service.js";
 import { DB, type Database } from "../db/db.module.js";
 import {
   documentShares,
@@ -100,6 +102,8 @@ export class MemberRemovalService implements OnApplicationBootstrap, OnModuleDes
     private readonly gateways: MemberGateways,
     private readonly tenancy: TenancyService,
     @Inject(VECTOR_STORE) private readonly vectorStore: QdrantVectorStore | null,
+    private readonly sessions: SessionService,
+    private readonly authAudit: AuthAuditService,
   ) {}
 
   onApplicationBootstrap(): void {
@@ -199,6 +203,13 @@ export class MemberRemovalService implements OnApplicationBootstrap, OnModuleDes
     if (inserted.length === 0) throw new NotFoundException(`Member ${memberId} not found`);
     this.gateways.forget(member.id);
     await this.db.delete(memberPaperlessTokens).where(eq(memberPaperlessTokens.memberId, member.id));
+    // Every session of the member ends now (open streams follow on their next tick).
+    const revoked = await this.sessions.revokeAllOfMember(member.id, "member_removed");
+    await this.authAudit.recordRevocations(revoked, {
+      memberId: member.id,
+      actorMemberId: admin.memberId,
+      reason: "member_removed",
+    });
     logger.info("member_removed", { member_id: member.id, successor_id: successor.id, by_member: admin.memberId });
 
     const status = await this.complete(member.id);

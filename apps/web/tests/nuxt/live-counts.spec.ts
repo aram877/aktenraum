@@ -6,6 +6,13 @@ class FakeEventSource {
   onmessage: ((event: MessageEvent<string>) => void) | null = null;
   onerror: (() => void) | null = null;
   closed = false;
+  readonly listeners = new Map<string, (() => void)[]>();
+  addEventListener(type: string, listener: () => void): void {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
+  }
+  emit(type: string): void {
+    for (const listener of this.listeners.get(type) ?? []) listener();
+  }
   constructor(
     readonly url: string,
     readonly init?: EventSourceInit,
@@ -84,6 +91,36 @@ describe("createLiveCountsStream", () => {
     vi.advanceTimersByTime(LIVE_RECONNECT_DELAY_MS * 2);
     expect(FakeEventSource.instances).toHaveLength(1);
     expect(open()).toHaveLength(0);
+  });
+});
+
+describe("createLiveCountsStream: session ended", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    FakeEventSource.instances = [];
+    vi.stubGlobal("EventSource", FakeEventSource);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("stops for good on session_ended and refetches me, without reconnecting", () => {
+    const queryClient = new QueryClient();
+    const spy = vi.spyOn(queryClient, "invalidateQueries");
+    const stream = createLiveCountsStream(queryClient);
+    stream.start();
+    FakeEventSource.instances[0]?.emit("session_ended");
+    // The browser also fires onerror when the server closes the stream.
+    FakeEventSource.instances[0]?.onerror?.();
+    vi.advanceTimersByTime(LIVE_RECONNECT_DELAY_MS * 3);
+    expect(FakeEventSource.instances).toHaveLength(1);
+    expect(open()).toHaveLength(0);
+    expect(spy).toHaveBeenCalledWith({ queryKey: ME_KEY });
+    // A later sign-in can start it again.
+    stream.start();
+    expect(open()).toHaveLength(1);
   });
 });
 

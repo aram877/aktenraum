@@ -175,8 +175,25 @@ Harness: `scripts/spikes/webauthn/` (Node + `@simplewebauthn/server`, test page,
 
 Research (no local test possible): macOS WKWebView supports WebAuthn only for RP IDs the app is associated with (Associated Domains + `apple-app-site-association`), which `tauri://localhost` cannot satisfy; WebKitGTK (Linux) exposes no WebAuthn at all; native plugins (`tauri-plugin-passkey`) still need a signed macOS app with Associated Domains. Hence system-browser sign-in for the desktop shell.
 
+### As built (`auth-server-sessions`, 2026-11-20 — step 4, first half)
+
+Step 4 was split in two (maintainer decision 2026-11-20): this half ships server-side sessions, the device list, persisted rate limits and the auth audit with password login unchanged; `auth-passkeys` adds passkeys, recovery codes, the setup link, password retirement and step-up on top of the same tables.
+
+- **Tables** (`schema.sql`, created by `applySchema`): `sessions` (`token_hash` = sha256 hex of the cookie token, unique; `member_id`, `household_id`, `client_id` `'spa'`, `auth_method`, `created_at`, `last_seen_at`, `idle_expires_at`, `absolute_expires_at`, `step_up_at`, `user_agent`, `ip`, `revoked_at`, `revoked_reason`), `auth_rate_limit_events` (`key`, `at`), `auth_audit` (`event`, `member_id`, `actor_member_id`, `session_id`, `username`, `reason`, `ip`, `user_agent`; no foreign keys). The `auth_method` CHECK already allows `passkey` / `recovery` / `setup` and `step_up_at` exists, because `applySchema` can't widen a CHECK or add a column later.
+- **Cookie**: 32 random bytes, base64url (43 chars); only the hash is stored. `__Host-aktenraum_session` (`Secure`) with `COOKIE_SECURE=true`, `aktenraum_session` otherwise; `httpOnly`, `SameSite=Lax`, `Path=/`, `Max-Age` = `SESSION_ABSOLUTE_DAYS` (the server decides expiry). Login and logout also clear the other name, so an old JWT cookie doesn't linger.
+- **Lifetimes**: `SESSION_IDLE_DAYS` (7) after last use, `SESSION_ABSOLUTE_DAYS` (30) after login. Use slides the idle expiry at most once a minute, never past the absolute one (`CASE`, not `least()`, so pg-mem runs it). Every comparison is made by the database clock.
+- **Resolution**: `AuthGuard` → `SessionService.resolve` (one query: active session ⋈ member ⋈ user) → `TenancyService.resolveMember` (removed-member filter stays as a second line). The principal carries `sessionId` (= `sessions.id`) and `authTime` (= `created_at`).
+- **Revocation reasons**: `logout` (POST `/auth/logout`, unguarded, no-op for unknown cookies), `user` (the member revokes the current session in the device list), `other_device` (`DELETE /auth/sessions/:id` of another own session, `POST /auth/sessions/revoke-others`), `password_change` (every session of the member), `member_removed` (lockout step of `MemberRemovalService.remove`, actor = the admin). Another member's session id → 404.
+- **Streams**: `EventsController` checks `SessionService.state(sessionId)` each 3 s tick and ends with `event: session_ended` / `data: revoked|expired` (a removed member's session counts as revoked). Fixes finding E.
+- **Rate limits** (`AuthRateLimiter`): keys `login:user:<lowercased name>`, `login:ip:<address>`, `invite:ip:<address>`; throttled at ≥ 10 events in 15 min (either login key); a failure records both login keys, success resets only the username key. `Retry-After` = until the oldest counted event leaves the window, from `min(at) + interval` and `now()` read in one query.
+- **Client address**: `app.set("trust proxy", 1)` — `request.ip` is the right-most `X-Forwarded-For` entry nginx appends. Limitation: every request that reaches nginx through `tailscale serve` arrives from the same local address, so tailnet devices share one per-address bucket (no worse than before, when every request had nginx's address).
+- **Audit**: `login_succeeded`, `login_failed` (attempted username), `login_throttled`, `logout`, `session_revoked` (one row per session, actor + reason), `password_changed`, `invite_redeemed`; best effort. No UI yet.
+- **Sweep** (`AuthSweepService`, startup + hourly): sessions revoked/expired > 30 days, rate-limit events > 1 day, audit rows > 180 days.
+- **Retired**: `auth/jwt.ts`, the `pwf` password fingerprint, `jsonwebtoken`, `JWT_SECRET`, `JWT_EXPIRES_SECONDS`, the in-memory `LoginThrottle`.
+- **Rollback**: revert the code. `JWT_SECRET` is still in existing `docker/.env` files, so the old api starts; every device logs in once more; the three tables stay unused. (New installs from `.env.example` have no `JWT_SECRET` — a rollback there needs one generated: `openssl rand -base64 32`.)
+
 ### Open points
 
 - Re-run the harness on a Mac (Safari; later a signed Tauri build) and against an HTTPS hostname via Tailscale; try phone hybrid enrolment.
-- Session lifetimes (7 d idle / 30 d absolute) and the step-up action list — defaults to review.
+- Session lifetimes are built as 7 d idle / 30 d absolute (configurable); the step-up action list is still a default to review (`auth-passkeys`).
 - Whether TOTP is worth its UI cost or recovery codes + a second passkey are enough.

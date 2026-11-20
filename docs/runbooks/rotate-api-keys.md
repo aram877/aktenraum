@@ -65,11 +65,15 @@ Both `auto-tagger` and `aktenraum-api` use the same `PAPERLESS_API_TOKEN`.
 
 ---
 
-## Rotate the JWT signing key
+## Sign everyone out
 
-1. Generate a new value: `openssl rand -base64 32`
-2. Replace `JWT_SECRET` in `docker/.env`.
-3. `$DC up -d aktenraum-api`. Every SPA session is invalidated; users log in again.
+There is no signing key any more (auth-server-sessions, 2026-11-20): sessions live in the `sessions` table and the cookie holds only a random token. `JWT_SECRET` is unused. To end every SPA session at once, revoke them in the database:
+
+```bash
+$DC exec postgres psql -U paperless -d aktenraum -c   "UPDATE sessions SET revoked_at = now(), revoked_reason = 'user' WHERE revoked_at IS NULL;"
+```
+
+Users log in again; open live streams end within 3 s. One member's own devices: `/settings → Konto → Geräte`.
 
 ---
 

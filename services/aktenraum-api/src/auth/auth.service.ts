@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import { logger } from "@aktenraum/core";
 import { Inject, Injectable, type OnModuleInit } from "@nestjs/common";
 import { eq } from "drizzle-orm";
@@ -7,21 +5,18 @@ import { eq } from "drizzle-orm";
 import { SETTINGS, type Settings } from "../config/settings.js";
 import { DB, type Database } from "../db/db.module.js";
 import { users } from "../db/schema.js";
+import type { SessionAuthMethod } from "../db/schema.js";
 import { TenancyService } from "../tenancy/tenancy.service.js";
-import type { Response } from "express";
+import type { Request, Response } from "express";
 
-import { createToken, verifyToken } from "./jwt.js";
 import { hashPassword, verifyPassword } from "./passwords.js";
+import { SessionService } from "./session.service.js";
 
 let timingDummyHash: Promise<string> | null = null;
 
 function dummyHash(): Promise<string> {
   timingDummyHash ??= hashPassword("aktenraum-timing-equaliser");
   return timingDummyHash;
-}
-
-export function passwordFingerprint(passwordHash: string): string {
-  return createHash("sha256").update(passwordHash).digest("hex").slice(0, 16);
 }
 
 export interface AuthUser {
@@ -36,6 +31,7 @@ export class AuthService implements OnModuleInit {
     @Inject(DB) private readonly db: Database,
     @Inject(SETTINGS) private readonly settings: Settings,
     private readonly tenancy: TenancyService,
+    private readonly sessions: SessionService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -93,29 +89,21 @@ export class AuthService implements OnModuleInit {
     return user;
   }
 
-  async verifySession(token: string): Promise<AuthUser | null> {
-    const claims = verifyToken(token, { secret: this.settings.JWT_SECRET });
-    if (claims === null) return null;
-    const user = await this.findById(claims.userId);
-    if (user === null) return null;
-    if (passwordFingerprint(user.passwordHash) !== claims.fingerprint) return null;
-    return user;
-  }
-
-  /** Sets the session cookie for `user` — login and invite redemption share it. */
-  issueSession(response: Response, user: AuthUser): void {
-    const token = createToken(user.id, {
-      secret: this.settings.JWT_SECRET,
-      expiresSeconds: this.settings.JWT_EXPIRES_SECONDS,
-      fingerprint: passwordFingerprint(user.passwordHash),
-    });
-    response.cookie(this.settings.COOKIE_NAME, token, {
-      httpOnly: true,
-      secure: this.settings.COOKIE_SECURE,
-      sameSite: "lax",
-      path: "/",
-      maxAge: this.settings.JWT_EXPIRES_SECONDS * 1000,
-    });
+  /**
+   * Creates a server-side session for `user` and sets its cookie — login and
+   * invite redemption share it. Returns the member and session ids, or null
+   * when the user is not (or no longer) a household member.
+   */
+  async issueSession(
+    response: Response,
+    request: Request,
+    user: AuthUser,
+    method: SessionAuthMethod,
+  ): Promise<{ memberId: number; sessionId: number } | null> {
+    const member = await this.tenancy.resolveMember(user.id);
+    if (member === null) return null;
+    const sessionId = await this.sessions.issue(response, request, member, method);
+    return { memberId: member.id, sessionId };
   }
 
   async setPassword(userId: number, newPassword: string): Promise<void> {

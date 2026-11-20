@@ -229,13 +229,17 @@ Validated in [`services/aktenraum-api/src/config/settings.ts`](../services/akten
 
 | Var | Template | Code default | Purpose |
 |---|---|---|---|
-| `JWT_SECRET` | empty (**required**, generated) | none (**required**) | HS256 signing key. Missing or empty aborts startup. |
 | `AKTENRAUM_SECRET_KEY` | empty (**required**, generated) | none (**required**) | 32 random bytes, base64 (`openssl rand -base64 32`; `bootstrap-secrets.sh` fills it). Encrypts the members' Paperless API tokens at rest (AES-256-GCM). Missing or not 32 bytes aborts startup. Changing it is harmless — the tokens are re-minted on next use. |
-| `JWT_EXPIRES_SECONDS` | `28800` | `28800` (min 60) | Session lifetime (8 h). |
+| `SESSION_IDLE_DAYS` | not in template | `7` (1–365) | A browser session expires after this many days without use. Use slides it (written at most once a minute), never past `SESSION_ABSOLUTE_DAYS`. |
+| `SESSION_ABSOLUTE_DAYS` | not in template | `30` (1–365) | A browser session expires this many days after login, used or not. |
 | `BOOTSTRAP_USERNAME` | `admin` | empty | First-run user, inserted only while the `users` table is empty. |
 | `BOOTSTRAP_PASSWORD` | empty (**required**, generated) | empty | Password for that user. |
-| `COOKIE_NAME` | `aktenraum_session` | `aktenraum_session` | Session cookie name. |
+| `COOKIE_NAME` | `aktenraum_session` | `aktenraum_session` | Session cookie name. With `COOKIE_SECURE=true` the cookie is sent as `__Host-<name>` (browser-enforced: `Secure`, `Path=/`, no `Domain`). The cookie holds an opaque random token; the server stores only its SHA-256 hash in the `sessions` table. |
 | `COOKIE_SECURE` | commented out | `true` | Marks the cookie `Secure`. Set `false` only for plain-HTTP `http://localhost:8080` dev; for remote access use the Tailscale HTTPS URL instead. |
+
+`JWT_SECRET` and `JWT_EXPIRES_SECONDS` are retired (auth-server-sessions, 2026-11-20): nothing reads them. Existing `docker/.env` files may keep the lines — they let a code rollback start without editing `.env`.
+
+**Client address.** The api sets Express `trust proxy` to exactly one hop (nginx). `request.ip` is the right-most `X-Forwarded-For` entry, which nginx appends from the real socket, so login/invite rate limits, the device list and the auth audit see the browser's address, and a client can't spoof it by sending the header itself. This only holds while nginx is the sole way in — the compose file publishes nginx only; never publish the api port (8002) directly.
 
 ### Paperless, uploads and triggers
 

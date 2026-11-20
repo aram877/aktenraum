@@ -1,9 +1,10 @@
 import { logger } from "@aktenraum/core";
-import { Controller, Get, Res, UseGuards } from "@nestjs/common";
+import { Controller, Get, Res, UnauthorizedException, UseGuards } from "@nestjs/common";
 import type { Response } from "express";
 
 import { AuthGuard } from "../auth/auth.guard.js";
 import { RequireScope, CurrentPrincipal, type Principal } from "../auth/principal.js";
+import { SessionService } from "../auth/session.service.js";
 import { PaperlessAuthError } from "../paperless/errors.js";
 import { EventsService, type LiveCounts } from "./events.service.js";
 
@@ -22,7 +23,10 @@ function sameCounts(a: LiveCounts | null, b: LiveCounts): boolean {
 
 @Controller("events")
 export class EventsController {
-  constructor(private readonly eventsService: EventsService) {}
+  constructor(
+    private readonly eventsService: EventsService,
+    private readonly sessions: SessionService,
+  ) {}
 
   /**
    * Server-Sent Events stream of {inbox, in_flight, trash, errors}.
@@ -57,6 +61,17 @@ export class EventsController {
     let lastEmit = 0;
 
     while (!closed) {
+      // The guard authorised the connection once; the session must still be
+      // active on every tick — revoked (logout, other device, password change,
+      // member removal) or expired ends the stream. The SPA stops on this
+      // event instead of reconnecting into 401s.
+      if (principal.kind === "member" && principal.sessionId !== null) {
+        const state = await this.sessions.state(Number(principal.sessionId));
+        if (state !== "active") {
+          response.write(`event: session_ended\ndata: ${state}\n\n`);
+          break;
+        }
+      }
       try {
         const counts = await this.eventsService.computeCounts(principal);
         const now = Date.now();
@@ -70,6 +85,11 @@ export class EventsController {
           // Token rotated or removed. Emit a sentinel and stop: on reconnect
           // the auth guard gives the client a 401 it can back off from.
           response.write("event: error\ndata: paperless_auth\n\n");
+          break;
+        }
+        if (error instanceof UnauthorizedException) {
+          // The caller lost access while connected (e.g. removed between two ticks).
+          response.write("event: session_ended\ndata: unauthorized\n\n");
           break;
         }
         // Transient. Keep the stream open and retry on the next tick; the

@@ -231,6 +231,64 @@ CREATE TABLE IF NOT EXISTS "member_removal_documents" (
 	CONSTRAINT "member_removal_documents_pkey" PRIMARY KEY("member_id", "paperless_doc_id")
 );
 
+-- Authentication (auth-server-sessions, ADR-010 step 4). Server-side browser
+-- sessions: the cookie holds a random 256-bit token, only its sha256 hex is
+-- stored. Expiry is evaluated in SQL (revoked_at IS NULL AND idle_expires_at >
+-- now() AND absolute_expires_at > now()). The CHECK lists and step_up_at
+-- already cover auth-passkeys, because applySchema can't change them later.
+CREATE TABLE IF NOT EXISTS "sessions" (
+	"id" bigserial PRIMARY KEY NOT NULL,
+	"token_hash" varchar(64) NOT NULL,
+	"member_id" integer NOT NULL REFERENCES "members"("id"),
+	"household_id" integer NOT NULL REFERENCES "households"("id"),
+	"client_id" varchar(32) DEFAULT 'spa' NOT NULL,
+	"auth_method" varchar(16) NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"last_seen_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"idle_expires_at" timestamp with time zone NOT NULL,
+	"absolute_expires_at" timestamp with time zone NOT NULL,
+	"step_up_at" timestamp with time zone,
+	"user_agent" varchar(512),
+	"ip" varchar(64),
+	"revoked_at" timestamp with time zone,
+	"revoked_reason" varchar(32),
+	CONSTRAINT "sessions_token_hash_key" UNIQUE("token_hash"),
+	CONSTRAINT "sessions_auth_method_check" CHECK ("auth_method" IN ('password', 'invite', 'passkey', 'recovery', 'setup')),
+	CONSTRAINT "sessions_revoked_reason_check" CHECK ("revoked_reason" IS NULL OR "revoked_reason" IN ('logout', 'user', 'other_device', 'password_change', 'member_removed'))
+);
+
+CREATE INDEX IF NOT EXISTS "sessions_member_id_idx" ON "sessions" ("member_id");
+
+-- Failed login / invite attempts, one row each (keys login:user:<name>,
+-- login:ip:<address>, invite:ip:<address>). Counted over the last 15 minutes;
+-- rows older than a day are pruned by the auth sweep.
+CREATE TABLE IF NOT EXISTS "auth_rate_limit_events" (
+	"id" bigserial PRIMARY KEY NOT NULL,
+	"key" varchar(160) NOT NULL,
+	"at" timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS "auth_rate_limit_events_key_at_idx" ON "auth_rate_limit_events" ("key", "at");
+
+-- Authentication events, kept 180 days. No foreign keys (like share_audit):
+-- it outlives the sessions and members it mentions. Never holds a token,
+-- token hash or password.
+CREATE TABLE IF NOT EXISTS "auth_audit" (
+	"id" bigserial PRIMARY KEY NOT NULL,
+	"at" timestamp with time zone DEFAULT now() NOT NULL,
+	"event" varchar(32) NOT NULL,
+	"member_id" integer,
+	"actor_member_id" integer,
+	"session_id" bigint,
+	"username" varchar(64),
+	"reason" varchar(32),
+	"ip" varchar(64),
+	"user_agent" varchar(512),
+	CONSTRAINT "auth_audit_event_check" CHECK ("event" IN ('login_succeeded', 'login_failed', 'login_throttled', 'logout', 'session_revoked', 'password_changed', 'invite_redeemed'))
+);
+
+CREATE INDEX IF NOT EXISTS "auth_audit_at_idx" ON "auth_audit" ("at");
+
 INSERT INTO "alembic_version" ("version_num")
 SELECT '0006'
 WHERE NOT EXISTS (SELECT 1 FROM "alembic_version");

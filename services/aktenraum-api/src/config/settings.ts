@@ -50,11 +50,13 @@ const base64Key = (name: string, bytes: number) =>
 
 export const settingsSchema = z.object({
   DATABASE_URL: required("DATABASE_URL"),
-  JWT_SECRET: required("JWT_SECRET"),
   // Encrypts the members' Paperless API tokens at rest (ADR-010 §8). Tokens
   // are re-mintable, so a lost or changed key costs nothing but a re-mint.
   AKTENRAUM_SECRET_KEY: base64Key("AKTENRAUM_SECRET_KEY", 32),
-  JWT_EXPIRES_SECONDS: int(28800, 60),
+  // Browser sessions (auth-server-sessions): expire after SESSION_IDLE_DAYS
+  // without use, and SESSION_ABSOLUTE_DAYS after login in any case.
+  SESSION_IDLE_DAYS: int(7, 1, 365),
+  SESSION_ABSOLUTE_DAYS: int(30, 1, 365),
 
   COOKIE_NAME: str("aktenraum_session"),
   COOKIE_SECURE: bool(true),

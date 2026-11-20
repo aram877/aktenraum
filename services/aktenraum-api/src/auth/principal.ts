@@ -64,9 +64,9 @@ export interface MemberPrincipal {
   readonly username: string;
   readonly householdRole: HouseholdRole;
   readonly scopes: ReadonlySet<Scope>;
-  /** Server-side session id; null while sessions are JWT cookies (until ADR-010 step 4). */
+  /** `sessions.id` of the browser session (auth-server-sessions). */
   readonly sessionId: string | null;
-  /** Time of the last strong authentication; null until passkey sessions (ADR-010 step 4). */
+  /** When the session was created (login / invite redemption). */
   readonly authTime: Date | null;
   readonly clientId: "spa";
 }

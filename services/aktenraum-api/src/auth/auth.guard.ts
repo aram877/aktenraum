@@ -1,22 +1,20 @@
 import {
   type CanActivate,
   type ExecutionContext,
-  Inject,
   Injectable,
   UnauthorizedException,
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 
-import { SETTINGS, type Settings } from "../config/settings.js";
 import { PolicyService } from "../policy/policy.service.js";
 import { TenancyService } from "../tenancy/tenancy.service.js";
-import { AuthService } from "./auth.service.js";
 import {
   type MemberPrincipal,
   type PrincipalRequest,
   authorize,
   memberScopes,
 } from "./principal.js";
+import { SessionService } from "./session.service.js";
 
 /**
  * Browser requests: the session cookie is read here and nowhere else. Builds
@@ -25,38 +23,38 @@ import {
 @Injectable()
 export class AuthGuard implements CanActivate {
   constructor(
-    private readonly authService: AuthService,
+    private readonly sessions: SessionService,
     private readonly reflector: Reflector,
     private readonly policy: PolicyService,
     private readonly tenancy: TenancyService,
-    @Inject(SETTINGS) private readonly settings: Settings,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<PrincipalRequest>();
-    const token: unknown = request.cookies?.[this.settings.COOKIE_NAME];
-    if (typeof token !== "string" || token === "") {
+    const token = this.sessions.readToken(request);
+    if (token === null) {
       throw new UnauthorizedException("Not authenticated");
     }
-    const user = await this.authService.verifySession(token);
-    if (user === null) {
+    // One indexed lookup: active session (SQL expiry) + its member's user.
+    const session = await this.sessions.resolve(token);
+    if (session === null) {
       throw new UnauthorizedException("Invalid session");
     }
-    // The JWT carries users.id; tenancy decides who that is in the household.
-    const member = await this.tenancy.resolveMember(user.id);
-    if (member === null) {
+    // Tenancy still decides who that is in the household (removed → null).
+    const member = await this.tenancy.resolveMember(session.userId);
+    if (member === null || member.id !== session.memberId) {
       throw new UnauthorizedException("Invalid session");
     }
     const principal: MemberPrincipal = {
       kind: "member",
       memberId: member.id,
-      userId: user.id,
+      userId: session.userId,
       householdId: member.householdId,
-      username: user.username,
+      username: session.username,
       householdRole: member.role,
       scopes: memberScopes(member.role),
-      sessionId: null,
-      authTime: null,
+      sessionId: String(session.sessionId),
+      authTime: new Date(session.createdAt),
       clientId: "spa",
     };
     request.principal = principal;

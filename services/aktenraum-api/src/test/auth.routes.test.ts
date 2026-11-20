@@ -27,7 +27,7 @@ describe("auth routes", () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ username: "admin" });
-    const cookie = (response.headers["set-cookie"] as unknown as string[])[0] as string;
+    const cookie = (response.headers["set-cookie"] as unknown as string[]).find((c) => c.startsWith("aktenraum_session=")) as string;
     expect(cookie).toContain("HttpOnly");
     expect(cookie).toContain("SameSite=Lax");
     expect(cookie).not.toContain("Secure");
@@ -81,30 +81,25 @@ describe("auth routes", () => {
     expect(authenticated.body).toEqual({ username: "admin", household_role: "admin" });
   });
 
-  it("rejects a session cookie signed with a different secret", async () => {
+  it("rejects a JWT-shaped cookie from before the upgrade, and unknown tokens", async () => {
     harness = await createHarness();
     await seedUser(harness);
-    const agent = request.agent(harness.app.getHttpServer());
-    await agent.post("/api/auth/login").send({ username: "admin", password: "correct-horse" });
-    await harness.close();
-
-    harness = await createHarness({ env: { JWT_SECRET: "a-completely-different-secret-value" } });
-    await seedUser(harness);
-    const response = await request(harness.app.getHttpServer())
-      .get("/api/auth/me")
-      .set("Cookie", "aktenraum_session=tampered.token.value");
-
-    expect(response.status).toBe(401);
-    expect(response.body).toEqual({ detail: "Invalid session" });
+    const jwtShaped =
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwicHdmIjoiYWJjIiwiaWF0IjoxLCJleHAiOjk5OTk5OTk5OTl9.c2lnbmF0dXJl";
+    for (const value of [jwtShaped, "tampered.token.value"]) {
+      const response = await request(harness.app.getHttpServer())
+        .get("/api/auth/me")
+        .set("Cookie", `aktenraum_session=${value}`);
+      expect(response.status).toBe(401);
+      expect(response.body).toEqual({ detail: "Invalid session" });
+    }
   });
 
   it("logs out by clearing the cookie", async () => {
     harness = await createHarness();
     const response = await request(harness.app.getHttpServer()).post("/api/auth/logout");
     expect(response.status).toBe(204);
-    expect((response.headers["set-cookie"] as unknown as string[])[0]).toContain(
-      "aktenraum_session=;",
-    );
+    expect((response.headers["set-cookie"] as unknown as string[]).some((c) => c.startsWith("aktenraum_session=;"))).toBe(true);
   });
 
   // bcrypt is deliberately slow; four vitest workers hashing at once under

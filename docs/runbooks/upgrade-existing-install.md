@@ -192,9 +192,13 @@ space, 0 with permission drift, 0 owned tags/types/correspondents`, plus
 
 ## 9. Log in again
 
-Every session was invalidated by the upgrade (sessions are now bound to the
-password). Tell the user to reload http://localhost:8080 and log in. The
-login, if they need it:
+The upgrade that introduces server-side sessions (auth-server-sessions,
+2026-11-20) ends every existing login once: the old JWT cookies answer 401.
+Tell the user to reload the app **on every device** (laptop, phone, any
+browser tab) and log in once; open tabs show the login page by themselves.
+After that, logins last 7 days without use / 30 days at most, and
+`/settings → Konto → Geräte` lists and signs out devices. The login, if they
+need it:
 
 ```bash
 grep '^BOOTSTRAP_' docker/.env
@@ -202,6 +206,15 @@ grep '^BOOTSTRAP_' docker/.env
 
 `BOOTSTRAP_USERNAME` / `BOOTSTRAP_PASSWORD` are the original login; if the user
 changed the password in the app later, the file still shows the old one.
+
+Check that the three session tables exist (created at api start):
+
+```bash
+docker compose --project-directory docker exec postgres psql -U paperless -d aktenraum -At   -c "SELECT count(*) FROM information_schema.tables WHERE table_name IN ('sessions','auth_rate_limit_events','auth_audit');"
+```
+
+**Expected:** `3`. `JWT_SECRET` / `JWT_EXPIRES_SECONDS` in `docker/.env` are
+now unused; leave them (a code rollback needs `JWT_SECRET`).
 
 ## 10. Report
 

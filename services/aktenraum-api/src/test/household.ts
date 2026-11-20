@@ -18,13 +18,14 @@ const PROPAGATED = TAGS["ai-propagated"] as number;
  */
 export async function household(
   docs: PaperlessDocument[] = [1, 2, 3, 5].map((id) => makeDoc({ id, tags: [PROPAGATED] })),
+  env?: Record<string, string>,
 ) {
   const paperless = new FakeGateway({ docs });
   const vectorStore = {
     setSpaceByDocId: vi.fn(async (_docId: number, _space: unknown) => undefined),
     deleteByDocId: vi.fn(async () => undefined),
   };
-  const h: Harness = await createHarness({ gateway: paperless as unknown as Partial<PaperlessGateway>, vectorStore });
+  const h: Harness = await createHarness({ gateway: paperless as unknown as Partial<PaperlessGateway>, vectorStore, env });
   const password = await hashPassword("password-123");
   await h.db.insert(users).values([
     { username: "alice", passwordHash: password },

@@ -5,9 +5,13 @@ service the SPA talks to. nginx reverse-proxies `/api/*` to it. All
 routes are mounted under the global prefix `/api` (`app.setGlobalPrefix("api")`
 in `services/aktenraum-api/src/main.ts`). Errors use the `{detail}` shape.
 
-The auth model is a single HS256 JWT in an httpOnly `SameSite=Lax`
-cookie set by `/api/auth/login`. The SPA never sees the token; the
-cookie travels automatically. Endpoints marked **🔒** require a valid
+The auth model is a server-side session (`sessions` table) whose opaque
+random token travels in an httpOnly `SameSite=Lax` cookie set by
+`/api/auth/login` — `aktenraum_session` on plain-HTTP localhost,
+`__Host-aktenraum_session` (`Secure`) when `COOKIE_SECURE=true`. The
+server stores only the token's SHA-256 hash. The SPA never sees the
+token; the cookie travels automatically. Sessions expire after 7 days
+without use or 30 days after login, and are revocable. Endpoints marked **🔒** require a valid
 cookie; unauthenticated calls return 401.
 
 There is no OpenAPI/Swagger endpoint. The SPA has no codegen step: its
@@ -31,12 +35,17 @@ schema files listed under "Shape references" are the source of truth.**
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| POST | `/api/auth/login` | — | Body `{username, password}`. Sets the `aktenraum_session` cookie. Returns `UserResponse`. |
-| POST | `/api/auth/logout` | — | Clears the session cookie. 204 No Content. |
+| POST | `/api/auth/login` | — | Body `{username, password}`. Creates a session and sets the session cookie. Returns `UserResponse`. 401 `Invalid credentials` (same answer for unknown users). 429 + `Retry-After` after 10 failures in 15 min for the username **or** the client address (persisted in Postgres, survives restarts); success resets only the username's count. |
+| POST | `/api/auth/logout` | — | Revokes the current session on the server (a copied cookie stops working) and clears the cookie. Unknown/expired cookie = no-op. 204 No Content. |
 | GET  | `/api/auth/me` | 🔒 | Returns the current `UserResponse`. The SPA's router uses this to decide whether to redirect to `/login`. |
-| POST | `/api/auth/change-password` | 🔒 | Body `{current_password, new_password}`. Verifies current + enforces min 8 chars + `new != current`. On success, clears the session cookie so the current device re-logs in (other devices' JWTs expire on their own). 204 No Content. |
+| POST | `/api/auth/change-password` | 🔒 | Body `{current_password, new_password}`. Verifies current + enforces min 8 chars + `new != current`. On success revokes **every** session of the member (all devices log in again) and clears the cookie. 204 No Content. |
+| GET  | `/api/auth/sessions` | 🔒 | The caller's active sessions, most recently used first: `[{id, created_at, last_seen_at, auth_method, ip, user_agent, current}]`. `ip` / `user_agent` are those of the login. |
+| DELETE | `/api/auth/sessions/:id` | 🔒 | Revokes one of the caller's own sessions (204). Another member's, unknown or already ended → 404. Revoking the current one behaves like logout (cookie cleared). |
+| POST | `/api/auth/sessions/revoke-others` | 🔒 | Revokes every active session of the caller except the current one. Returns `{revoked: n}`. |
 
-`UserResponse`: `{id, username}`.
+The client address is the browser's: the api trusts exactly one proxy hop (nginx, `trust proxy` = 1). Authentication events (login succeeded/failed/throttled, logout, session revoked with actor + reason, password changed, invite redeemed) are written to `auth_audit` (180 days); there is no route for them yet.
+
+`UserResponse`: `{username, household_role?}` (`household_role` on `/me` only).
 
 ---
 
@@ -54,9 +63,9 @@ Household admin only (`household:admin`), session cookie:
 | POST | `/api/household/members/{id}/remove` | body `{confirm_username, successor_member_id?}` → `200 {member_id, successor_member_id, status: "done"\|"completing"}`. `completing` = locked out and database changes done, Paperless/Qdrant still catching up (the sync retries every 5 min). `404` unknown or already removed, `409` the admin / yourself, `422` username mismatch or invalid successor (removed, unknown, the member itself). Irreversible |
 | GET | `/api/household/removals` | `[{member_id, username, successor, removed_at, status: "done"\|"completing", last_error}]`, oldest first |
 
-Removed members (`tenancy-member-removal`) disappear from `/members`, `/directory` and every picker, count no longer in `household_member_count`, and are refused as space member (`404`) and share recipient (`422`). Their sessions answer `401`, their login answers like a wrong password (and counts towards the throttle), and their username stays taken (`409` on redeem).
+Removed members (`tenancy-member-removal`) disappear from `/members`, `/directory` and every picker, count no longer in `household_member_count`, and are refused as space member (`404`) and share recipient (`422`). All their sessions are revoked (`401`, open streams end with `session_ended`), their login answers like a wrong password (and counts towards the throttle), and their username stays taken (`409` on redeem).
 
-Public (no session; throttled per client address, 10 failures / 15 min → `429` + `Retry-After`):
+Public (no session; throttled per client address in Postgres, 10 failures / 15 min → `429` + `Retry-After`; redemption creates a session with `auth_method = invite`):
 
 | Method | Path | Result |
 | --- | --- | --- |
@@ -316,7 +325,7 @@ short TTL cache, secret-gated via `WEBHOOK_SECRET` when set.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| GET | `/api/events/counts` | 🔒 | Server-Sent Events stream of `{inbox, in_flight, trash, errors}` counts (`errors` = docs carrying any error tag) (unnamed `data:` events). Polls Paperless every 3s server-side; emits on connect, on every change, and at least every 25s as a heartbeat so nginx does not reap the connection. Emits `event: error` / `data: paperless_auth` when the Paperless token is rejected. Drives every Nav badge. |
+| GET | `/api/events/counts` | 🔒 | Server-Sent Events stream of `{inbox, in_flight, trash, errors}` counts (`errors` = docs carrying any error tag) (unnamed `data:` events). Polls Paperless every 3s server-side; emits on connect, on every change, and at least every 25s as a heartbeat so nginx does not reap the connection. Emits `event: error` / `data: paperless_auth` when the Paperless token is rejected. Re-checks the session every tick and ends with `event: session_ended` / `data: revoked` or `data: expired` when it was revoked (logout, other device, password change, member removal) or expired; the SPA stops reconnecting on it. Drives every Nav badge. |
 
 ---
 

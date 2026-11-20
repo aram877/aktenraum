@@ -1,5 +1,6 @@
 import { Test, type TestingModule } from "@nestjs/testing";
 import type { INestApplication } from "@nestjs/common";
+import type { NestExpressApplication } from "@nestjs/platform-express";
 import cookieParser from "cookie-parser";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { newDb } from "pg-mem";
@@ -158,14 +159,46 @@ CREATE TABLE member_removal_documents (
   trashed boolean NOT NULL DEFAULT false,
   PRIMARY KEY (member_id, paperless_doc_id)
 );
+CREATE TABLE sessions (
+  id bigserial PRIMARY KEY,
+  token_hash varchar(64) NOT NULL UNIQUE,
+  member_id integer NOT NULL REFERENCES members(id),
+  household_id integer NOT NULL REFERENCES households(id),
+  client_id varchar(32) NOT NULL DEFAULT 'spa',
+  auth_method varchar(16) NOT NULL CHECK (auth_method IN ('password', 'invite', 'passkey', 'recovery', 'setup')),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  last_seen_at timestamp with time zone NOT NULL DEFAULT now(),
+  idle_expires_at timestamp with time zone NOT NULL,
+  absolute_expires_at timestamp with time zone NOT NULL,
+  step_up_at timestamp with time zone,
+  user_agent varchar(512),
+  ip varchar(64),
+  revoked_at timestamp with time zone,
+  revoked_reason varchar(32) CHECK (revoked_reason IS NULL OR revoked_reason IN ('logout', 'user', 'other_device', 'password_change', 'member_removed'))
+);
+CREATE TABLE auth_rate_limit_events (
+  id bigserial PRIMARY KEY,
+  key varchar(160) NOT NULL,
+  at timestamp with time zone NOT NULL DEFAULT now()
+);
+CREATE TABLE auth_audit (
+  id bigserial PRIMARY KEY,
+  at timestamp with time zone NOT NULL DEFAULT now(),
+  event varchar(32) NOT NULL CHECK (event IN ('login_succeeded', 'login_failed', 'login_throttled', 'logout', 'session_revoked', 'password_changed', 'invite_redeemed')),
+  member_id integer,
+  actor_member_id integer,
+  session_id bigint,
+  username varchar(64),
+  reason varchar(32),
+  ip varchar(64),
+  user_agent varchar(512)
+);
 INSERT INTO app_settings (id) VALUES (1);
 `;
 
 export const TEST_ENV: NodeJS.ProcessEnv = {
   DATABASE_URL: "postgresql://test/test",
-  JWT_SECRET: "test-secret-not-for-prod-32-bytes-min",
   AKTENRAUM_SECRET_KEY: Buffer.alloc(32, 7).toString("base64"),
-  JWT_EXPIRES_SECONDS: "3600",
   COOKIE_SECURE: "false",
   BOOTSTRAP_USERNAME: "",
   BOOTSTRAP_PASSWORD: "",
@@ -205,6 +238,19 @@ function withArrayRowModeSupport(pool: RawPool): RawPool {
   return pool;
 }
 
+function createTestDatabase(): Database {
+  const mem = newDb({ autoCreateForeignKeyIndices: true });
+  mem.public.registerFunction({
+    name: "now",
+    returns: mem.public.getType("timestamp" as never) as never,
+    implementation: () => new Date(),
+  });
+  mem.public.none(SCHEMA_SQL);
+  const pgAdapter = mem.adapters.createPg() as { Pool: new () => RawPool };
+  const pool = withArrayRowModeSupport(new pgAdapter.Pool());
+  return drizzle(pool as never, { schema }) as Database;
+}
+
 export interface Harness {
   app: INestApplication;
   db: Database;
@@ -219,19 +265,11 @@ export async function createHarness(options: {
   retrieval?: RetrievalDeps | null;
   /** A fake `QdrantVectorStore`; default null (RAG off). */
   vectorStore?: unknown;
+  /** Reuse another harness's database — a "restarted" api on the same data. */
+  db?: Database;
 } = {}): Promise<Harness> {
   const settings = loadSettings({ ...TEST_ENV, ...options.env });
-
-  const mem = newDb({ autoCreateForeignKeyIndices: true });
-  mem.public.registerFunction({
-    name: "now",
-    returns: mem.public.getType("timestamp" as never) as never,
-    implementation: () => new Date(),
-  });
-  mem.public.none(SCHEMA_SQL);
-  const pgAdapter = mem.adapters.createPg() as { Pool: new () => RawPool };
-  const pool = withArrayRowModeSupport(new pgAdapter.Pool());
-  const db = drizzle(pool as never, { schema }) as Database;
+  const db = options.db ?? createTestDatabase();
 
   let builder = Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(SETTINGS)
@@ -265,7 +303,8 @@ export async function createHarness(options: {
   }
 
   const moduleRef: TestingModule = await builder.compile();
-  const app = moduleRef.createNestApplication();
+  const app = moduleRef.createNestApplication<NestExpressApplication>();
+  app.set("trust proxy", 1); // as in main.ts
   app.setGlobalPrefix("api");
   app.use(cookieParser());
   app.use(securityHeadersMiddleware);

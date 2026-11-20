@@ -1,4 +1,4 @@
-import { pgTable, varchar, unique, serial, timestamp, jsonb, boolean, numeric, integer, primaryKey, check, index, text, bigserial } from "drizzle-orm/pg-core"
+import { pgTable, varchar, unique, serial, timestamp, jsonb, boolean, numeric, integer, primaryKey, check, index, text, bigserial, bigint } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
 
 
@@ -210,4 +210,73 @@ export const memberRemovalDocuments = pgTable("member_removal_documents", {
 	trashed: boolean().default(false).notNull(),
 }, (table) => [
 	primaryKey({ name: "member_removal_documents_pkey", columns: [table.memberId, table.paperlessDocId] }),
+]);
+
+// ---------------------------------------------------------------------------
+// Authentication (auth-server-sessions, ADR-010 step 4). The value lists
+// already include what auth-passkeys adds, because applySchema can't widen a
+// CHECK or add a column later.
+// ---------------------------------------------------------------------------
+
+export type SessionAuthMethod = "password" | "invite" | "passkey" | "recovery" | "setup";
+export type SessionRevokedReason = "logout" | "user" | "other_device" | "password_change" | "member_removed";
+
+/** Server-side browser sessions. The cookie holds a random token; only its sha256 hex is stored. */
+export const sessions = pgTable("sessions", {
+	id: bigserial({ mode: "number" }).primaryKey().notNull(),
+	tokenHash: varchar("token_hash", { length: 64 }).notNull(),
+	memberId: integer("member_id").notNull().references(() => members.id),
+	householdId: integer("household_id").notNull().references(() => households.id),
+	clientId: varchar("client_id", { length: 32 }).default("spa").notNull(),
+	authMethod: varchar("auth_method", { length: 16 }).$type<SessionAuthMethod>().notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	lastSeenAt: timestamp("last_seen_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	idleExpiresAt: timestamp("idle_expires_at", { withTimezone: true, mode: 'string' }).notNull(),
+	absoluteExpiresAt: timestamp("absolute_expires_at", { withTimezone: true, mode: 'string' }).notNull(),
+	/** auth-passkeys: time of the last step-up confirmation. */
+	stepUpAt: timestamp("step_up_at", { withTimezone: true, mode: 'string' }),
+	userAgent: varchar("user_agent", { length: 512 }),
+	ip: varchar({ length: 64 }),
+	revokedAt: timestamp("revoked_at", { withTimezone: true, mode: 'string' }),
+	revokedReason: varchar("revoked_reason", { length: 32 }).$type<SessionRevokedReason>(),
+}, (table) => [
+	unique("sessions_token_hash_key").on(table.tokenHash),
+	check("sessions_auth_method_check", sql`${table.authMethod} IN ('password', 'invite', 'passkey', 'recovery', 'setup')`),
+	check("sessions_revoked_reason_check", sql`${table.revokedReason} IS NULL OR ${table.revokedReason} IN ('logout', 'user', 'other_device', 'password_change', 'member_removed')`),
+	index("sessions_member_id_idx").on(table.memberId),
+]);
+
+/** One row per failed login / invite attempt; the window is counted in SQL. */
+export const authRateLimitEvents = pgTable("auth_rate_limit_events", {
+	id: bigserial({ mode: "number" }).primaryKey().notNull(),
+	key: varchar({ length: 160 }).notNull(),
+	at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("auth_rate_limit_events_key_at_idx").on(table.key, table.at),
+]);
+
+export type AuthAuditEvent =
+	| "login_succeeded"
+	| "login_failed"
+	| "login_throttled"
+	| "logout"
+	| "session_revoked"
+	| "password_changed"
+	| "invite_redeemed";
+
+/** Authentication events, kept 180 days. No foreign keys: it outlives what it mentions. */
+export const authAudit = pgTable("auth_audit", {
+	id: bigserial({ mode: "number" }).primaryKey().notNull(),
+	at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	event: varchar({ length: 32 }).$type<AuthAuditEvent>().notNull(),
+	memberId: integer("member_id"),
+	actorMemberId: integer("actor_member_id"),
+	sessionId: bigint("session_id", { mode: "number" }),
+	username: varchar({ length: 64 }),
+	reason: varchar({ length: 32 }),
+	ip: varchar({ length: 64 }),
+	userAgent: varchar("user_agent", { length: 512 }),
+}, (table) => [
+	check("auth_audit_event_check", sql`${table.event} IN ('login_succeeded', 'login_failed', 'login_throttled', 'logout', 'session_revoked', 'password_changed', 'invite_redeemed')`),
+	index("auth_audit_at_idx").on(table.at),
 ]);

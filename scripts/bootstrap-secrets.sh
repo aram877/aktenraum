@@ -120,7 +120,7 @@ fi
 
 declare -a migrated_lines=()
 LEGACY_ENV_FILES=("${DOCKER_DIR}/backup.env" "${DOCKER_DIR}/aktenraum-api.env" "${DOCKER_DIR}/auto-tagger.env")
-for key in RESTIC_PASSWORD PAPERLESS_DBPASS JWT_SECRET WEBHOOK_SECRET PAPERLESS_API_TOKEN ANTHROPIC_API_KEY BOOTSTRAP_USERNAME BOOTSTRAP_PASSWORD; do
+for key in RESTIC_PASSWORD PAPERLESS_DBPASS WEBHOOK_SECRET PAPERLESS_API_TOKEN ANTHROPIC_API_KEY BOOTSTRAP_USERNAME BOOTSTRAP_PASSWORD; do
   [[ -n "$(read_value "$ENV_FILE" "$key")" ]] && continue
   for legacy in "${LEGACY_ENV_FILES[@]}"; do
     value="$(read_value "$legacy" "$key")"
@@ -139,10 +139,6 @@ fi
 
 if fill_if_empty PAPERLESS_SECRET_KEY gen_secret_hex; then
   generated_lines+=("Paperless framework secret key: generated ✓")
-fi
-
-if fill_if_empty JWT_SECRET gen_secret_b64; then
-  generated_lines+=("aktenraum-api JWT signing key: generated ✓")
 fi
 
 if fill_if_empty AKTENRAUM_SECRET_KEY gen_secret_b64; then

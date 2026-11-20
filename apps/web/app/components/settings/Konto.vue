@@ -110,5 +110,7 @@ async function onSubmit(): Promise<void> {
         {{ change.isPending.value ? "speichere…" : "Passwort ändern" }}
       </button>
     </form>
+
+    <SettingsGeraete class="mt-6 border-t border-hairline pt-5" />
   </div>
 </template>

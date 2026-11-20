@@ -15,6 +15,7 @@ import { processDocument } from "./extract.js";
 import { HomeSpacePendingError } from "./home-space.js";
 import {
   enqueueUnindexedDocuments,
+  reconcileChunkSpaces,
   indexDocument,
   INDEX_ERROR_TAG,
   reindexMetadata,
@@ -514,35 +515,81 @@ describe("enqueueUnindexedDocuments", () => {
       { kind: "full", docId: 3 },
     ]);
   });
+});
 
-  it("re-sets the chunk space of indexed documents whose chunks disagree with their home space", async () => {
+describe("reconcileChunkSpaces", () => {
+  const setup = () => {
     const paperless = new FakePaperless(["ai-propagated"]);
     const tag = paperless.tagIds.get("ai-propagated");
-    for (const id of [1, 2, 3, 4]) paperless.addDoc({ id, tags: [tag] });
+    for (const id of [1, 2, 3, 4, 5]) paperless.addDoc({ id, tags: [tag] });
     const store = {
-      countChunksForDoc: vi.fn(async () => 5),
-      // doc 1 already right, doc 2 stale, doc 3 lookup fails, doc 4 unassigned
+      // doc 5 has no chunks yet: the indexer will write the right space itself
+      countChunksForDoc: vi.fn(async (id: number) => (id === 5 ? 0 : 5)),
+      // doc 1 already right, doc 2 stale
       countChunksOutsideSpace: vi.fn(async (id: number) => (id === 2 ? 5 : 0)),
       setSpaceByDocId: vi.fn(async () => undefined),
     };
+    return { paperless, store, client: store as unknown as QdrantVectorStore };
+  };
+  const space = (id: number) => ({ spaceId: 9, sharedWith: [], peers: new Set([id]) });
+
+  it("re-sets the chunk space of indexed documents whose chunks disagree with their home space", async () => {
+    const { paperless, store, client } = setup();
     const lookup = vi.fn(async (id: number) => {
       if (id === 3) throw new Error("api down");
-      if (id === 4) return null;
-      return { spaceId: 9, sharedWith: [], peers: new Set([id]) };
+      if (id === 4) return null; // unassigned
+      return space(id);
     });
 
-    const count = await enqueueUnindexedDocuments(
-      paperless.asClient(),
-      store as unknown as QdrantVectorStore,
-      { push: () => undefined },
-      10,
-      lookup,
-    );
+    const result = await reconcileChunkSpaces(paperless.asClient(), client, lookup, undefined, 2);
 
-    expect(count).toBe(0);
-    expect(store.setSpaceByDocId).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ reconciled: 1, failed: [3], firstError: "api down" });
     expect(store.setSpaceByDocId).toHaveBeenCalledWith(2, { spaceId: 9, sharedWith: [] });
-    expect(lookup).toHaveBeenCalledTimes(4);
+    expect(lookup.mock.calls.map(([id]) => id)).toEqual([1, 2, 3, 4]);
+  });
+
+  it("checks only the given documents on a retry", async () => {
+    const { paperless, store, client } = setup();
+    const lookup = vi.fn(async (id: number) => space(id));
+
+    const result = await reconcileChunkSpaces(paperless.asClient(), client, lookup, [2, 3]);
+
+    expect(result).toEqual({ reconciled: 1, failed: [] });
+    expect(lookup.mock.calls.map(([id]) => id)).toEqual([2, 3]);
+    expect(store.countChunksForDoc).not.toHaveBeenCalled();
+  });
+
+  it("is retried until the api answers when the worker boots first", async () => {
+    const { paperless, store, client } = setup();
+    let apiUp = false;
+    const lookup = vi.fn(async (id: number) => {
+      if (!apiUp) throw new Error("fetch failed");
+      return space(id);
+    });
+    let pending: number[] | undefined;
+    let attempts = 0;
+
+    const reconciled = await retryUntilSuccess({
+      name: "t",
+      run: async () => {
+        attempts += 1;
+        const result = await reconcileChunkSpaces(paperless.asClient(), client, lookup, pending);
+        apiUp = true; // the api comes up between attempts
+        if (result.failed.length > 0) {
+          pending = result.failed;
+          throw new Error(`${result.failed.length} documents failed: ${result.firstError}`);
+        }
+        return result.reconciled;
+      },
+      attempts: 3,
+      delayMs: 1,
+      signal: new AbortController().signal,
+    });
+
+    expect(attempts).toBe(2);
+    expect(reconciled).toBe(1);
+    expect(lookup).toHaveBeenCalledTimes(4 + 4); // first pass all fail, retry only those 4
+    expect(store.setSpaceByDocId).toHaveBeenCalledWith(2, { spaceId: 9, sharedWith: [] });
   });
 });
 

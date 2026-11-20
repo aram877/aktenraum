@@ -17,6 +17,7 @@ import { apiHomeSpaceAssigner } from "./home-space.js";
 import { apiSpaceLookup } from "./space-lookup.js";
 import {
   enqueueUnindexedDocuments,
+  reconcileChunkSpaces,
   indexDocument,
   reindexMetadata,
   type IndexJob,
@@ -192,13 +193,34 @@ export async function bootstrap(): Promise<void> {
     );
     void retryUntilSuccess({
       name: "index_reconcile",
-      run: () => enqueueUnindexedDocuments(paperless, vectorStore, indexingQueue, 100, spaceLookup),
+      run: () => enqueueUnindexedDocuments(paperless, vectorStore, indexingQueue),
       attempts: 10,
       delayMs: 30_000,
       signal: controller.signal,
     }).then((count) => {
       if (count !== null) logger.info("index_reconcile_completed", { enqueued: count });
     });
+    if (spaceLookup !== undefined) {
+      // Separate step so a retry (aktenraum-api not listening yet at worker
+      // boot) re-checks only the failed documents and never re-enqueues jobs.
+      let pending: number[] | undefined;
+      void retryUntilSuccess({
+        name: "index_space_reconcile",
+        run: async () => {
+          const result = await reconcileChunkSpaces(paperless, vectorStore, spaceLookup, pending);
+          if (result.failed.length > 0) {
+            pending = result.failed;
+            throw new Error(`${result.failed.length} documents failed: ${result.firstError}`);
+          }
+          return result.reconciled;
+        },
+        attempts: 10,
+        delayMs: 30_000,
+        signal: controller.signal,
+      }).then((reconciled) => {
+        if (reconciled !== null) logger.info("index_space_reconcile_completed", { reconciled });
+      });
+    }
   }
 
   if (settings.ENABLE_HTTP_SERVER) {

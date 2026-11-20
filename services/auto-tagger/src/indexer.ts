@@ -221,17 +221,13 @@ export async function reindexMetadata(docId: number, deps: IndexingDeps): Promis
 }
 
 /**
- * Startup reconcile: enqueues every propagated document without chunks, and —
- * with a space lookup — re-sets the chunk `space_id` of indexed documents whose
- * chunks disagree with their home space (e.g. a move whose Qdrant step and
- * compensation both failed). A failing lookup skips that document only.
+ * Startup reconcile: enqueues every propagated document without chunks.
  */
 export async function enqueueUnindexedDocuments(
   paperless: PaperlessClient,
   vectorStore: QdrantVectorStore,
   queue: { push(job: IndexJob): void },
   pageSize = 100,
-  spaceLookup?: SpaceLookup,
 ): Promise<number> {
   let enqueued = 0;
   for (let page = 1; ; page++) {
@@ -240,8 +236,6 @@ export async function enqueueUnindexedDocuments(
       if ((await vectorStore.countChunksForDoc(doc.id)) === 0) {
         queue.push({ kind: "full", docId: doc.id });
         enqueued += 1;
-      } else if (spaceLookup !== undefined) {
-        await reconcileChunkSpace(doc.id, vectorStore, spaceLookup);
       }
     }
     if (batch.length < pageSize) break;
@@ -249,22 +243,53 @@ export async function enqueueUnindexedDocuments(
   return enqueued;
 }
 
-async function reconcileChunkSpace(
-  docId: number,
+export interface ChunkSpaceReconcileResult {
+  reconciled: number;
+  /** Documents whose space lookup (or Qdrant step) failed — retry these. */
+  failed: number[];
+  firstError?: string;
+}
+
+/**
+ * Startup reconcile: re-sets the chunk `space_id` of indexed documents whose
+ * chunks disagree with their home space (e.g. a move whose Qdrant step and
+ * compensation both failed). Checks every indexed propagated document, or only
+ * `onlyDocIds` (the previous attempt's failures). Never throws per document:
+ * failures are returned so the caller can retry them once the api is up — the
+ * worker may boot before aktenraum-api listens.
+ */
+export async function reconcileChunkSpaces(
+  paperless: PaperlessClient,
   vectorStore: QdrantVectorStore,
   spaceLookup: SpaceLookup,
-): Promise<void> {
-  try {
-    const space = await spaceLookup(docId);
-    if (space === null) return;
-    const stale = await vectorStore.countChunksOutsideSpace(docId, space.spaceId);
-    if (stale === 0) return;
-    await vectorStore.setSpaceByDocId(docId, { spaceId: space.spaceId, sharedWith: [...space.sharedWith] });
-    logger.warn("index_space_reconciled", { doc_id: docId, space_id: space.spaceId, chunks: stale });
-  } catch (error: unknown) {
-    logger.warn("index_space_reconcile_failed", {
-      doc_id: docId,
-      error: error instanceof Error ? error.message : String(error),
-    });
+  onlyDocIds?: readonly number[],
+  pageSize = 100,
+): Promise<ChunkSpaceReconcileResult> {
+  const result: ChunkSpaceReconcileResult = { reconciled: 0, failed: [] };
+  const check = async (docId: number): Promise<void> => {
+    try {
+      const space = await spaceLookup(docId);
+      if (space === null) return;
+      const stale = await vectorStore.countChunksOutsideSpace(docId, space.spaceId);
+      if (stale === 0) return;
+      await vectorStore.setSpaceByDocId(docId, { spaceId: space.spaceId, sharedWith: [...space.sharedWith] });
+      result.reconciled += 1;
+      logger.warn("index_space_reconciled", { doc_id: docId, space_id: space.spaceId, chunks: stale });
+    } catch (error: unknown) {
+      result.failed.push(docId);
+      result.firstError ??= error instanceof Error ? error.message : String(error);
+    }
+  };
+  if (onlyDocIds !== undefined) {
+    for (const docId of onlyDocIds) await check(docId);
+    return result;
   }
+  for (let page = 1; ; page++) {
+    const batch = await paperless.getDocumentsWithTag("ai-propagated", pageSize, "id", { page });
+    for (const doc of batch) {
+      if ((await vectorStore.countChunksForDoc(doc.id)) > 0) await check(doc.id);
+    }
+    if (batch.length < pageSize) break;
+  }
+  return result;
 }

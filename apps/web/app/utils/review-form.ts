@@ -32,6 +32,45 @@ export interface InboxDetail extends InboxItem {
   type_fields: Record<string, string> | null;
   /** The document's home space ("Akte"); null = not assigned yet. Optional for older api builds. */
   home_space?: HomeSpaceSummary | null;
+  /** Set when the document reaches the caller through a share. */
+  shared_by?: SharedBy | null;
+  /** How the caller reaches the document; the page hides actions it would be refused. */
+  access?: DocumentAccess | null;
+}
+
+export interface SharedBy {
+  username: string;
+  role: "viewer" | "editor";
+  expires_at: string | null;
+}
+
+export type DocumentAccess =
+  | { via: "space"; role: "owner" | "editor" | "viewer" }
+  | { via: "share"; role: "viewer" | "editor" }
+  | { via: "admin"; role: "admin" };
+
+/** Whether the caller may change the document's state (approve, reprocess, star, move, delete). */
+export function canChangeState(access: DocumentAccess | null | undefined): boolean {
+  if (access == null) return true; // older api builds: the server still decides
+  if (access.via === "share") return false;
+  return access.via === "admin" || access.role !== "viewer";
+}
+
+/** Whether the caller may correct AI and type fields. */
+export function canEditFields(access: DocumentAccess | null | undefined): boolean {
+  if (access == null) return true;
+  return access.role !== "viewer";
+}
+
+/** "Geteilt von alice · bis 31.12.2026" */
+export function sharedByLabel(shared: SharedBy): string {
+  const until = shared.expires_at ? ` · bis ${formatShareDate(shared.expires_at)}` : "";
+  return `Geteilt von ${shared.username}${until}`;
+}
+
+export function formatShareDate(iso: string): string {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? iso : date.toLocaleDateString("de-DE");
 }
 
 export interface HomeSpaceSummary {

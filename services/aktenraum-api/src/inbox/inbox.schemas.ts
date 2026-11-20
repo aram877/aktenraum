@@ -1,3 +1,4 @@
+import type { DocumentAccessInfo } from "../policy/policy.service.js";
 import { z } from "zod";
 
 export interface InboxItem {
@@ -25,8 +26,12 @@ export interface InboxDetail extends InboxItem {
   content_excerpt: string;
   tags: string[];
   type_fields: Record<string, string> | null;
-  /** The document's home space (ADR-009); null = not assigned yet. */
+  /** The document's home space (ADR-009); null = not assigned yet, or reached through a share. */
   home_space: HomeSpaceSummary | null;
+  /** Set when the caller reaches the document through a share. */
+  shared_by?: { username: string; role: "viewer" | "editor"; expires_at: string | null } | null;
+  /** How the caller reaches the document, so the SPA can hide actions it would be refused. */
+  access?: DocumentAccessInfo | null;
 }
 
 export interface HomeSpaceSummary {

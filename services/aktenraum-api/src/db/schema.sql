@@ -165,6 +165,42 @@ CREATE TABLE IF NOT EXISTS "upload_task_spaces" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 
+-- Per-document shares (tenancy-document-shares, ADR-009): the owner of a
+-- document's home space lends it to one other household member as viewer or
+-- editor, optionally until expires_at. A revoke deletes the row; the history
+-- lives in share_audit. "Active" is always decided in SQL
+-- (expires_at IS NULL OR expires_at > now()).
+CREATE TABLE IF NOT EXISTS "document_shares" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"paperless_doc_id" integer NOT NULL,
+	"member_id" integer NOT NULL REFERENCES "members"("id"),
+	"role" varchar(16) NOT NULL,
+	"expires_at" timestamp with time zone,
+	"granted_by" integer NOT NULL REFERENCES "members"("id"),
+	"granted_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "document_shares_doc_member_key" UNIQUE("paperless_doc_id", "member_id"),
+	CONSTRAINT "document_shares_role_check" CHECK ("role" IN ('viewer', 'editor'))
+);
+
+CREATE INDEX IF NOT EXISTS "document_shares_member_id_idx" ON "document_shares" ("member_id");
+
+-- Grants, changes, revokes, expiries and recipients' accesses of shares.
+-- actor_member_id is NULL for "expired". Accesses are deduplicated per
+-- document, member and kind per hour by the writer.
+CREATE TABLE IF NOT EXISTS "share_audit" (
+	"id" bigserial PRIMARY KEY NOT NULL,
+	"paperless_doc_id" integer NOT NULL,
+	"member_id" integer NOT NULL,
+	"actor_member_id" integer,
+	"event" varchar(16) NOT NULL,
+	"access_kind" varchar(16),
+	"at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "share_audit_event_check" CHECK ("event" IN ('granted', 'role_changed', 'expiry_changed', 'revoked', 'expired', 'accessed')),
+	CONSTRAINT "share_audit_access_kind_check" CHECK ("access_kind" IS NULL OR "access_kind" IN ('detail', 'preview', 'download', 'ask'))
+);
+
+CREATE INDEX IF NOT EXISTS "share_audit_doc_at_idx" ON "share_audit" ("paperless_doc_id", "at");
+
 INSERT INTO "alembic_version" ("version_num")
 SELECT '0006'
 WHERE NOT EXISTS (SELECT 1 FROM "alembic_version");

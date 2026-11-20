@@ -5,6 +5,8 @@ import type { Principal } from "../auth/principal.js";
 import { AutoTaggerClient } from "../auto-tagger/auto-tagger.client.js";
 import type { CustomFieldEntry, PaperlessDocument, PaperlessGateway } from "../paperless/paperless.gateway.js";
 import { collectTagIds } from "../paperless/tag-ids.js";
+import { PolicyService } from "../policy/policy.service.js";
+import { SharesService } from "../shares/shares.service.js";
 import { TenancyService } from "../tenancy/tenancy.service.js";
 import { TypeFieldsService } from "../type-fields/type-fields.service.js";
 import {
@@ -53,12 +55,12 @@ export const PENDING_SCAN_LIMIT = 500;
  */
 export async function reviewablePendingIds(
   gateway: Pick<PaperlessGateway, "searchDocuments">,
-  tenancy: Pick<TenancyService, "viewerDocumentIds">,
+  tenancy: Pick<TenancyService, "notReviewableDocumentIds">,
   principal: Principal,
   pendingTagId: number,
 ): Promise<number[] | null> {
   if (principal.kind !== "member") return null;
-  const excluded = await tenancy.viewerDocumentIds(principal.memberId);
+  const excluded = await tenancy.notReviewableDocumentIds(principal.memberId);
   if (excluded.size === 0) return null;
   const payload = await gateway.searchDocuments(
     { tags__id: pendingTagId, fields: "id", ordering: "id" },
@@ -86,6 +88,8 @@ export class InboxService {
     private readonly typeFields: TypeFieldsService,
     private readonly autoTagger: AutoTaggerClient,
     private readonly tenancy: TenancyService,
+    private readonly policy: PolicyService,
+    private readonly shares: SharesService,
   ) {}
 
   /** The member's own Paperless gateway (service gateway for the worker). */
@@ -103,6 +107,7 @@ export class InboxService {
     pageSize: number;
     ordering: string;
   }): Promise<InboxList> {
+    if (principal.kind === "member") await this.shares.expireDue(principal.memberId);
     const gateway = await this.gateway(principal);
     const nameToId = await gateway.listTags();
     const pendingId = nameToId[PENDING_TAG];
@@ -147,7 +152,21 @@ export class InboxService {
       ),
     );
     const detail = this.projectDetail(doc, fieldIdToName, tagIdToName);
-    detail.home_space = await this.tenancy.homeSpaceSummary(docId);
+    const access = await this.policy.accessOf(principal, docId);
+    detail.access = access;
+    if (access?.via === "share" && principal.kind === "member") {
+      // The recipient learns who shared it, never the sharer's space name.
+      const share = (await this.tenancy.sharesReceivedBy(principal.memberId, [docId])).get(docId);
+      const names = await this.tenancy.usernamesOf(share === undefined ? [] : [share.grantedBy]);
+      detail.home_space = null;
+      detail.shared_by =
+        share === undefined
+          ? null
+          : { username: names.get(share.grantedBy) ?? "", role: share.role, expires_at: share.expiresAt };
+    } else {
+      detail.home_space = await this.tenancy.homeSpaceSummary(docId);
+      detail.shared_by = null;
+    }
     if (options.withTypeFields !== false) {
       const row = await this.typeFields.get(docId);
       detail.type_fields =

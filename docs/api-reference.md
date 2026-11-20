@@ -80,6 +80,22 @@ Every member (`spaces:manage`). A space the caller isn't in answers `404`; perso
 
 `POST /api/documents/{doc_id}/move` `{space_id}` → `200 {doc_id, status: "moved"|"unchanged"}`. Needs `owner` of the document's current space (`403` otherwise; `404` when the caller can't read it) and `owner`/`editor` of the target (`403` for a viewer, `404` for a space the caller isn't in). A move rewrites the home space, the Paperless owner + permissions and the Qdrant `space_id` together; any failure restores the original space and answers `502`.
 
+## Shares — per-document (`tenancy-document-shares`)
+
+Every member (`shares:manage`). The per-document routes need `owner` of the document's home space; anyone else (space editors/viewers, recipients, outsiders) gets `404`. Grant, change and revoke update the DB, the Paperless permissions and the Qdrant `shared_with` together; a failure is undone and answers `502`. Expired shares count as absent everywhere.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/documents/{doc_id}/shares` | `[{member_id, username, role: "viewer"\|"editor", expires_at, granted_at, granted_by}]` — active shares |
+| POST | `/api/documents/{doc_id}/shares` | `{member_id, role, expires_at? (ISO with offset)}` → `201` share. `409` existing share or member of the home space; `422` self, unknown member, past expiry |
+| PATCH | `/api/documents/{doc_id}/shares/{member_id}` | `{role?, expires_at?}` (`expires_at: null` clears it; at least one field) → `200` share; `404` no active share |
+| DELETE | `/api/documents/{doc_id}/shares/{member_id}` | `204`; access ends at once (aktenraum, Paperless, Ask) |
+| GET | `/api/documents/{doc_id}/shares/audit` | `[{id, member_id, member, actor, event, access_kind, at}]`, newest first, ≤ 500. Events `granted`, `role_changed`, `expiry_changed`, `revoked`, `expired` (actor null), `accessed` (kind `detail`/`preview`/`download`/`ask`, ≤ 1 per kind and hour) |
+| GET | `/api/shares/with-me` | `[{doc_id, title, shared_by, role, expires_at}]` — trashed documents left out |
+| GET | `/api/shares/by-me` | `[{doc_id, title, member: {id, username}, role, expires_at, granted_at}]` — shares on documents whose home space the caller owns (follows a move) |
+
+A `viewer` share reads, previews, downloads and finds the document in Ask; an `editor` share may also `PATCH /fields` and `PATCH /type-fields`. Approve, reject, reprocess, star, dismiss-duplicate, move, delete and sharing are refused (`404`, move `403`).
+
 **Member scoping**: every member-facing endpoint below reaches Paperless with the calling member's own Paperless token, so lists, counts and by-id access only cover documents that member may see; another member's document answers `404`. Exceptions: worker-only internal routes, and `/api/ingest/activity` for the household admin (household-wide imports).
 
 ## AI features — `/api/ai/*`
@@ -187,8 +203,8 @@ double-downloading.
 | POST | `/api/documents/upload` | 🔒 | Multipart `files` (one or many), optional `space_id` (target space — `owner`/`editor` only, else `403` before anything reaches Paperless; absent = personal space). Streams each through to Paperless's `/api/documents/post_document/`. Per-file failure is isolated. Returns `{results: [{filename, status, task_id, detail}]}`. |
 | POST | `/api/documents/reprocess-failed` | 🔒 | Reprocesses every document in the error state (same semantics as single reprocess), sequentially, up to 200 per call. Per-document failures are collected, not fatal. Returns `{requested, reprocessed, failed: [{doc_id, detail}], remaining}`. |
 | POST | `/api/documents/{id}/reprocess` | 🔒 | Clears every lifecycle tag and pings the auto-tagger webhook. Falls back to the 30s poller if the webhook is unreachable. Returns `ReprocessResponse`. |
-| GET  | `/api/documents/{id}/detail` | 🔒 | Full review payload (same shape as `/api/inbox/{id}`) — works on any doc, not just `ai-pending`. |
-| PATCH | `/api/documents/{id}/fields` | 🔒 | Partial update of the 12 AI fields. Body `InboxFieldUpdate`. |
+| GET  | `/api/documents/{id}/detail` | 🔒 | Full review payload (same shape as `/api/inbox/{id}`) — works on any doc, not just `ai-pending`. Carries `home_space`, `access: {via: "space"\|"share"\|"admin", role}` and, for a document reached through a share, `home_space: null` + `shared_by: {username, role, expires_at}`. |
+| PATCH | `/api/documents/{id}/fields` | 🔒 | Partial update of the 12 AI fields. Body `InboxFieldUpdate`. Action `edit-fields`: space owner/editor or an editor share. |
 | GET  | `/api/documents/processing` | 🔒 | Current auto-tagger work in flight — extraction / propagation / indexer slot occupants. Used by the Library page to pin in-flight docs to the top of page 1. |
 | GET  | `/api/documents/in-flight` | 🔒 | `{count: number}` — docs carrying `ai-pending` or `ai-approved`. The Nav badge consumes this via the `/api/events/counts` SSE stream. |
 | GET  | `/api/documents/task/{uuid}` | 🔒 | Proxies Paperless's task lookup. `{task_id, status, doc_id?, result?}`. `doc_id` is regex-fallback parsed from the result string for older Paperless versions. |
@@ -210,7 +226,7 @@ view in the SPA uses these.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| GET  | `/api/inbox/` | 🔒 | Paginated list of `ai-pending` docs — only from spaces where the caller is `owner` or `editor` (viewers see pending documents in the library only; the live-counts inbox number follows the same rule). Query: `page`, `page_size` (default 20, max 100), `ordering` (allowlisted, default `-modified`; unknown values fall back to the default). |
+| GET  | `/api/inbox/` | 🔒 | Paginated list of `ai-pending` docs — only from spaces where the caller is `owner` or `editor` (viewers see pending documents in the library only, documents shared with the caller never appear; the live-counts inbox number follows the same rule). Query: `page`, `page_size` (default 20, max 100), `ordering` (allowlisted, default `-modified`; unknown values fall back to the default). |
 | GET  | `/api/inbox/{id}` | 🔒 | Full review payload (12 `ai_*` fields + content excerpt + tags). |
 | PATCH | `/api/inbox/{id}` | 🔒 | Partial field update (`InboxFieldUpdate`). |
 | POST | `/api/inbox/{id}/approve` | 🔒 | Optional body to patch fields in the same call. Tag swap `ai-pending` → `ai-approved`. Idempotent re-approve is a no-op. |
@@ -249,7 +265,7 @@ gotcha and is handled by `mergeCustomFields`.
 
 Returns `{results: LibraryItem[], total, page, page_size}`. `LibraryItem`
 carries `lifecycle_tags` (small badge per tag — propagated / approved /
-rejected / error) and `home_space {id, name, kind}` (null while unassigned), and falls back to AI custom fields when the native
+rejected / error), `home_space {id, name, kind}` (null while unassigned, or when the caller reaches the document only through a share) and `shared_by {username, role, expires_at}` (shared documents; null otherwise), and falls back to AI custom fields when the native
 correspondent / doc_type FK is unset.
 
 ---

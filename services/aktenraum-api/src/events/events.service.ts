@@ -4,6 +4,7 @@ import type { Principal } from "../auth/principal.js";
 
 import { reviewablePendingIds } from "../inbox/inbox.service.js";
 import { errorTagIds } from "../paperless/status-tags.js";
+import { SharesService } from "../shares/shares.service.js";
 import { TenancyService } from "../tenancy/tenancy.service.js";
 
 export interface LiveCounts {
@@ -28,6 +29,7 @@ export class EventsService {
   constructor(
     private readonly gateways: MemberGateways,
     private readonly tenancy: TenancyService,
+    private readonly shares: SharesService,
   ) {}
 
   /**
@@ -36,6 +38,7 @@ export class EventsService {
    * request rather than their sum.
    */
   async computeCounts(principal: Principal): Promise<LiveCounts> {
+    if (principal.kind === "member") await this.shares.expireDue(principal.memberId);
     const gateway = await this.gateways.forPrincipal(principal);
     const tags = await gateway.listTags();
     const pendingId = tags[PENDING_TAG];
@@ -65,7 +68,7 @@ export class EventsService {
     return { inbox, in_flight: inFlight, trash, errors };
   }
 
-  /** Same rule as the review inbox: viewer-space documents don't count. */
+  /** Same rule as the review inbox: viewer-space and shared documents don't count. */
   private async inboxCount(
     gateway: Awaited<ReturnType<MemberGateways["forPrincipal"]>>,
     principal: Principal,

@@ -8,6 +8,7 @@ import { customFieldValues, parseDate } from "../inbox/inbox.service.js";
 import type { PaperlessDocument, PaperlessGateway, QueryParams } from "../paperless/paperless.gateway.js";
 import { statusFilter, type LibraryStatus } from "../paperless/status-tags.js";
 import { collectTagIds } from "../paperless/tag-ids.js";
+import { SharesService } from "../shares/shares.service.js";
 import { TenancyService } from "../tenancy/tenancy.service.js";
 import type { LibraryItem, LibraryList, TagFacetList } from "./library.schemas.js";
 
@@ -135,6 +136,7 @@ export class LibraryService {
     private readonly gateways: MemberGateways,
     private readonly autoTagger: AutoTaggerClient,
     private readonly tenancy: TenancyService,
+    private readonly shares: SharesService,
   ) {}
 
   /** The member's own Paperless gateway (service gateway for the worker). */
@@ -143,6 +145,8 @@ export class LibraryService {
   }
 
   async listLibrary(principal: Principal, query: LibraryQuery): Promise<LibraryList> {
+    // An expired share must not linger in the list between two sweeps.
+    if (principal.kind === "member") await this.shares.expireDue(principal.memberId);
     const gateway = await this.gateway(principal);
     const correspondents = await gateway.listCorrespondents();
     const documentTypes = await gateway.listDocumentTypes();
@@ -236,8 +240,14 @@ export class LibraryService {
       }
     }
 
-    const homes = await this.tenancy.homeSpacesOf(items.map((item) => item.id));
-    items = items.map((item) => ({ ...item, home_space: homes.get(item.id) ?? null }));
+    const labels = await this.tenancy.documentLabels(
+      principal.kind === "member" ? principal.memberId : null,
+      items.map((item) => item.id),
+    );
+    items = items.map((item) => {
+      const label = labels.get(item.id);
+      return { ...item, home_space: label?.homeSpace ?? null, shared_by: label?.sharedBy ?? null };
+    });
 
     return { results: items, total: totalNative, page: query.page, page_size: query.pageSize };
   }

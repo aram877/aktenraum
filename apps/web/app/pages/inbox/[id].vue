@@ -14,6 +14,8 @@ const reject = useReject(id);
 
 const mobilePane = ref<"pdf" | "form">("form");
 const starred = computed(() => hasTag(detail.data.value?.tags, "wichtig"));
+const mayChangeState = computed(() => canChangeState(detail.data.value?.access));
+const mayEditFields = computed(() => canEditFields(detail.data.value?.access));
 const { form, patch } = useHydratedForm(detail.data);
 
 const anyPending = computed(() => approve.isPending.value || reject.isPending.value);
@@ -39,7 +41,7 @@ function advance(direction: "next" | "prev"): void {
 }
 
 async function onApprove(): Promise<void> {
-  if (!detail.data.value || anyPending.value) return;
+  if (!detail.data.value || anyPending.value || !mayChangeState.value) return;
   try {
     await approve.mutateAsync(Object.keys(patch.value).length > 0 ? patch.value : undefined);
     advance("next");
@@ -49,7 +51,7 @@ async function onApprove(): Promise<void> {
 }
 
 async function onReject(): Promise<void> {
-  if (anyPending.value) return;
+  if (anyPending.value || !mayChangeState.value) return;
   try {
     await reject.mutateAsync();
     advance("next");
@@ -86,10 +88,15 @@ useShortcuts(
           <HomeSpaceBadge
             v-if="detail.data.value && detail.data.value.home_space !== undefined"
             :space="detail.data.value.home_space"
+            :shared-by="detail.data.value.shared_by"
             class="hidden sm:inline-flex"
           />
-          <SpacesMoveControl v-if="id !== null && detail.data.value" :doc-id="id" :space="detail.data.value.home_space" />
-          <StarToggle v-if="id !== null && detail.data.value" :doc-id="id" :starred="starred" />
+          <SpacesMoveControl
+            v-if="id !== null && detail.data.value && mayChangeState"
+            :doc-id="id"
+            :space="detail.data.value.home_space"
+          />
+          <StarToggle v-if="id !== null && detail.data.value && mayChangeState" :doc-id="id" :starred="starred" />
         </div>
         <span class="hidden text-[11px] text-ink-subtle md:inline">
           <kbd>a</kbd> genehmigen · <kbd>r</kbd> ablehnen · <kbd>j</kbd>/<kbd>k</kbd> blättern · <kbd>Esc</kbd> zurück
@@ -123,9 +130,10 @@ useShortcuts(
           v-model="form"
           :confidence="detail.data.value.ai_confidence"
           :confidence-reason="detail.data.value.ai_confidence_reason"
+          :readonly="!mayEditFields"
         />
 
-        <div class="mt-2 flex flex-wrap gap-2">
+        <div v-if="mayChangeState" class="mt-2 flex flex-wrap gap-2">
           <button
             type="button"
             :disabled="anyPending"
@@ -151,6 +159,7 @@ useShortcuts(
           :doc-id="id"
           :document-type="detail.data.value.ai_document_type"
           :values="detail.data.value.type_fields"
+          :readonly="!mayEditFields"
         />
       </section>
     </div>

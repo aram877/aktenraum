@@ -9,6 +9,7 @@ import {
 import type { Reflector } from "@nestjs/core";
 import type { Request } from "express";
 
+import type { ShareAccessKindValue } from "../db/schema.js";
 import type { DocumentAction, PolicyService } from "../policy/policy.service.js";
 
 /**
@@ -92,6 +93,7 @@ export function workerPrincipal(): ServicePrincipal {
 
 export const REQUIRED_SCOPES = "aktenraum:required-scopes";
 export const DOCUMENT_ACCESS = "aktenraum:document-access";
+export const SHARE_ACCESS_KIND = "aktenraum:share-access-kind";
 
 /**
  * Scopes a route accepts — the principal needs ANY of them. No arguments means
@@ -101,6 +103,12 @@ export const RequireScope = (...scopes: Scope[]) => SetMetadata(REQUIRED_SCOPES,
 
 /** The route addresses one document by `:doc_id`; the policy decides the action. */
 export const DocumentAccess = (action: DocumentAction) => SetMetadata(DOCUMENT_ACCESS, action);
+
+/**
+ * A read route whose use by a share recipient is audited (detail, preview,
+ * download). Space members are never logged.
+ */
+export const ShareAccessKind = (kind: Exclude<ShareAccessKindValue, "ask">) => SetMetadata(SHARE_ACCESS_KIND, kind);
 
 export const CurrentPrincipal = createParamDecorator(
   (_data: unknown, context: ExecutionContext): Principal => {
@@ -135,7 +143,8 @@ export async function authorize(
   if (action === undefined) return;
   const request = context.switchToHttp().getRequest<PrincipalRequest>();
   const docId = Number(request.params?.doc_id);
-  if (!Number.isInteger(docId) || !(await policy.canAccessDocument(principal, docId, action))) {
+  const accessKind = reflector.getAllAndOverride<ShareAccessKindValue | undefined>(SHARE_ACCESS_KIND, targets);
+  if (!Number.isInteger(docId) || !(await policy.authorizeDocument(principal, docId, action, accessKind))) {
     throw new NotFoundException(`Document ${request.params?.doc_id} not found`);
   }
 }

@@ -16,8 +16,16 @@ export interface LibraryItem {
   tags: string[];
   ai_error_message: string | null;
   is_processing: boolean;
-  /** The document's home space; null while it has none yet. */
+  /** The document's home space; null while it has none yet, or when it only reaches the caller through a share. */
   home_space: LibrarySpace | null;
+  /** Set when the document reaches the caller through a share ("Geteilt von …"). */
+  shared_by?: SharedBy | null;
+}
+
+export interface SharedBy {
+  username: string;
+  role: "viewer" | "editor";
+  expires_at: string | null;
 }
 
 export interface LibraryList {

@@ -21,7 +21,7 @@ export interface DocumentSpaceResponse {
   document_id: number;
   /** null = no home space yet. */
   space_id: number | null;
-  /** Member ids the document is shared with (always empty until tenancy-sharing). */
+  /** Member ids the document is actively shared with (sorted). */
   shared_with: number[];
   /** Every document of the same home space (empty when unassigned). */
   space_document_ids: number[];
@@ -46,11 +46,11 @@ export class TenancyController {
   @DocumentAccess("read")
   @UseGuards(InternalGuard)
   async documentSpace(@Param("doc_id", ParseIntPipe) docId: number): Promise<DocumentSpaceResponse> {
-    const spaceId = await this.tenancy.homeSpaceOf(docId);
+    const { spaceId, sharedWith } = await this.tenancy.qdrantSpaceFor(docId);
     return {
       document_id: docId,
       space_id: spaceId,
-      shared_with: [],
+      shared_with: sharedWith,
       space_document_ids: spaceId === null ? [] : await this.tenancy.spaceDocumentIds(spaceId),
     };
   }

@@ -27,6 +27,7 @@ import { PaperlessGatewayProvider } from "../paperless/paperless.module.js";
 import { PolicyService } from "../policy/policy.service.js";
 import { VECTOR_STORE } from "../rag/rag.module.js";
 import { MemberGateways } from "../tenancy/member-gateways.js";
+import { TenancyService } from "../tenancy/tenancy.service.js";
 import {
   mirrorDocument,
   removeFromSpaceGroups,
@@ -96,6 +97,7 @@ export class SpacesService {
     private readonly gatewayProvider: PaperlessGatewayProvider,
     private readonly gateways: MemberGateways,
     private readonly policy: PolicyService,
+    private readonly tenancy: TenancyService,
     @Inject(VECTOR_STORE) private readonly vectorStore: QdrantVectorStore | null,
   ) {}
 
@@ -409,7 +411,9 @@ export class SpacesService {
       await mirrorDocument(this.db, service, docId);
       if (this.vectorStore !== null) {
         qdrantTouched = true;
-        await this.vectorStore.setSpaceByDocId(docId, { spaceId: targetSpaceId, sharedWith: [] });
+        // Shares survive a move: the recipients stay in `shared_with`.
+        const { sharedWith } = await this.tenancy.qdrantSpaceFor(docId);
+        await this.vectorStore.setSpaceByDocId(docId, { spaceId: targetSpaceId, sharedWith });
       }
     } catch (error: unknown) {
       await this.compensateMove(docId, sourceSpaceId, targetSpaceId, qdrantTouched);
@@ -429,7 +433,8 @@ export class SpacesService {
     try {
       await mirrorDocument(this.db, this.gatewayProvider.service(), docId);
       if (qdrantTouched && this.vectorStore !== null) {
-        await this.vectorStore.setSpaceByDocId(docId, { spaceId: sourceSpaceId, sharedWith: [] });
+        const { sharedWith } = await this.tenancy.qdrantSpaceFor(docId);
+        await this.vectorStore.setSpaceByDocId(docId, { spaceId: sourceSpaceId, sharedWith });
       }
     } catch (error: unknown) {
       // The worker's startup reconcile re-sets stale chunk spaces; Paperless

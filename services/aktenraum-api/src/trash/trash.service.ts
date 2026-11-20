@@ -3,7 +3,7 @@ import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { inArray } from "drizzle-orm";
 
 import { DB, type Database } from "../db/db.module.js";
-import { documentSpaces } from "../db/schema.js";
+import { documentShares, documentSpaces } from "../db/schema.js";
 import { MemberGateways } from "../tenancy/member-gateways.js";
 import type { Principal } from "../auth/principal.js";
 
@@ -121,10 +121,12 @@ export class TrashService {
 
   /**
    * A hard-deleted document no longer exists, so its home-space row goes too —
-   * otherwise its space could never be deleted ("empty incl. trash").
+   * otherwise its space could never be deleted ("empty incl. trash") — and so
+   * do its shares (the audit entries stay).
    */
   private async forgetHomeSpaces(docIds: number[]): Promise<void> {
     try {
+      await this.db.delete(documentShares).where(inArray(documentShares.paperlessDocId, docIds));
       await this.db.delete(documentSpaces).where(inArray(documentSpaces.paperlessDocId, docIds));
     } catch (error: unknown) {
       logger.warn("trash_home_space_cleanup_failed", {

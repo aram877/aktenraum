@@ -3,6 +3,7 @@ const props = defineProps<{
   docId: number;
   documentType: string | null;
   values: Record<string, string> | null;
+  readonly?: boolean;
 }>();
 
 const schema = useTypeFieldSchema();
@@ -52,6 +53,7 @@ async function onSave(): Promise<void> {
           :name="`type-field-${def.name}`"
           :placeholder="FIELD_TYPE_PLACEHOLDER[def.field_type]"
           :value="draft[def.name]"
+          :readonly="props.readonly"
           class="mt-1 w-full rounded-lg border border-hairline bg-surface px-3 py-2 text-sm text-ink"
           @input="setField(def.name, $event)"
         >
@@ -60,7 +62,7 @@ async function onSave(): Promise<void> {
     <p v-if="save.isError.value" role="alert" class="mt-2 text-xs text-red-700">
       {{ detailFrom(save.error.value, "Felder konnten nicht gespeichert werden.") }}
     </p>
-    <div class="mt-2 flex items-center gap-2">
+    <div v-if="!props.readonly" class="mt-2 flex items-center gap-2">
       <button
         type="button"
         data-testid="save-type-fields"

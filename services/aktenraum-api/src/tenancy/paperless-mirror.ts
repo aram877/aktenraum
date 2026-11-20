@@ -4,7 +4,15 @@ import { logger } from "@aktenraum/core";
 import { and, asc, eq } from "drizzle-orm";
 
 import type { Database } from "../db/db.module.js";
-import { documentSpaces, members, spaceMembers, spacePaperlessGroups, spaces } from "../db/schema.js";
+import {
+  documentShares,
+  documentSpaces,
+  members,
+  spaceMembers,
+  spacePaperlessGroups,
+  spaces,
+} from "../db/schema.js";
+import { shareActive } from "./share-active.js";
 import type {
   DocumentPermissions,
   ObjectPermissions,
@@ -228,6 +236,47 @@ export async function spaceDocumentPermissions(
   };
 }
 
+/**
+ * Paperless user ids of a document's active share recipients
+ * (tenancy-document-shares): every recipient may view, editors may also
+ * change. Provisions recipients' Paperless users on the way. Expired rows are
+ * left out, so the expiry sweep's re-mirror drops them.
+ */
+export async function shareUserGrants(
+  db: Database,
+  paperless: PaperlessTenancyPort,
+  docId: number,
+): Promise<{ view: number[]; change: number[] }> {
+  const rows = await db
+    .select({ memberId: documentShares.memberId, role: documentShares.role })
+    .from(documentShares)
+    .where(and(eq(documentShares.paperlessDocId, docId), shareActive))
+    .orderBy(asc(documentShares.memberId));
+  const view: number[] = [];
+  const change: number[] = [];
+  for (const row of rows) {
+    const { paperlessUserId } = await provisionMemberUser(db, paperless, row.memberId);
+    view.push(paperlessUserId);
+    if (row.role === "editor") change.push(paperlessUserId);
+  }
+  const byId = (a: number, b: number) => a - b;
+  return { view: view.sort(byId), change: change.sort(byId) };
+}
+
+/** The space target plus share users; no shares = exactly the space target. */
+export function withShareUsers(
+  target: DocumentPermissions,
+  shares: { view: number[]; change: number[] },
+): DocumentPermissions {
+  return {
+    owner: target.owner,
+    permissions: {
+      view: { users: shares.view, groups: target.permissions.view.groups },
+      change: { users: shares.change, groups: target.permissions.change.groups },
+    },
+  };
+}
+
 export type MirrorOutcome = "unchanged" | "updated" | "unassigned";
 
 /** Brings one document's Paperless owner + permissions in line with its home space. */
@@ -243,7 +292,10 @@ export async function mirrorDocument(
     .limit(1);
   const spaceId = home[0]?.spaceId;
   if (spaceId === undefined) return "unassigned";
-  const target = await spaceDocumentPermissions(db, paperless, spaceId);
+  const target = withShareUsers(
+    await spaceDocumentPermissions(db, paperless, spaceId),
+    await shareUserGrants(db, paperless, docId),
+  );
   const current = await paperless.getDocumentPermissions(docId);
   if (samePermissions(current, target)) return "unchanged";
   await paperless.setDocumentPermissions(docId, target);

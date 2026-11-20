@@ -30,7 +30,12 @@ const links = computed(() => [
   { to: "/", label: "Start", exact: true },
   { to: "/ask", label: "Ask AI", exact: false },
   { to: "/library", label: "Bibliothek", exact: false },
-  ...(spacesVisible.value ? [{ to: "/akten", label: "Akten", exact: false }] : []),
+  ...(spacesVisible.value
+    ? [
+        { to: "/akten", label: "Akten", exact: false },
+        { to: "/geteilt", label: "Geteilt", exact: false },
+      ]
+    : []),
   { to: "/upload", label: "Hochladen", exact: false },
   { to: "/activity", label: "Aktivität", exact: false },
   { to: "/trash", label: "Papierkorb", exact: false },

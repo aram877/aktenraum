@@ -7,6 +7,7 @@ import type { MemberPrincipal } from "../auth/principal.js";
 import type { PaperlessDocument, PaperlessGateway } from "../paperless/paperless.gateway.js";
 import { collectTagIds } from "../paperless/tag-ids.js";
 import { RETRIEVAL_DEPS } from "./retrieval.module.js";
+import { SharesService } from "../shares/shares.service.js";
 import { TenancyService } from "../tenancy/tenancy.service.js";
 import { TypeFieldsService } from "../type-fields/type-fields.service.js";
 import {
@@ -176,7 +177,26 @@ export class AiService {
     private readonly typeFields: TypeFieldsService,
     @Inject(RETRIEVAL_DEPS) private readonly retrievalDeps: RetrievalDeps | null,
     private readonly tenancy: TenancyService,
+    private readonly shares: SharesService,
   ) {}
+
+  /** Ends the member's due shares before retrieval, so Ask never answers from an expired one. */
+  async expireSharesFor(principal: Principal): Promise<void> {
+    if (principal.kind === "member") await this.shares.expireDue(principal.memberId);
+  }
+
+  /** Audits `ask` for every cited document the member reads through a share (best effort). */
+  async auditSharedCitations(principal: Principal, citations: readonly { id: number }[]): Promise<void> {
+    if (principal.kind !== "member" || citations.length === 0) return;
+    try {
+      const labels = await this.tenancy.documentLabels(principal.memberId, citations.map((c) => c.id));
+      for (const [docId, label] of labels) {
+        if (label.sharedBy !== null) await this.tenancy.recordShareAccess(docId, principal.memberId, "ask");
+      }
+    } catch (error: unknown) {
+      logger.warn("share_audit_failed", { kind: "ask", error: error instanceof Error ? error.message : String(error) });
+    }
+  }
 
   /** The member's own Paperless gateway (service gateway for the worker). */
   gateway(principal: Principal): Promise<PaperlessGateway> {

@@ -128,6 +128,7 @@ export class AiController {
       return;
     }
 
+    await this.aiService.expireSharesFor(principal);
     const retrievalFilter = broadenForAnswer(searchFilter);
     const [results, total] = await this.aiService.executeFilter(principal, retrievalFilter);
 
@@ -182,6 +183,7 @@ export class AiController {
       citations = promptResults;
     }
 
+    await this.aiService.auditSharedCitations(principal, citations);
     sse(response, "final", { answer_de: answerText, citations, total });
   }
 
@@ -199,6 +201,7 @@ export class AiController {
       searchFilterSchema,
     )) as SearchFilter;
 
+    await this.aiService.expireSharesFor(principal);
     const retrievalFilter = broadenForAnswer(searchFilter);
     const [results, total] = await this.aiService.executeFilter(principal, retrievalFilter);
     if (results.length === 0) {
@@ -255,6 +258,7 @@ export class AiController {
       citations = results.slice(0, ANSWER_CONTEXT_SIZE);
     }
 
+    await this.aiService.auditSharedCitations(principal, citations);
     return {
       question: body.question,
       answer_de: answerText || NO_MATCH_DE,

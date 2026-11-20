@@ -472,7 +472,8 @@ function valueOf(event: Event): string {
                         <td class="px-3 py-2 text-ink-muted">{{ row.correspondent ?? "—" }}</td>
                         <td class="px-3 py-2 text-ink-muted">{{ row.created ?? "—" }}</td>
                         <td v-if="spacesVisible" class="px-3 py-2 text-ink-muted" data-testid="row-space">
-                          {{ row.home_space ? spaceLabel(row.home_space) : "—" }}
+                          <span v-if="row.shared_by" class="text-sky-700" data-testid="row-shared-by">{{ sharedByLabel(row.shared_by) }}</span>
+                          <template v-else>{{ row.home_space ? spaceLabel(row.home_space) : "—" }}</template>
                         </td>
                         <td class="px-3 py-2">
                           <ProcessingBadge
@@ -491,7 +492,10 @@ function valueOf(event: Event): string {
                     <NuxtLink :to="`/library/${row.id}`" class="text-sm font-medium text-ink">{{ row.title }}</NuxtLink>
                     <p class="mt-1 text-xs text-ink-muted">{{ row.document_type ?? "—" }} · {{ row.correspondent ?? "—" }}</p>
                     <p class="mt-0.5 text-xs text-ink-subtle">{{ row.created ?? "—" }}</p>
-                    <p v-if="spacesVisible && row.home_space" class="mt-0.5 text-xs text-ink-subtle">
+                    <p v-if="spacesVisible && row.shared_by" class="mt-0.5 text-xs text-sky-700">
+                      🔗 {{ sharedByLabel(row.shared_by) }}
+                    </p>
+                    <p v-else-if="spacesVisible && row.home_space" class="mt-0.5 text-xs text-ink-subtle">
                       📁 {{ spaceLabel(row.home_space) }}
                     </p>
                     <div class="mt-2">

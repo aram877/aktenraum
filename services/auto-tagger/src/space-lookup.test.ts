@@ -53,6 +53,21 @@ describe("corpusScope", () => {
     const ok: SpaceLookup = async () => ({ spaceId: 1, sharedWith: [], peers: new Set([1, 2]) });
     expect(await corpusScope(ok, 1, onSkip)).toEqual(new Set([1, 2]));
   });
+  it("never widens the corpus with documents shared with someone (tenancy-document-shares)", async () => {
+    // B's document 4 lives in B's space {4, 5}. A's document 42 is shared with
+    // B, but sharing is per document and the api never lists it as B's peer;
+    // the recipients of a document are not a corpus either.
+    const fetchFn = fetchReturning(200, {
+      document_id: 4,
+      space_id: 2,
+      shared_with: [7],
+      space_document_ids: [4, 5],
+    });
+    const lookup = apiSpaceLookup("http://api", "s", fetchFn as unknown as typeof fetch);
+    const scope = await corpusScope(lookup, 4, () => undefined);
+    expect(scope).toEqual(new Set([4, 5]));
+    expect(scope?.has(42)).toBe(false);
+  });
 });
 
 /** Minimal PaperlessClient for the corpus helpers. */

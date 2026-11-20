@@ -121,6 +121,25 @@ CREATE TABLE upload_task_spaces (
   space_id integer NOT NULL REFERENCES spaces(id),
   created_at timestamp with time zone NOT NULL DEFAULT now()
 );
+CREATE TABLE document_shares (
+  id serial PRIMARY KEY,
+  paperless_doc_id integer NOT NULL,
+  member_id integer NOT NULL REFERENCES members(id),
+  role varchar(16) NOT NULL CHECK (role IN ('viewer', 'editor')),
+  expires_at timestamp with time zone,
+  granted_by integer NOT NULL REFERENCES members(id),
+  granted_at timestamp with time zone NOT NULL DEFAULT now(),
+  UNIQUE (paperless_doc_id, member_id)
+);
+CREATE TABLE share_audit (
+  id bigserial PRIMARY KEY,
+  paperless_doc_id integer NOT NULL,
+  member_id integer NOT NULL,
+  actor_member_id integer,
+  event varchar(16) NOT NULL CHECK (event IN ('granted', 'role_changed', 'expiry_changed', 'revoked', 'expired', 'accessed')),
+  access_kind varchar(16) CHECK (access_kind IS NULL OR access_kind IN ('detail', 'preview', 'download', 'ask')),
+  at timestamp with time zone NOT NULL DEFAULT now()
+);
 INSERT INTO app_settings (id) VALUES (1);
 `;
 

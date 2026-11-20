@@ -1,16 +1,18 @@
+import { eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import request from "supertest";
 
 import { memberScopes, workerPrincipal, type MemberPrincipal } from "../auth/principal.js";
 import { hashPassword } from "../auth/passwords.js";
 import { documentSpaces, households, members, spaceMembers, spaces, users } from "../db/schema.js";
-import type { HouseholdRoleValue, SpaceRole } from "../db/schema.js";
+import { documentShares } from "../db/schema.js";
+import type { HouseholdRoleValue, ShareRole, SpaceRole } from "../db/schema.js";
 import { createHarness } from "../test/harness.js";
 import type { DocumentSpaceAccess, TenancyLookup } from "../tenancy/tenancy.service.js";
 import { TenancyService } from "../tenancy/tenancy.service.js";
-import { PolicyService, spaceRoleAllows, type DocumentAction } from "./policy.service.js";
+import { PolicyService, shareRoleAllows, spaceRoleAllows, type DocumentAction } from "./policy.service.js";
 
-const ACTIONS: DocumentAction[] = ["read", "write", "delete", "move"];
+const ACTIONS: DocumentAction[] = ["read", "write", "edit-fields", "delete", "move", "share"];
 
 function member(role: HouseholdRoleValue, memberId = 1): MemberPrincipal {
   return {
@@ -35,14 +37,18 @@ function policyWith(access: DocumentSpaceAccess): PolicyService {
 describe("PolicyService matrix", () => {
   const expected: Record<SpaceRole, DocumentAction[]> = {
     viewer: ["read"],
-    editor: ["read", "write"],
-    owner: ["read", "write", "delete", "move"],
+    editor: ["read", "write", "edit-fields"],
+    owner: ["read", "write", "edit-fields", "delete", "move", "share"],
+  };
+  const expectedShare: Record<ShareRole, DocumentAction[]> = {
+    viewer: ["read"],
+    editor: ["read", "edit-fields"],
   };
 
   for (const [role, allowed] of Object.entries(expected) as [SpaceRole, DocumentAction[]][]) {
     for (const householdRole of ["admin", "member"] as const) {
       it(`space ${role} (household ${householdRole}) may ${allowed.join("/")} only`, async () => {
-        const policy = policyWith({ assigned: true, spaceId: 1, role });
+        const policy = policyWith({ assigned: true, spaceId: 1, role, share: null });
         for (const action of ACTIONS) {
           expect(await policy.canAccessDocument(member(householdRole), 1, action)).toBe(
             allowed.includes(action),
@@ -53,29 +59,58 @@ describe("PolicyService matrix", () => {
     }
   }
 
+  for (const [share, allowed] of Object.entries(expectedShare) as [ShareRole, DocumentAction[]][]) {
+    for (const householdRole of ["admin", "member"] as const) {
+      it(`share ${share} (household ${householdRole}) may ${allowed.join("/")} only`, async () => {
+        const policy = policyWith({ assigned: true, spaceId: 1, role: null, share });
+        for (const action of ACTIONS) {
+          expect(await policy.canAccessDocument(member(householdRole), 1, action)).toBe(
+            allowed.includes(action),
+          );
+          expect(shareRoleAllows(share, action)).toBe(allowed.includes(action));
+        }
+        expect(await policy.accessOf(member(householdRole), 1)).toEqual({ via: "share", role: share });
+      });
+    }
+  }
+
+  it("a space role wins over a share (a member joined the space after the share)", async () => {
+    const policy = policyWith({ assigned: true, spaceId: 1, role: "editor", share: "viewer" });
+    expect(await policy.canAccessDocument(member("member"), 1, "write")).toBe(true);
+    expect(await policy.accessOf(member("member"), 1)).toEqual({ via: "space", role: "editor" });
+    const viewer = policyWith({ assigned: true, spaceId: 1, role: "viewer", share: "editor" });
+    expect(await viewer.canAccessDocument(member("member"), 1, "edit-fields")).toBe(false);
+  });
+
   it("denies a member outside the home space every action — the household admin too", async () => {
-    const policy = policyWith({ assigned: true, spaceId: 1, role: null });
+    const policy = policyWith({ assigned: true, spaceId: 1, role: null, share: null });
     for (const action of ACTIONS) {
       expect(await policy.canAccessDocument(member("admin"), 1, action)).toBe(false);
       expect(await policy.canAccessDocument(member("member"), 1, action)).toBe(false);
     }
+    expect(await policy.accessOf(member("member"), 1)).toBeNull();
   });
 
-  it("without a home space: household admin only", async () => {
+  it("without a home space: household admin only, and nobody can share it", async () => {
     const policy = policyWith({ assigned: false });
     for (const action of ACTIONS) {
-      expect(await policy.canAccessDocument(member("admin"), 1, action)).toBe(true);
+      expect(await policy.canAccessDocument(member("admin"), 1, action)).toBe(action !== "share");
       expect(await policy.canAccessDocument(member("member"), 1, action)).toBe(false);
     }
+    expect(await policy.accessOf(member("admin"), 1)).toEqual({ via: "admin", role: "admin" });
   });
 
-  it("gives the worker write (type fields) and read (home space), never delete, regardless of spaces", async () => {
-    for (const access of [{ assigned: false } as const, { assigned: true, spaceId: 1, role: null } as const]) {
+  it("gives the worker edit-fields (type fields) and read (home space), nothing else, regardless of spaces", async () => {
+    for (const access of [
+      { assigned: false } as const,
+      { assigned: true, spaceId: 1, role: null, share: null } as const,
+    ]) {
       const policy = policyWith(access);
-      expect(await policy.canAccessDocument(workerPrincipal(), 1, "write")).toBe(true);
+      expect(await policy.canAccessDocument(workerPrincipal(), 1, "edit-fields")).toBe(true);
       expect(await policy.canAccessDocument(workerPrincipal(), 1, "read")).toBe(true);
-      expect(await policy.canAccessDocument(workerPrincipal(), 1, "delete")).toBe(false);
-      expect(await policy.canAccessDocument(workerPrincipal(), 1, "move")).toBe(false);
+      for (const action of ["write", "delete", "move", "share"] as const) {
+        expect(await policy.canAccessDocument(workerPrincipal(), 1, action)).toBe(false);
+      }
     }
   });
 
@@ -103,8 +138,8 @@ describe("tenancy-backed policy (pg-mem)", () => {
       await h.db.insert(documentSpaces).values({ paperlessDocId: 100, spaceId: adminSpace.id });
       await h.db.insert(spaceMembers).values({ spaceId: adminSpace.id, memberId: partner!.id, role: "viewer" });
 
-      expect(await tenancy.documentAccess(100, admin!.id)).toEqual({ assigned: true, spaceId: adminSpace.id, role: "owner" });
-      expect(await tenancy.documentAccess(100, partner!.id)).toEqual({ assigned: true, spaceId: adminSpace.id, role: "viewer" });
+      expect(await tenancy.documentAccess(100, admin!.id)).toEqual({ assigned: true, spaceId: adminSpace.id, role: "owner", share: null });
+      expect(await tenancy.documentAccess(100, partner!.id)).toEqual({ assigned: true, spaceId: adminSpace.id, role: "viewer", share: null });
       expect(await tenancy.documentAccess(101, partner!.id)).toEqual({ assigned: false });
 
       const policy = h.app.get(PolicyService);
@@ -112,6 +147,21 @@ describe("tenancy-backed policy (pg-mem)", () => {
       expect(await policy.canAccessDocument(partnerPrincipal, 100, "read")).toBe(true);
       expect(await policy.canAccessDocument(partnerPrincipal, 100, "write")).toBe(false);
       expect(await policy.canAccessDocument(partnerPrincipal, 101, "read")).toBe(false);
+
+      // Shares: active editor share → edit-fields; an expired one counts as absent.
+      await h.db.insert(documentSpaces).values([
+        { paperlessDocId: 102, spaceId: adminSpace.id },
+        { paperlessDocId: 103, spaceId: adminSpace.id },
+      ]);
+      await h.db.insert(documentShares).values({ paperlessDocId: 102, memberId: partner!.id, role: "editor", grantedBy: admin!.id });
+      await h.db.execute(sql`INSERT INTO document_shares (paperless_doc_id, member_id, role, granted_by, expires_at)
+        VALUES (103, ${partner!.id}, 'editor', ${admin!.id}, now() - interval '1 hour')`);
+      await h.db.delete(spaceMembers).where(eq(spaceMembers.memberId, partner!.id));
+      expect(await tenancy.documentAccess(102, partner!.id)).toEqual({ assigned: true, spaceId: adminSpace.id, role: null, share: "editor" });
+      expect(await tenancy.documentAccess(103, partner!.id)).toEqual({ assigned: true, spaceId: adminSpace.id, role: null, share: null });
+      expect(await policy.canAccessDocument(partnerPrincipal, 102, "edit-fields")).toBe(true);
+      expect(await policy.canAccessDocument(partnerPrincipal, 102, "write")).toBe(false);
+      expect(await policy.canAccessDocument(partnerPrincipal, 103, "read")).toBe(false);
     } finally {
       await h.close();
     }

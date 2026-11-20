@@ -1,5 +1,7 @@
 <script setup lang="ts">
-defineProps<{ confidence: number | null; confidenceReason: string | null }>();
+withDefaults(defineProps<{ confidence: number | null; confidenceReason: string | null; readonly?: boolean }>(), {
+  readonly: false,
+});
 
 const form = defineModel<FormState>({ required: true });
 
@@ -25,6 +27,7 @@ function valueOf(event: Event): string {
     Dokumenttyp
     <select
       name="ai_document_type"
+      :disabled="readonly"
       :value="form.ai_document_type"
       class="mt-1 w-full rounded-lg border border-hairline bg-surface px-3 py-2 text-sm text-ink"
       @change="setField('ai_document_type', valueOf($event))"
@@ -39,6 +42,7 @@ function valueOf(event: Event): string {
     <input
       type="text"
       :name="item.field"
+      :readonly="readonly"
       :placeholder="item.placeholder"
       :value="form[item.field]"
       class="mt-1 w-full rounded-lg border border-hairline bg-surface px-3 py-2 text-sm text-ink"
@@ -51,6 +55,7 @@ function valueOf(event: Event): string {
     <textarea
       name="ai_summary_de"
       rows="4"
+      :readonly="readonly"
       :value="form.ai_summary_de"
       class="mt-1 w-full rounded-lg border border-hairline bg-surface px-3 py-2 text-sm text-ink"
       @input="setField('ai_summary_de', valueOf($event))"

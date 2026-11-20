@@ -79,6 +79,30 @@ describe("route inventory", () => {
     expect(undeclared).toEqual([]);
   });
 
+  it("guards share management with `share` (home-space owner) and field edits with `edit-fields`", () => {
+    const byId = new Map(routes.map((r) => [r.id, r]));
+    const shareRoutes = routes.filter((r) => r.id.includes("/documents/:doc_id/shares"));
+    expect(shareRoutes.map((r) => r.id).sort()).toEqual([
+      "DELETE /documents/:doc_id/shares/:member_id",
+      "GET /documents/:doc_id/shares",
+      "GET /documents/:doc_id/shares/audit",
+      "PATCH /documents/:doc_id/shares/:member_id",
+      "POST /documents/:doc_id/shares",
+    ]);
+    for (const route of shareRoutes) {
+      expect(route.documentAccess).toBe("share");
+      expect(route.scopes).toEqual(["shares:manage"]);
+    }
+    expect(byId.get("GET /shares/with-me")?.scopes).toEqual(["shares:manage"]);
+    expect(byId.get("GET /shares/by-me")?.scopes).toEqual(["shares:manage"]);
+    expect(byId.get("PATCH /documents/:doc_id/fields")?.documentAccess).toBe("edit-fields");
+    expect(byId.get("PATCH /documents/:doc_id/type-fields")?.documentAccess).toBe("edit-fields");
+    // State changes stay on `write`, which share editors don't hold.
+    for (const id of ["POST /inbox/:doc_id/approve", "POST /inbox/:doc_id/reject", "PATCH /inbox/:doc_id", "POST /documents/:doc_id/reprocess", "POST /documents/:doc_id/star"]) {
+      expect(byId.get(id)?.documentAccess).toBe("write");
+    }
+  });
+
   it("declares a document action on every route that addresses one document", () => {
     const missing = routes
       .filter((r) => r.id.includes(":doc_id") && r.documentAccess === undefined)

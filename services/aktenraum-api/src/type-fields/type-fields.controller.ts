@@ -66,7 +66,7 @@ export class TypeFieldsController {
   // The worker (secret) and the library/inbox detail pages (session) both write here.
   @Patch("documents/:doc_id/type-fields")
   @RequireScope("documents:write", "internal:type-fields-write")
-  @DocumentAccess("write")
+  @DocumentAccess("edit-fields")
   @UseGuards(UserOrInternalGuard)
   async patchTypeFields(
     @Param("doc_id", ParseIntPipe) docId: number,

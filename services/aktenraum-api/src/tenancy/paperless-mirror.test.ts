@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
-import { documentSpaces, households, members, spaceMembers, spacePaperlessGroups, spaces, users } from "../db/schema.js";
+import { documentShares, documentSpaces, households, members, spaceMembers, spacePaperlessGroups, spaces, users } from "../db/schema.js";
 import { FakeGateway, makeDoc } from "../test/fake-gateway.js";
 import { createHarness, type Harness } from "../test/harness.js";
+import { household } from "../test/household.js";
 import {
   PAPERLESS_MEMBER_PERMISSIONS,
   memberUsername,
@@ -260,5 +261,46 @@ describe("shared-space mirror", () => {
     expect(paperless.users.get(carolUser)!.groups).toEqual([999]); // unrelated groups kept
     expect(paperless.visibleTo(carolUser)).not.toContain(1);
     expect(await removeFromSpaceGroups(db, paperless, carolId, sharedId)).toBe(false);
+  });
+});
+
+describe("share users in the mirror (tenancy-document-shares)", { timeout: 60_000 }, () => {
+  it("no shares = the space target (unchanged); viewer/editor shares add users; expired ones drop out", async () => {
+    const { h, paperless, alice, bob, carol, paperlessUser, personal } = await household();
+    try {
+      const writes = paperless.tenancyWrites.length;
+      expect(await mirrorDocument(h.db, paperless, 1)).toBe("unchanged");
+      expect(paperless.tenancyWrites).toHaveLength(writes);
+
+      await h.db.insert(documentShares).values([
+        { paperlessDocId: 1, memberId: bob.id, role: "viewer", grantedBy: alice.id },
+        { paperlessDocId: 1, memberId: carol.id, role: "editor", grantedBy: alice.id },
+      ]);
+      expect(await mirrorDocument(h.db, paperless, 1)).toBe("updated");
+      const group = (await personal(alice.id)).paperlessGroupId!;
+      const bobUser = await paperlessUser(bob.id);
+      const carolUser = await paperlessUser(carol.id);
+      expect(paperless.permissions.get(1)).toEqual({
+        owner: await paperlessUser(alice.id),
+        permissions: {
+          view: { users: [bobUser, carolUser].sort((a, b) => a - b), groups: [group] },
+          change: { users: [carolUser], groups: [group] },
+        },
+      });
+      expect(paperless.visibleTo(bobUser)).toContain(1);
+      expect(paperless.canChange(bobUser, 1)).toBe(false);
+      expect(paperless.canChange(carolUser, 1)).toBe(true);
+      expect(await mirrorDocument(h.db, paperless, 1)).toBe("unchanged");
+
+      await h.db.execute(sql`UPDATE document_shares SET expires_at = now() - interval '1 hour' WHERE member_id = ${carol.id}`);
+      expect(await mirrorDocument(h.db, paperless, 1)).toBe("updated");
+      expect(paperless.permissions.get(1)!.permissions).toEqual({
+        view: { users: [bobUser], groups: [group] },
+        change: { users: [], groups: [group] },
+      });
+      expect(paperless.visibleTo(carolUser)).not.toContain(1);
+    } finally {
+      await h.close();
+    }
   });
 });

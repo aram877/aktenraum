@@ -1,4 +1,4 @@
-import { pgTable, varchar, unique, serial, timestamp, jsonb, boolean, numeric, integer, primaryKey, check, index, text } from "drizzle-orm/pg-core"
+import { pgTable, varchar, unique, serial, timestamp, jsonb, boolean, numeric, integer, primaryKey, check, index, text, bigserial } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
 
 
@@ -150,3 +150,36 @@ export const uploadTaskSpaces = pgTable("upload_task_spaces", {
 	spaceId: integer("space_id").notNull().references(() => spaces.id),
 	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
 });
+
+export type ShareRole = "viewer" | "editor";
+export type ShareAuditEvent = "granted" | "role_changed" | "expiry_changed" | "revoked" | "expired" | "accessed";
+export type ShareAccessKindValue = "detail" | "preview" | "download" | "ask";
+
+/** Per-document shares (ADR-009). Active = `expires_at IS NULL OR expires_at > now()`, evaluated in SQL. */
+export const documentShares = pgTable("document_shares", {
+	id: serial().primaryKey().notNull(),
+	paperlessDocId: integer("paperless_doc_id").notNull(),
+	memberId: integer("member_id").notNull().references(() => members.id),
+	role: varchar({ length: 16 }).$type<ShareRole>().notNull(),
+	expiresAt: timestamp("expires_at", { withTimezone: true, mode: 'string' }),
+	grantedBy: integer("granted_by").notNull().references(() => members.id),
+	grantedAt: timestamp("granted_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	unique("document_shares_doc_member_key").on(table.paperlessDocId, table.memberId),
+	check("document_shares_role_check", sql`${table.role} IN ('viewer', 'editor')`),
+	index("document_shares_member_id_idx").on(table.memberId),
+]);
+
+export const shareAudit = pgTable("share_audit", {
+	id: bigserial({ mode: "number" }).primaryKey().notNull(),
+	paperlessDocId: integer("paperless_doc_id").notNull(),
+	memberId: integer("member_id").notNull(),
+	actorMemberId: integer("actor_member_id"),
+	event: varchar({ length: 16 }).$type<ShareAuditEvent>().notNull(),
+	accessKind: varchar("access_kind", { length: 16 }).$type<ShareAccessKindValue>(),
+	at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	check("share_audit_event_check", sql`${table.event} IN ('granted', 'role_changed', 'expiry_changed', 'revoked', 'expired', 'accessed')`),
+	check("share_audit_access_kind_check", sql`${table.accessKind} IS NULL OR ${table.accessKind} IN ('detail', 'preview', 'download', 'ask')`),
+	index("share_audit_doc_at_idx").on(table.paperlessDocId, table.at),
+]);

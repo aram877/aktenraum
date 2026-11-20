@@ -15,7 +15,7 @@ import {
 import type { Response } from "express";
 
 import { AuthGuard } from "../auth/auth.guard.js";
-import { DocumentAccess, RequireScope, CurrentPrincipal, type Principal } from "../auth/principal.js";
+import { DocumentAccess, RequireScope, CurrentPrincipal, type Principal, ShareAccessKind } from "../auth/principal.js";
 import { pipeUpstreamToResponse } from "../common/stream.js";
 import { ZodValidationPipe } from "../common/zod-validation.pipe.js";
 import {
@@ -67,6 +67,7 @@ export class InboxController {
   @Get(":doc_id")
   @RequireScope("documents:read")
   @DocumentAccess("read")
+  @ShareAccessKind("detail")
   getInboxDetail(@CurrentPrincipal() principal: Principal, @Param("doc_id", ParseIntPipe) docId: number): Promise<InboxDetail> {
     return this.inboxService.getDetail(principal, docId);
   }
@@ -105,6 +106,7 @@ export class InboxController {
   @Get(":doc_id/preview")
   @RequireScope("documents:read")
   @DocumentAccess("read")
+  @ShareAccessKind("preview")
   async previewInbox(
     @CurrentPrincipal() principal: Principal,
     @Param("doc_id", ParseIntPipe) docId: number,

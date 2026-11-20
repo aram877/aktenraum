@@ -19,7 +19,7 @@ import type { Response } from "express";
 import type { DocumentSummary } from "../ai/ai.schemas.js";
 import { projectResults } from "../ai/translate.js";
 import { AuthGuard } from "../auth/auth.guard.js";
-import { DocumentAccess, RequireScope, CurrentPrincipal, type Principal } from "../auth/principal.js";
+import { DocumentAccess, RequireScope, CurrentPrincipal, ShareAccessKind, type Principal } from "../auth/principal.js";
 import { collectTagIds } from "../paperless/tag-ids.js";
 import { inlineSafe, pipeUpstreamToResponse } from "../common/stream.js";
 import { ZodValidationPipe } from "../common/zod-validation.pipe.js";
@@ -147,13 +147,14 @@ export class DocumentsController {
   @Get(":doc_id/detail")
   @RequireScope("documents:read")
   @DocumentAccess("read")
+  @ShareAccessKind("detail")
   getDocumentDetail(@CurrentPrincipal() principal: Principal, @Param("doc_id", ParseIntPipe) docId: number): Promise<InboxDetail> {
     return this.inboxService.getDetail(principal, docId);
   }
 
   @Patch(":doc_id/fields")
   @RequireScope("documents:write")
-  @DocumentAccess("write")
+  @DocumentAccess("edit-fields")
   patchDocumentFields(
     @CurrentPrincipal() principal: Principal,
     @Param("doc_id", ParseIntPipe) docId: number,
@@ -165,6 +166,7 @@ export class DocumentsController {
   @Get(":doc_id/preview")
   @RequireScope("documents:read")
   @DocumentAccess("read")
+  @ShareAccessKind("preview")
   async getPreview(
     @CurrentPrincipal() principal: Principal,
     @Param("doc_id", ParseIntPipe) docId: number,
@@ -183,6 +185,7 @@ export class DocumentsController {
   @Get(":doc_id/download")
   @RequireScope("documents:read")
   @DocumentAccess("read")
+  @ShareAccessKind("download")
   async getDownload(
     @CurrentPrincipal() principal: Principal,
     @Param("doc_id", ParseIntPipe) docId: number,

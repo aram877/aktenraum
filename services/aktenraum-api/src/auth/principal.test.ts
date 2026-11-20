@@ -49,7 +49,7 @@ const reflector = new Reflector();
 /** Document 7 has no home space yet; everything else lives in member 1's space. */
 const lookup: TenancyLookup = {
   documentAccess: async (docId: number): Promise<DocumentSpaceAccess> =>
-    docId === 7 ? { assigned: false } : { assigned: true, spaceId: 1, role: "owner" },
+    docId === 7 ? { assigned: false } : { assigned: true, spaceId: 1, role: "owner", share: null },
 };
 const policy = new PolicyService(lookup);
 const run = (principal: Principal, context: ExecutionContext) =>
@@ -113,7 +113,7 @@ describe("authorize", () => {
     await expect(run(workerPrincipal(), remove)).rejects.toThrow(
       new NotFoundException("Document 42 not found"),
     );
-    const write = route({ scopes: ["internal:type-fields-write"], action: "write" }, { doc_id: "42" });
+    const write = route({ scopes: ["internal:type-fields-write"], action: "edit-fields" }, { doc_id: "42" });
     await expect(run(workerPrincipal(), write)).resolves.toBeUndefined();
   });
 

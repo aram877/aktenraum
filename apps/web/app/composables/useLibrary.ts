@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/vue-query";
 import type { MaybeRefOrGetter } from "vue";
+import type { SharedBy } from "~/utils/review-form";
 
 export interface LibraryItem {
   id: number;
@@ -15,6 +16,8 @@ export interface LibraryItem {
   is_processing: boolean;
   /** Home space ("Akte"); absent on old responses, null while unassigned. */
   home_space?: { id: number; name: string; kind: "personal" | "shared" } | null;
+  /** Set when the document reaches the caller through a share. */
+  shared_by?: SharedBy | null;
 }
 
 export interface LibraryList {

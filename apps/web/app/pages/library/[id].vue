@@ -23,6 +23,14 @@ const { form, patch, dirty, reset } = useHydratedForm(detail.data, () => {
 });
 
 const starred = computed(() => hasTag(detail.data.value?.tags, "wichtig"));
+// Shared with me: no state changes; a viewer share also can't edit fields.
+const access = computed(() => detail.data.value?.access);
+const mayChangeState = computed(() => canChangeState(access.value));
+const mayEditFields = computed(() => canEditFields(access.value));
+const { visible: spacesVisible } = useSpacesVisible();
+const ownsHomeSpace = computed(
+  () => access.value?.via === "space" && access.value.role === "owner" && Boolean(detail.data.value?.home_space),
+);
 const duplicate = computed(() => hasTag(detail.data.value?.tags, "ai-duplicate"));
 
 const errorText = computed(() => {
@@ -90,10 +98,15 @@ async function onDelete(): Promise<void> {
           <HomeSpaceBadge
             v-if="detail.data.value && detail.data.value.home_space !== undefined"
             :space="detail.data.value.home_space"
+            :shared-by="detail.data.value.shared_by"
             class="hidden sm:inline-flex"
           />
-          <SpacesMoveControl v-if="id !== null && detail.data.value" :doc-id="id" :space="detail.data.value.home_space" />
-          <StarToggle v-if="id !== null && detail.data.value" :doc-id="id" :starred="starred" />
+          <SpacesMoveControl
+            v-if="id !== null && detail.data.value && mayChangeState"
+            :doc-id="id"
+            :space="detail.data.value.home_space"
+          />
+          <StarToggle v-if="id !== null && detail.data.value && mayChangeState" :doc-id="id" :starred="starred" />
           <a
             v-if="id !== null"
             :href="`/api/documents/${id}/download`"
@@ -134,15 +147,17 @@ async function onDelete(): Promise<void> {
       </section>
 
       <section class="flex flex-col gap-3 lg:block" :class="{ hidden: mobilePane !== 'form' }">
-        <DuplicatePanel v-if="duplicate && id !== null" :doc-id="id" class="mb-3" />
+        <DuplicatePanel v-if="duplicate && id !== null && mayChangeState" :doc-id="id" class="mb-3" />
         <DocumentFieldsForm
           v-model="form"
           :confidence="detail.data.value.ai_confidence"
           :confidence-reason="detail.data.value.ai_confidence_reason"
+          :readonly="!mayEditFields"
         />
 
         <div class="mt-2 flex flex-wrap gap-2">
           <button
+            v-if="mayEditFields"
             type="button"
             :disabled="!dirty || fieldsPatch.isPending.value"
             data-testid="save"
@@ -152,6 +167,7 @@ async function onDelete(): Promise<void> {
             {{ fieldsPatch.isPending.value ? "speichere…" : "Speichern" }}
           </button>
           <button
+            v-if="mayEditFields"
             type="button"
             :disabled="!dirty || fieldsPatch.isPending.value"
             data-testid="reset"
@@ -161,6 +177,7 @@ async function onDelete(): Promise<void> {
             Zurücksetzen
           </button>
           <button
+            v-if="mayChangeState"
             type="button"
             :disabled="reprocess.isPending.value"
             data-testid="reprocess"
@@ -171,6 +188,7 @@ async function onDelete(): Promise<void> {
             {{ reprocess.isPending.value ? "starte…" : confirmingReprocess ? "Wirklich? Erneut klicken" : "Erneut verarbeiten" }}
           </button>
           <button
+            v-if="mayChangeState"
             type="button"
             :disabled="deleteDoc.isPending.value"
             data-testid="delete"
@@ -187,6 +205,13 @@ async function onDelete(): Promise<void> {
           :doc-id="id"
           :document-type="detail.data.value.ai_document_type"
           :values="detail.data.value.type_fields"
+          :readonly="!mayEditFields"
+        />
+
+        <SharesSharePanel
+          v-if="id !== null && spacesVisible && ownsHomeSpace && detail.data.value.home_space"
+          :doc-id="id"
+          :space-id="detail.data.value.home_space.id"
         />
       </section>
     </div>

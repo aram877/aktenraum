@@ -99,8 +99,11 @@ writes the document row, and fires `post_consume_script` —
 [`docker/paperless-scripts/post_consume.sh`](../docker/paperless-scripts/post_consume.sh) —
 which POSTs the new document id to `http://auto-tagger:8001/trigger/extract`.
 
-A `WEBHOOK_SECRET` shared between Paperless and the auto-tagger is sent in
-`X-Aktenraum-Secret`; empty disables auth.
+The hook authenticates with its own service credential
+(`Authorization: Bearer <SVC_TOKEN_PAPERLESS_HOOK>`), which the worker accepts
+for `/trigger/extract` only. The api → worker and worker → api calls each have
+their own credential too (`SVC_TOKEN_API`, `SVC_TOKEN_WORKER`; ADR-010 step 5).
+An empty credential fails closed; the 30 s poller still picks the document up.
 
 ### 2. Extraction
 
@@ -194,7 +197,7 @@ For each document the worker does:
    Rules live in the aktenraum-api `auto_approve_rules` table, are
    edited from `/settings → Auto-Genehmigung` in the SPA, and the
    auto-tagger fetches them over HTTP (`GET /api/settings/active-auto-approve-rules`,
-   secret-gated via `WEBHOOK_SECRET`) with a 60-second in-process TTL
+   authenticated with the worker credential `SVC_TOKEN_WORKER`) with a 60-second in-process TTL
    cache. Changes saved in the SPA take up to one minute to take effect
    on the next routing decision.
 8. **Pass 2** — type-specific extraction
@@ -478,8 +481,10 @@ Paperless custom-field schema. They are exposed via the
   sees it. All Paperless reads (preview, download, search) proxy through
   aktenraum-api endpoints so the token can't be exfiltrated client-side.
 - aktenraum-api's CSRF middleware rejects cross-site state-changing
-  requests; internal callers (auto-tagger, paperless `post_consume`)
-  authenticate with `X-Aktenraum-Secret` (ADR-003).
+  requests (ADR-003). Internal callers authenticate with one service
+  credential each (`Authorization: Bearer`, ADR-010 step 5): Paperless's
+  `post_consume` hook may only start extraction, the api may call the worker's
+  triggers and `/processing`, the worker may call only its api routes.
 - nginx is published on `127.0.0.1:8080` only. Exposing beyond localhost
   is a deliberate later step (see ADR-002 and the desktop-app plan).
 

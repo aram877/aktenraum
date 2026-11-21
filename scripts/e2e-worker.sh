@@ -26,6 +26,10 @@ QDRANT="http://127.0.0.1:${QDRANT_PORT}"
 . "$(dirname "${BASH_SOURCE[0]}")/lib/python.sh"
 PY="$(find_python)" || { echo "python3 or python is required on PATH" >&2; exit 1; }
 
+# Service credentials of the e2e stack — must match docker-compose.e2e.yml.
+E2E_HOOK_TOKEN="akt_svc_e2e_hook_not_a_secret_000000000000000000"
+E2E_API_TOKEN="akt_svc_e2e_api_not_a_secret_0000000000000000000"
+
 pass=0
 fail=0
 check() {
@@ -93,6 +97,20 @@ for _ in $(seq 1 60); do
 done
 check "worker /health responds" \
   "$(curl -sf -o /dev/null "http://127.0.0.1:${WORKER_PORT}/health" && echo 1 || echo 0)"
+
+# Per-caller allowance (service-credentials): the hook may only start
+# extraction. Document id 999999 doesn't exist, so even an accepted call is
+# harmless — but this one must be refused before anything is queued.
+HOOK_PROPAGATE_STATUS="$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+  -H "Authorization: Bearer ${E2E_HOOK_TOKEN}" -H "Content-Type: application/json" \
+  -d '{"document_id": 999999}' "http://127.0.0.1:${WORKER_PORT}/trigger/propagate")"
+check "hook credential on /trigger/propagate is refused (403)" \
+  "$([ "${HOOK_PROPAGATE_STATUS}" = "403" ] && echo 1 || echo 0)" "got=${HOOK_PROPAGATE_STATUS}"
+OLD_HEADER_STATUS="$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+  -H "X-Aktenraum-Secret: ${E2E_API_TOKEN}" -H "Content-Type: application/json" \
+  -d '{"document_id": 999999}' "http://127.0.0.1:${WORKER_PORT}/trigger/extract")"
+check "old X-Aktenraum-Secret header is refused (401)" \
+  "$([ "${OLD_HEADER_STATUS}" = "401" ] && echo 1 || echo 0)" "got=${OLD_HEADER_STATUS}"
 
 step "Waiting for the API and enabling auto-approve for Rechnung"
 for _ in $(seq 1 60); do
@@ -182,6 +200,19 @@ print(doc or '')" 2>/dev/null || echo "")"
 done
 check "document was consumed" "$([ -n "${DOC_ID}" ] && echo 1 || echo 0)" "doc_id=${DOC_ID}"
 [ -n "${DOC_ID}" ] || { echo "Cannot continue without a document id" >&2; exit 1; }
+
+# The post-consume hook, not the poller, queued it — and the log names it.
+HOOK_ENQUEUED=0
+for _ in $(seq 1 15); do
+  if "${COMPOSE[@]}" logs auto-tagger 2>/dev/null \
+     | grep '"webhook_enqueued"' | grep '"caller":"paperless-hook"' \
+     | grep -q "\"doc_id\":${DOC_ID}[,}]"; then
+    HOOK_ENQUEUED=1
+    break
+  fi
+  sleep 2
+done
+check "post-consume hook queued the document (caller=paperless-hook)" "${HOOK_ENQUEUED}"
 
 fetch_doc() {
   curl -sf -H "Authorization: Token ${TOKEN}" "${PAPERLESS}/api/documents/${DOC_ID}/"

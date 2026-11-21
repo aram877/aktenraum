@@ -723,7 +723,7 @@ describe("type-specific pass", () => {
     expect(calls).toHaveLength(1);
   });
 
-  it("PATCHes the api with the shared secret", async () => {
+  it("PATCHes the api with the worker credential", async () => {
     const fetchFn = vi.fn(async () => new Response("{}", { status: 200 }));
     await apiTypeFieldsSaver("http://api:8002/", "s3cret", fetchFn as unknown as typeof fetch)(7, "Rechnung", {
       gesamtbetrag: "EUR1.00",
@@ -731,7 +731,8 @@ describe("type-specific pass", () => {
     const [url, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("http://api:8002/api/documents/7/type-fields");
     expect(init.method).toBe("PATCH");
-    expect((init.headers as Record<string, string>)["X-Aktenraum-Secret"]).toBe("s3cret");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer s3cret");
+    expect(init.headers as Record<string, string>).not.toHaveProperty("X-Aktenraum-Secret");
     expect(JSON.parse(String(init.body))).toEqual({ document_type: "Rechnung", fields: { gesamtbetrag: "EUR1.00" } });
   });
 });

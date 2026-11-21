@@ -37,7 +37,7 @@ The remaining sections walk through every step in detail; do them only if `task 
 bash scripts/bootstrap-secrets.sh
 ```
 
-This copies `docker/.env.example` → `docker/.env` if absent and fills `PAPERLESS_SECRET_KEY`, `PAPERLESS_ADMIN_PASSWORD`, `PAPERLESS_DBPASS`, `AKTENRAUM_SECRET_KEY`, `QDRANT_API_KEY`, `WEBHOOK_SECRET` and `RESTIC_PASSWORD` (`BOOTSTRAP_PASSWORD` stays empty: the admin is created passwordless and signs in through a setup link — `bash scripts/setup-link.sh admin` once the stack runs). Record the passwords it prints — they are shown only once. Re-runs are no-ops once everything is populated.
+This copies `docker/.env.example` → `docker/.env` if absent and fills `PAPERLESS_SECRET_KEY`, `PAPERLESS_ADMIN_PASSWORD`, `PAPERLESS_DBPASS`, `AKTENRAUM_SECRET_KEY`, `QDRANT_API_KEY`, the three service credentials `SVC_TOKEN_PAPERLESS_HOOK` / `SVC_TOKEN_WORKER` / `SVC_TOKEN_API` and `RESTIC_PASSWORD` (`BOOTSTRAP_PASSWORD` stays empty: the admin is created passwordless and signs in through a setup link — `bash scripts/setup-link.sh admin` once the stack runs). Record the passwords it prints — they are shown only once. Re-runs are no-ops once everything is populated.
 
 Then open `docker/.env` and set:
 - `AKTENRAUM_DATA_DIR` — absolute data path (required)

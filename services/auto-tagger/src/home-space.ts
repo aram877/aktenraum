@@ -17,12 +17,12 @@ export type AssignHomeSpace = (docId: number) => Promise<void>;
 
 export function apiHomeSpaceAssigner(
   apiUrl: string,
-  webhookSecret: string,
+  serviceToken: string,
   fetchFn: typeof fetch = fetch,
 ): AssignHomeSpace {
   return async (docId) => {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (webhookSecret) headers["X-Aktenraum-Secret"] = webhookSecret;
+    if (serviceToken) headers.Authorization = `Bearer ${serviceToken}`;
     const resp = await fetchFn(`${apiUrl.replace(/\/+$/, "")}/api/tenancy/assign-home-space`, {
       method: "POST",
       headers,

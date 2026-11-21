@@ -9,7 +9,7 @@ export class ActiveModelConfig {
 
   constructor(
     private readonly apiUrl: string,
-    private readonly webhookSecret: string,
+    private readonly serviceToken: string,
     private readonly fallbackModel: string,
     private readonly fetchFn: typeof fetch = fetch,
   ) {}
@@ -26,7 +26,7 @@ export class ActiveModelConfig {
   private async load(now: number): Promise<string> {
     if (!this.apiUrl) return this.fallback("api_url_unset");
     const headers: Record<string, string> = {};
-    if (this.webhookSecret) headers["X-Aktenraum-Secret"] = this.webhookSecret;
+    if (this.serviceToken) headers.Authorization = `Bearer ${this.serviceToken}`;
     const url = `${this.apiUrl.replace(/\/+$/, "")}/api/settings/active-llm-model`;
     try {
       const resp = await this.fetchFn(url, { headers, signal: AbortSignal.timeout(5_000) });

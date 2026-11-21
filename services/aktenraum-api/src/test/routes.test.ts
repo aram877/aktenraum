@@ -5,7 +5,7 @@ import { hashPassword } from "../auth/passwords.js";
 import { users } from "../db/schema.js";
 import type { PaperlessGateway } from "../paperless/paperless.gateway.js";
 import { FakeGateway, TAGS, makeDoc } from "./fake-gateway.js";
-import { createHarness, type Harness } from "./harness.js";
+import { SERVICE_ENV, asWorker, createHarness, type Harness } from "./harness.js";
 import { registerPasskey } from "./passkey-helpers.js";
 import { TrashFlagsService } from "../trash/trash-flags.service.js";
 
@@ -414,12 +414,12 @@ describe("settings routes", () => {
   });
 });
 
-describe("secret-gated internal endpoints", () => {
-  it("are closed when no WEBHOOK_SECRET is configured", async () => {
+describe("credential-gated internal endpoints", () => {
+  it("are closed when no SVC_TOKEN_WORKER is configured", async () => {
     await boot();
     const response = await request(harness!.app.getHttpServer())
       .get("/api/settings/active-llm-model")
-      .set("X-Aktenraum-Secret", "");
+      .set("Authorization", "Bearer ");
     expect(response.status).toBe(401);
   });
 
@@ -427,7 +427,7 @@ describe("secret-gated internal endpoints", () => {
     gateway = new FakeGateway();
     harness = await createHarness({
       gateway: gateway as unknown as Partial<PaperlessGateway>,
-      env: { WEBHOOK_SECRET: "topsecret" },
+      env: SERVICE_ENV,
     });
     const server = harness.app.getHttpServer();
 
@@ -436,12 +436,10 @@ describe("secret-gated internal endpoints", () => {
       (
         await request(server)
           .get("/api/settings/active-llm-model")
-          .set("X-Aktenraum-Secret", "wrong")
+          .set("Authorization", "Bearer wrong")
       ).status,
     ).toBe(401);
-    const ok = await request(server)
-      .get("/api/settings/active-auto-approve-rules")
-      .set("X-Aktenraum-Secret", "topsecret");
+    const ok = await asWorker(request(server).get("/api/settings/active-auto-approve-rules"));
     expect(ok.status).toBe(200);
     expect(ok.body.rules).toHaveLength(27);
   });

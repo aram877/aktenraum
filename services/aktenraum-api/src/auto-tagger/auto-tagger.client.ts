@@ -28,9 +28,10 @@ async function fetchWithTimeout(
 export class AutoTaggerClient {
   constructor(@Inject(SETTINGS) private readonly settings: Settings) {}
 
-  private secretHeaders(): Record<string, string> {
-    return this.settings.WEBHOOK_SECRET
-      ? { "X-Aktenraum-Secret": this.settings.WEBHOOK_SECRET }
+  /** The api's service credential (ADR-010 step 5); the worker fails closed without it. */
+  private credentialHeaders(): Record<string, string> {
+    return this.settings.SVC_TOKEN_API
+      ? { Authorization: `Bearer ${this.settings.SVC_TOKEN_API}` }
       : {};
   }
 
@@ -46,7 +47,7 @@ export class AutoTaggerClient {
         url,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json", ...this.secretHeaders() },
+          headers: { "Content-Type": "application/json", ...this.credentialHeaders() },
           body: JSON.stringify({ document_id: docId }),
         },
         options.timeoutMs ?? 10_000,
@@ -77,7 +78,7 @@ export class AutoTaggerClient {
     try {
       const resp = await fetchWithTimeout(
         `${base}/processing`,
-        { method: "GET", headers: this.secretHeaders() },
+        { method: "GET", headers: this.credentialHeaders() },
         options.timeoutMs ?? 2_000,
       );
       if (resp.status >= 400) {

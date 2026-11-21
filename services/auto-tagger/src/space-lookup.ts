@@ -16,12 +16,12 @@ export type SpaceLookup = (docId: number) => Promise<DocumentSpace | null>;
 
 export function apiSpaceLookup(
   apiUrl: string,
-  webhookSecret: string,
+  serviceToken: string,
   fetchFn: typeof fetch = fetch,
 ): SpaceLookup {
   return async (docId) => {
     const headers: Record<string, string> = {};
-    if (webhookSecret) headers["X-Aktenraum-Secret"] = webhookSecret;
+    if (serviceToken) headers.Authorization = `Bearer ${serviceToken}`;
     const resp = await fetchFn(
       `${apiUrl.replace(/\/+$/, "")}/api/tenancy/documents/${docId}/space`,
       { headers, signal: AbortSignal.timeout(10_000) },

@@ -208,10 +208,11 @@ TOKEN=$(grep '^PAPERLESS_API_TOKEN=' docker/.env | cut -d= -f2-)
 curl -s -H "Authorization: Token $TOKEN" \
   "http://localhost:8000/api/documents/<ID>/" | python3 -m json.tool
 
-# Trigger extraction on a specific doc (bypasses the 30 s poll lag)
-DC exec paperless curl -sS -H "Content-Type: application/json" \
-  -H "X-Aktenraum-Secret: $(grep '^WEBHOOK_SECRET=' docker/.env | cut -d= -f2-)" \
-  -d '{"document_id": <ID>}' http://auto-tagger:8001/trigger/extract
+# Trigger extraction on a specific doc (bypasses the 30 s poll lag) — as the
+# Paperless hook, whose token the paperless container holds
+DC exec paperless sh -c 'curl -sS -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $AKTENRAUM_HOOK_TOKEN" \
+  -d "{\"document_id\": <ID>}" http://auto-tagger:8001/trigger/extract'
 ```
 
 Worker events worth grepping for:
@@ -340,7 +341,7 @@ In Git Bash prefix each `exec` with `MSYS_NO_PATHCONV=1` and write
 ### Rotate secrets
 
 [runbooks/rotate-api-keys.md](runbooks/rotate-api-keys.md) covers the
-Paperless API token, the JWT signing secret and the webhook secret. All live
+Paperless API token, the service credentials and signing everyone out. All live
 in `docker/.env`; recreate the affected services afterwards
 (`task start`).
 

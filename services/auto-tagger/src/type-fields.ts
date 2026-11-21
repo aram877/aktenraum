@@ -75,12 +75,12 @@ export type SaveTypeFields = (
 
 export function apiTypeFieldsSaver(
   apiUrl: string,
-  webhookSecret: string,
+  serviceToken: string,
   fetchFn: typeof fetch = fetch,
 ): SaveTypeFields {
   return async (docId, docType, fields) => {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (webhookSecret) headers["X-Aktenraum-Secret"] = webhookSecret;
+    if (serviceToken) headers.Authorization = `Bearer ${serviceToken}`;
     const resp = await fetchFn(
       `${apiUrl.replace(/\/+$/, "")}/api/documents/${docId}/type-fields`,
       {

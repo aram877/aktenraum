@@ -14,6 +14,11 @@
 #
 # AKTENRAUM_AUTO_TAGGER_URL overrides the target so the isolated e2e stack
 # (docker-compose.e2e.yml) can point at a differently-named worker service.
+#
+# AKTENRAUM_HOOK_TOKEN is the hook's own service credential
+# (SVC_TOKEN_PAPERLESS_HOOK, ADR-010 step 5). The worker accepts it for
+# /trigger/extract only; empty → the worker answers 401 and the poller
+# picks the document up.
 
 if [ -z "${DOCUMENT_ID:-}" ]; then
   exit 0
@@ -21,7 +26,7 @@ fi
 
 curl -sS --max-time 5 \
   -H "Content-Type: application/json" \
-  -H "X-Aktenraum-Secret: ${AKTENRAUM_WEBHOOK_SECRET:-}" \
+  -H "Authorization: Bearer ${AKTENRAUM_HOOK_TOKEN:-}" \
   -d "{\"document_id\": ${DOCUMENT_ID}}" \
   "${AKTENRAUM_AUTO_TAGGER_URL:-http://auto-tagger:8001}/trigger/extract" \
   >/dev/null 2>&1 || true

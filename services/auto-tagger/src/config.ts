@@ -66,7 +66,9 @@ export const settingsSchema = z.object({
 
   ENABLE_HTTP_SERVER: bool(true),
   HTTP_PORT: num(8001, 1, 65535),
-  WEBHOOK_SECRET: str(""),
+  SVC_TOKEN_PAPERLESS_HOOK: str(""),
+  SVC_TOKEN_API: str(""),
+  SVC_TOKEN_WORKER: str(""),
 
   AKTENRAUM_API_URL: str("http://aktenraum-api:8002"),
   QDRANT_URL: str(""),

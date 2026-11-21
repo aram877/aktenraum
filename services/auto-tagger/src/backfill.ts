@@ -32,7 +32,7 @@ export async function backfill(force: boolean): Promise<number> {
     vectorStore,
     embedder: new OllamaEmbedder(settings.OLLAMA_BASE_URL, settings.EMBEDDING_MODEL),
     spaceLookup: settings.AKTENRAUM_API_URL
-      ? apiSpaceLookup(settings.AKTENRAUM_API_URL, settings.WEBHOOK_SECRET)
+      ? apiSpaceLookup(settings.AKTENRAUM_API_URL, settings.SVC_TOKEN_WORKER)
       : undefined,
   };
 

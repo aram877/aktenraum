@@ -52,16 +52,18 @@ Both `auto-tagger` and `aktenraum-api` use the same `PAPERLESS_API_TOKEN`.
 
 ---
 
-## Rotate the webhook secret
+## Rotate a service credential
 
-`WEBHOOK_SECRET` gates the auto-tagger's `/trigger/*` endpoints, Paperless's `post_consume` call and the api's internal `/api/settings/active-*` endpoints. Every service reads it from `docker/.env`, so one edit keeps them consistent.
+The three `SVC_TOKEN_*` values authenticate the internal calls (ADR-010 step 5): `SVC_TOKEN_PAPERLESS_HOOK` (Paperless `post_consume` → worker), `SVC_TOKEN_API` (api → worker triggers and `/processing`), `SVC_TOKEN_WORKER` (worker → api internal routes). Rotate one when it may have leaked; every service reads them from `docker/.env`, so one edit keeps both ends consistent.
 
-1. Generate a new value: `openssl rand -base64 32`
-2. Replace `WEBHOOK_SECRET` in `docker/.env`.
-3. Recreate everything that uses it:
+1. Empty the value in `docker/.env` (e.g. `SVC_TOKEN_API=`) and run `bash scripts/bootstrap-secrets.sh` — it generates a new `akt_svc_…` value and changes nothing else.
+2. Recreate the services that hold it (`restart` does not re-read `.env`):
    ```bash
    $DC up -d paperless auto-tagger aktenraum-api
    ```
+3. Check: `$DC logs --since 2m auto-tagger aktenraum-api | grep service_token_` prints nothing.
+
+During the recreate a post-consume hook or trigger may hit a mismatched pair and get 401; the 30 s poller picks the document up anyway. `WEBHOOK_SECRET` is retired and needs no rotation.
 
 ---
 

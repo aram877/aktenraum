@@ -226,6 +226,11 @@ same type still can. (Skip B if you don't use email ingestion or auto-approve.)
 ---
 
 ## Phase 1.3 — WEBHOOK_SECRET startup warning
+
+> **Superseded 2026-11-21** (`service-credentials`, ADR-010 step 5):
+> `WEBHOOK_SECRET` is retired. The startup check is now `service_token_unset` /
+> `service_token_duplicate` / `service_token_weak` for the three `SVC_TOKEN_*`
+> credentials. Kept below as the historical test record.
 **Commit:** _(same as 1.1)_
 **Files:** `services/aktenraum-api/src/main.py`,
 `services/auto-tagger/src/main.py`

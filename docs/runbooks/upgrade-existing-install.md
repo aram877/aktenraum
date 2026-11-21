@@ -43,6 +43,11 @@ bash scripts/bootstrap-secrets.sh
 carried-over values (e.g. `Qdrant API key: generated ✓`,
 `aktenraum-api token encryption key: generated ✓`,
 `RESTIC_PASSWORD ← backup.env`). Existing values are never changed.
+The upgrade that introduces service credentials adds three lines:
+`Service credential Paperless hook → worker: generated ✓`,
+`… worker → api: generated ✓`, `… api → worker: generated ✓`.
+`WEBHOOK_SECRET` stays in the file (unused; it lets the previous release run
+after a rollback).
 Since the household-members upgrade the api refuses to start without
 `AKTENRAUM_SECRET_KEY`; this step adds it.
 
@@ -55,12 +60,12 @@ line `RESTIC_PASSWORD=<passphrase>` to `docker/.env`, then re-run this step.
 ## 4. Check the required values
 
 ```bash
-for key in AKTENRAUM_DATA_DIR WEBHOOK_SECRET QDRANT_API_KEY RESTIC_PASSWORD PAPERLESS_API_TOKEN; do
+for key in AKTENRAUM_DATA_DIR SVC_TOKEN_PAPERLESS_HOOK SVC_TOKEN_WORKER SVC_TOKEN_API QDRANT_API_KEY RESTIC_PASSWORD PAPERLESS_API_TOKEN; do
   if grep -q "^${key}=." docker/.env; then echo "ok      ${key}"; else echo "MISSING ${key}"; fi
 done
 ```
 
-**Expected:** five `ok` lines.
+**Expected:** seven `ok` lines.
 **If it fails:**
 - `MISSING AKTENRAUM_DATA_DIR` → ask the user where the data lives (e.g.
   `D:/aktenraum` on Windows, `/Users/<name>/aktenraum` on macOS) and add
@@ -251,6 +256,40 @@ docker compose --project-directory docker exec postgres psql -U paperless -d akt
 as before; members created without one (joined by invite after this upgrade)
 need a temporary password first — see ADR-010 "As built (`auth-passkeys`)",
 *Rollback*.
+
+## 9c. Check the service credentials (the upgrade that introduces them)
+
+From `service-credentials` (ADR-010 step 5) each internal caller has its own
+credential instead of the shared `WEBHOOK_SECRET`. Step 3 generated them and
+step 6 recreated every service. Check that nothing is missing:
+
+```bash
+docker compose --project-directory docker logs aktenraum-api auto-tagger 2>&1 | grep -E 'service_token_(unset|duplicate|weak)' || echo "credentials ok"
+docker compose --project-directory docker exec paperless sh -c 'echo "hook=${AKTENRAUM_HOOK_TOKEN:+set} worker=${SVC_TOKEN_WORKER:-blank} api=${SVC_TOKEN_API:-blank}"'
+```
+
+**Expected:** `credentials ok`, then `hook=set worker=blank api=blank`.
+
+Then let the user upload one document and approve one in the review queue, and
+check that both calls were attributed:
+
+```bash
+docker compose --project-directory docker logs --since 10m auto-tagger 2>&1 | grep '"webhook_enqueued"' | grep -oE '"trigger":"[a-z-]+","doc_id":[0-9]+,"caller":"[a-z-]+"'
+```
+
+**Expected:** an `"trigger":"extract",…,"caller":"paperless-hook"` line for
+the upload and a `"trigger":"propagate",…,"caller":"api"` line for the
+approval.
+
+**If it fails:**
+- `service_token_unset` → step 3 didn't run or the containers weren't
+  recreated: re-run step 3, then `docker compose --project-directory docker up -d`
+  (not `restart`).
+- no `webhook_enqueued` line for the upload, but the document still gets
+  extracted within ~30 s → the hook was refused; `grep webhook_rejected` in the
+  same logs shows the reason. Report it.
+- `"webhook_rejected","reason":"not_allowed"` → report the line (it names the
+  caller and route).
 
 ## 10. Report
 

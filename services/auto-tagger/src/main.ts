@@ -1,5 +1,6 @@
 import {
   createBackend,
+  logServiceCredentialCheck,
   logger,
   OllamaEmbedder,
   PaperlessClient,
@@ -14,6 +15,7 @@ import { ProcessingState } from "./processing-state.js";
 import { AsyncQueue } from "./queue.js";
 import { lifecycleTagsOn, processDocument } from "./extract.js";
 import { apiHomeSpaceAssigner } from "./home-space.js";
+import { workerServiceCredentials } from "./service-credentials.js";
 import { apiSpaceLookup } from "./space-lookup.js";
 import {
   enqueueUnindexedDocuments,
@@ -29,13 +31,8 @@ import { createWebhookServer } from "./webhook.js";
 
 export async function bootstrap(): Promise<void> {
   const settings = loadSettings();
-  if (!settings.WEBHOOK_SECRET) {
-    logger.warn("webhook_secret_unset", {
-      detail:
-        "WEBHOOK_SECRET is empty — every /trigger/* and /processing call is rejected; " +
-        "only the 30 s pollers drive the pipeline. Run scripts/bootstrap-secrets.sh.",
-    });
-  }
+  const credentials = workerServiceCredentials(settings);
+  logServiceCredentialCheck(credentials, logger);
 
   const paperless = new PaperlessClient(
     settings.PAPERLESS_BASE_URL,
@@ -49,21 +46,21 @@ export async function bootstrap(): Promise<void> {
   const transientFailures = new TransientFailureTracker();
   const homeSpaceFailures = new TransientFailureTracker();
   const assignHomeSpace = settings.AKTENRAUM_API_URL
-    ? apiHomeSpaceAssigner(settings.AKTENRAUM_API_URL, settings.WEBHOOK_SECRET)
+    ? apiHomeSpaceAssigner(settings.AKTENRAUM_API_URL, settings.SVC_TOKEN_WORKER)
     : undefined;
   const spaceLookup = settings.AKTENRAUM_API_URL
-    ? apiSpaceLookup(settings.AKTENRAUM_API_URL, settings.WEBHOOK_SECRET)
+    ? apiSpaceLookup(settings.AKTENRAUM_API_URL, settings.SVC_TOKEN_WORKER)
     : undefined;
   const saveTypeFields = settings.AKTENRAUM_API_URL
-    ? apiTypeFieldsSaver(settings.AKTENRAUM_API_URL, settings.WEBHOOK_SECRET)
+    ? apiTypeFieldsSaver(settings.AKTENRAUM_API_URL, settings.SVC_TOKEN_WORKER)
     : undefined;
   const autoApprove = new AutoApproveConfig(
     settings.AKTENRAUM_API_URL,
-    settings.WEBHOOK_SECRET,
+    settings.SVC_TOKEN_WORKER,
   );
   const activeModel = new ActiveModelConfig(
     settings.AKTENRAUM_API_URL,
-    settings.WEBHOOK_SECRET,
+    settings.SVC_TOKEN_WORKER,
     settings.OLLAMA_MODEL,
   );
   const buildBackend = (ollamaModel: string) =>
@@ -229,7 +226,7 @@ export async function bootstrap(): Promise<void> {
       propagationQueue,
       indexingQueue,
       processingState,
-      webhookSecret: settings.WEBHOOK_SECRET,
+      credentials,
     });
     await new Promise<void>((resolve) => server.listen(settings.HTTP_PORT, "0.0.0.0", resolve));
     logger.info("webhook_listening", { port: settings.HTTP_PORT });

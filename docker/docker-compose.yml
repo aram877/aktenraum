@@ -38,7 +38,13 @@ services:
       # (and rejected again) on every Paperless start. It is byte-identical
       # (SHA1) to an archived document, so deleting it loses nothing.
       PAPERLESS_CONSUMER_DELETE_DUPLICATES: "true"
-      AKTENRAUM_WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
+      # Service credentials (ADR-010 step 5): Paperless holds only the hook
+      # token, under its own name for post_consume.sh. The blank entries
+      # override the values env_file loads from the shared .env.
+      AKTENRAUM_HOOK_TOKEN: ${SVC_TOKEN_PAPERLESS_HOOK:-}
+      SVC_TOKEN_PAPERLESS_HOOK: ""
+      SVC_TOKEN_WORKER: ""
+      SVC_TOKEN_API: ""
     networks:
       - internal
 
@@ -230,6 +236,9 @@ services:
       DATABASE_URL: postgresql://${PAPERLESS_DBUSER:-paperless}:${PAPERLESS_DBPASS}@postgres:5432/aktenraum
       HF_HOME: /home/appuser/.cache/huggingface
       HUGGINGFACE_HUB_CACHE: /home/appuser/.cache/huggingface/hub
+      # The api verifies SVC_TOKEN_WORKER and sends SVC_TOKEN_API; it never
+      # holds the Paperless hook token (service-credentials).
+      SVC_TOKEN_PAPERLESS_HOOK: ""
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8002/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
@@ -284,6 +293,11 @@ services:
     env_file:
       - path: .env
         required: false
+    environment:
+      # No internal calls from backup — it holds none of the service credentials.
+      SVC_TOKEN_PAPERLESS_HOOK: ""
+      SVC_TOKEN_WORKER: ""
+      SVC_TOKEN_API: ""
     volumes:
       - ${AKTENRAUM_DATA_DIR:?must be set to an absolute path in docker/.env (see .env.example) - unset/empty risks silent data loss}/data:/backup/data:ro
       - ${AKTENRAUM_DATA_DIR:?must be set to an absolute path in docker/.env (see .env.example) - unset/empty risks silent data loss}/media:/backup/media:ro

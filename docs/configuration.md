@@ -96,8 +96,10 @@ Compose additionally sets `PAPERLESS_REDIS`, `PAPERLESS_DBHOST`, the Tika and
 Gotenberg endpoints, `PAPERLESS_POST_CONSUME_SCRIPT`,
 `PAPERLESS_CONSUMER_DELETE_DUPLICATES=true` (a rejected duplicate is deleted
 from `consume/` instead of being re-imported on every Paperless start) and
-`AKTENRAUM_WEBHOOK_SECRET` (copied from `WEBHOOK_SECRET`, sent by
-`post_consume.sh` as `X-Aktenraum-Secret`). Do not set these in `docker/.env`.
+`AKTENRAUM_HOOK_TOKEN` (copied from `SVC_TOKEN_PAPERLESS_HOOK`, sent by
+`post_consume.sh` as `Authorization: Bearer …`). It blanks the three
+`SVC_TOKEN_*` variables inside the Paperless container, so Paperless holds only
+the hook token. Do not set these in `docker/.env`.
 
 ### Email ingestion (IMAP)
 
@@ -128,11 +130,27 @@ re-run reconciles drift). No service reads them at runtime.
 | `PAPERLESS_BASE_URL` | `http://paperless:8000` | worker: none (**required**); api: `http://paperless:8000` | In-network Paperless URL. |
 | `PAPERLESS_API_TOKEN` | empty | worker: none (**required** — the worker exits at startup without it); api: empty | Per-database token, minted after the first Paperless boot (`task setup` / `task recover`). A fresh `pgdata/` invalidates it. When empty, the api answers `/api/ai/*` and `/api/documents/*` with 503 while `/api/health` and `/api/auth/*` stay up. |
 
-### Internal webhook secret
+### Service credentials (internal calls)
 
-| Var | Template | Code default | Purpose |
-|---|---|---|---|
-| `WEBHOOK_SECRET` | empty (generated) | empty | Sent as `X-Aktenraum-Secret`. Gates the auto-tagger's `/trigger/*` endpoints (Paperless `post_consume`, api → worker triggers) and the api's internal `/api/settings/active-llm-model` + `/api/settings/active-auto-approve-rules` endpoints. Empty means every internal call is rejected (fail-closed) — keep it set. |
+One credential per internal caller (ADR-010 step 5, `service-credentials`),
+sent as `Authorization: Bearer <value>`. `bootstrap-secrets.sh` generates each
+as `akt_svc_` + 43 base64url characters (32 random bytes). Any non-empty value
+works; shorter than 32 characters logs `service_token_weak`. An empty value
+fails closed and logs `service_token_unset` at startup; two credentials with
+the same value are both treated as unset (`service_token_duplicate`). No value
+is ever logged.
+
+| Var | Template | Code default | Held by | Purpose |
+|---|---|---|---|---|
+| `SVC_TOKEN_PAPERLESS_HOOK` | empty (generated) | empty | worker (verifies), paperless (as `AKTENRAUM_HOOK_TOKEN`) | Paperless `post_consume` → worker. Allowed: `POST /trigger/extract` only. Blanked for the api and backup. |
+| `SVC_TOKEN_API` | empty (generated) | empty | api (sends), worker (verifies) | api → worker: `/trigger/extract`, `/trigger/propagate`, `/trigger/reindex-metadata`, `GET /processing`. |
+| `SVC_TOKEN_WORKER` | empty (generated) | empty | worker (sends), api (verifies) | worker → api: `/api/settings/active-*`, `PATCH /api/documents/{id}/type-fields`, `/api/tenancy/*` — exactly the worker principal's scopes. |
+| `WEBHOOK_SECRET` | commented out | — | nobody | **Retired.** No service reads it. Existing `.env` files keep their value so the previous release can be rolled back to; `bootstrap-secrets.sh` no longer generates it. |
+
+`docker-compose.yml` blanks the credentials a container doesn't use (the
+`environment:` block overrides `env_file`). Rotate by editing `docker/.env`
+and running `docker compose up -d` — see
+[`runbooks/rotate-api-keys.md`](runbooks/rotate-api-keys.md).
 
 ### LLM backend
 

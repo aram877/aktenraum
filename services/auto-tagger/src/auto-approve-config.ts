@@ -43,7 +43,7 @@ export class AutoApproveConfig {
 
   constructor(
     private readonly apiUrl: string,
-    private readonly webhookSecret: string,
+    private readonly serviceToken: string,
     private readonly fetchFn: typeof fetch = fetch,
   ) {}
 
@@ -59,7 +59,7 @@ export class AutoApproveConfig {
   private async load(now: number): Promise<RuleSet> {
     if (!this.apiUrl) return this.fallback("api_url_unset");
     const headers: Record<string, string> = {};
-    if (this.webhookSecret) headers["X-Aktenraum-Secret"] = this.webhookSecret;
+    if (this.serviceToken) headers.Authorization = `Bearer ${this.serviceToken}`;
     const url = `${this.apiUrl.replace(/\/+$/, "")}/api/settings/active-auto-approve-rules`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 5_000);

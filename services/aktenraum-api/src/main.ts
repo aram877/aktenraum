@@ -1,6 +1,6 @@
 import "reflect-metadata";
 
-import { logger } from "@aktenraum/core";
+import { logger, logServiceCredentialCheck } from "@aktenraum/core";
 import { NestFactory } from "@nestjs/core";
 import type { NestExpressApplication } from "@nestjs/platform-express";
 import cookieParser from "cookie-parser";
@@ -8,20 +8,14 @@ import cookieParser from "cookie-parser";
 import { AppModule } from "./app.module.js";
 import { FastApiErrorShapeFilter } from "./common/http-exception.filter.js";
 import { createCsrfMiddleware, securityHeadersMiddleware } from "./common/middleware.js";
+import { apiServiceCredentials } from "./auth/internal.guard.js";
 import { loadSettings } from "./config/settings.js";
 import { applySchema } from "./db/apply-schema.js";
 
 export async function bootstrap(): Promise<void> {
   const settings = loadSettings();
 
-  if (!settings.WEBHOOK_SECRET) {
-    logger.warn("webhook_secret_unset", {
-      detail:
-        "WEBHOOK_SECRET is empty — the internal /api/settings/active-* endpoints " +
-        "reject every call, so the auto-tagger falls back to OLLAMA_MODEL and " +
-        "fail-closed auto-approve rules. Run scripts/bootstrap-secrets.sh.",
-    });
-  }
+  logServiceCredentialCheck(apiServiceCredentials(settings), logger);
 
   await applySchema(settings.DATABASE_URL);
 

@@ -23,7 +23,8 @@ describe("apiSpaceLookup", () => {
     expect(space).toEqual({ spaceId: 2, sharedWith: [], peers: new Set([4, 5]) });
     const [url, init] = fetchFn.mock.calls[0]!;
     expect(url).toBe("http://api/api/tenancy/documents/5/space");
-    expect((init?.headers as Record<string, string>)["X-Aktenraum-Secret"]).toBe("s");
+    expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer s");
+    expect(init?.headers as Record<string, string>).not.toHaveProperty("X-Aktenraum-Secret");
   });
 
   it("returns null for a document without a home space", async () => {

@@ -68,8 +68,9 @@ export class InboxController {
 Rules:
 
 - **`@UseGuards(AuthGuard)` on every route that touches user data.** The only
-  unguarded routes are `/api/health`, `/api/auth/*`, and the secret-gated
-  internal `/api/settings/active-*` pair.
+  unguarded routes are `/api/health`, `/api/auth/*`, and the internal
+  routes behind `InternalGuard` (worker credential: `/api/settings/active-*`,
+  `/api/tenancy/*`).
 - **Validate with zod through `ZodValidationPipe`**, never by hand. A failed
   parse becomes a 422 with the same body shape FastAPI produced, so the SPA's
   error handling did not have to change during the migration.
@@ -134,20 +135,26 @@ is not.
 
 `csrfMiddleware` rejects state-changing methods (and `/preview` + `/download`)
 when `Sec-Fetch-Site: cross-site` is present. It decides from that header
-alone — `X-Aktenraum-Secret` does **not** exempt a request (removed
-2026-11-19, ADR-003 amendment). Internal callers pass because Node's `fetch`
+alone — no credential exempts a request (the old `X-Aktenraum-Secret`
+exemption was removed 2026-11-19, ADR-003 amendment). Internal callers pass because Node's `fetch`
 sends no `Sec-Fetch-Site`.
 
 Internal identity is a guard's job, never a controller's:
 
-- `@UseGuards(InternalGuard)` — service-only routes (worker → api); `401 Bad secret`
+- `@UseGuards(InternalGuard)` — service-only routes (worker → api); needs
+  `Authorization: Bearer <SVC_TOKEN_WORKER>`, anything else `401 Invalid credential`
 - `@UseGuards(UserOrInternalGuard)` — routes both the worker and a logged-in
-  user call; a present-but-wrong secret is `401 Invalid secret` and never falls
-  back to the cookie
-- both use `secretMatches` from `@aktenraum/core`; don't write another comparison
+  user call; an `Authorization` header that isn't the worker credential is
+  `401 Invalid credential` and never falls back to the cookie
+- both call `serviceCaller` from `@aktenraum/core` via `apiServiceCredentials`
+  and accept only the `worker` caller; don't write another comparison
+- tests: `asWorker(request(server).get(...))` + `env: SERVICE_ENV` from
+  `src/test/harness.ts`
 
 Both live in `src/auth/internal.guard.ts` and are exported from `AuthModule`.
-ADR-010 replaces the shared secret with per-caller service credentials later.
+Per-caller service credentials (ADR-010 step 5, `service-credentials`): the
+api holds `SVC_TOKEN_WORKER` (verify) and `SVC_TOKEN_API` (sent by
+`AutoTaggerClient`), never the Paperless hook token.
 
 ---
 

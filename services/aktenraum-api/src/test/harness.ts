@@ -272,6 +272,20 @@ CREATE TABLE credential_audit (
 INSERT INTO app_settings (id) VALUES (1);
 `;
 
+/** Service credentials for tests that act as the worker (ADR-010 step 5). */
+export const TEST_WORKER_TOKEN = "akt_svc_test_worker_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+export const TEST_API_TOKEN = "akt_svc_test_api_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+/** `env` for `createHarness` that configures both api-side service credentials. */
+export const SERVICE_ENV = { SVC_TOKEN_WORKER: TEST_WORKER_TOKEN, SVC_TOKEN_API: TEST_API_TOKEN };
+
+/** Sends a supertest request as the worker (`Authorization: Bearer <token>`). */
+export function asWorker<T extends { set(field: string, value: string): T }>(
+  req: T,
+  token: string = TEST_WORKER_TOKEN,
+): T {
+  return req.set("Authorization", `Bearer ${token}`);
+}
+
 export const TEST_ENV: NodeJS.ProcessEnv = {
   DATABASE_URL: "postgresql://test/test",
   AKTENRAUM_SECRET_KEY: Buffer.alloc(32, 7).toString("base64"),
@@ -279,7 +293,8 @@ export const TEST_ENV: NodeJS.ProcessEnv = {
   BOOTSTRAP_USERNAME: "",
   BOOTSTRAP_PASSWORD: "",
   PAPERLESS_API_TOKEN: "test-token",
-  WEBHOOK_SECRET: "",
+  SVC_TOKEN_WORKER: "",
+  SVC_TOKEN_API: "",
   AUTO_TAGGER_URL: "",
   QDRANT_URL: "",
 };

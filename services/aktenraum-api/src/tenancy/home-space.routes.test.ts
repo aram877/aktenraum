@@ -6,12 +6,11 @@ import { documentSpaces, members, spaces, uploadTaskMembers, users } from "../db
 import { PaperlessRequestError } from "../paperless/errors.js";
 import type { PaperlessGateway } from "../paperless/paperless.gateway.js";
 import { FakeGateway, makeDoc } from "../test/fake-gateway.js";
-import { createHarness, type Harness } from "../test/harness.js";
+import { SERVICE_ENV, asWorker, createHarness, type Harness } from "../test/harness.js";
 import { NO_DOCUMENT } from "./home-space.service.js";
 import { TenancyService } from "./tenancy.service.js";
 import { registerPasskey } from "../test/passkey-helpers.js";
 
-const SECRET = "s3cret-for-tests";
 
 let harness: Harness | null = null;
 
@@ -27,7 +26,7 @@ async function setup(tasks: Record<string, unknown>[] = []) {
   });
   harness = await createHarness({
     gateway: paperless as unknown as Partial<PaperlessGateway>,
-    env: { WEBHOOK_SECRET: SECRET, BOOTSTRAP_USERNAME: "admin", BOOTSTRAP_PASSWORD: "correct-horse" },
+    env: { ...SERVICE_ENV, BOOTSTRAP_USERNAME: "admin", BOOTSTRAP_PASSWORD: "correct-horse" },
   });
   // A second member with its own personal space.
   await harness.db.insert(users).values({ username: "partner", passwordHash: "x" });
@@ -39,9 +38,8 @@ async function setup(tasks: Record<string, unknown>[] = []) {
   const spaceOf = (memberId: number) => allSpaces.find((s) => s.personalMemberId === memberId)!.id;
   const h = harness;
   const assign = (documentId: number) =>
-    request(h.app.getHttpServer())
-      .post("/api/tenancy/assign-home-space")
-      .set("X-Aktenraum-Secret", SECRET)
+    asWorker(request(h.app.getHttpServer())
+      .post("/api/tenancy/assign-home-space"))
       .send({ document_id: documentId });
   return { h, paperless, admin, partner, spaceOf, assign };
 }
@@ -59,9 +57,8 @@ describe("POST /api/tenancy/assign-home-space", () => {
 
   it("rejects a malformed body", async () => {
     const { h } = await setup();
-    const response = await request(h.app.getHttpServer())
-      .post("/api/tenancy/assign-home-space")
-      .set("X-Aktenraum-Secret", SECRET)
+    const response = await asWorker(request(h.app.getHttpServer())
+      .post("/api/tenancy/assign-home-space"))
       .send({ document_id: "300" });
     expect(response.status).toBeGreaterThanOrEqual(400);
     expect(response.status).toBeLessThan(500);

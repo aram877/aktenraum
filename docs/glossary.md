@@ -127,12 +127,12 @@ Plain-language definitions for every acronym, framework, and piece of jargon tha
 - **`SameSite=Lax` cookie** — cookie attribute that tells the browser "don't send this cookie on cross-site subrequests." Blocks the most obvious CSRF vectors.
 - **`Secure` cookie** — cookie attribute that tells the browser "only send this cookie over HTTPS." Our `COOKIE_SECURE` defaults to `True`; localhost dev opts out.
 - **`Sec-Fetch-Site`** — request header all modern browsers add. Tells the server whether the request comes from the same origin, a same-site sibling, or a cross-site page. Our CSRF middleware reads it.
-- **timing attack** — when an attacker measures how long a string-comparison takes to deduce the right value byte-by-byte. Defended with Node's `crypto.timingSafeEqual` (constant-time comparison) on the webhook secret.
+- **timing attack** — when an attacker measures how long a string-comparison takes to deduce the right value byte-by-byte. Defended with Node's `crypto.timingSafeEqual` (constant-time comparison) on the service credentials (`secretMatches` / `serviceCaller` in `@aktenraum/core`).
 - **TOCTOU / Time-of-Check Time-of-Use** — race-condition class where the state checked at time T1 changed before the action at T2. Our `swapLifecycleTag` had one: read tags, plan, PATCH — a parallel writer in between would lose. Fixed by re-reading after PATCH and retrying on mismatch.
 - **race condition** — generic term for "two concurrent operations interleave in a way that produces a wrong result." TOCTOU is one kind.
 - **idempotent** — an operation you can run multiple times with the same effect as running it once. Paperless dedupes uploads by SHA1, so re-uploading the same file is idempotent. `swapLifecycleTag` is idempotent: re-approving an already-approved doc is a no-op.
 - **rate limit** — capping how many requests per second a client can make. We don't implement it explicitly; the upload caps + bulk-approve concurrency limiter approximate it for the most expensive paths.
-- **secret / token** — any private string that authenticates a caller. We have several: `JWT_SECRET`, `WEBHOOK_SECRET`, `PAPERLESS_API_TOKEN`, `RESTIC_PASSWORD`, `ANTHROPIC_API_KEY`. None committed to git per ADR-002.
+- **secret / token** — any private string that authenticates a caller. We have several: the `SVC_TOKEN_*` service credentials (one per internal caller), `AKTENRAUM_SECRET_KEY`, `PAPERLESS_API_TOKEN`, `RESTIC_PASSWORD`, `ANTHROPIC_API_KEY` (`JWT_SECRET` and `WEBHOOK_SECRET` are retired). None committed to git per ADR-002.
 - **defence in depth** — adding multiple independent layers of defence so any single bug doesn't lead to a breach. `SameSite=Lax` + `Sec-Fetch-Site` middleware + httpOnly cookie + CSP is defence in depth against CSRF/XSS.
 
 ---

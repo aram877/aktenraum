@@ -9,7 +9,7 @@ function fetchReturning(status: number, body = "{}") {
 }
 
 describe("apiHomeSpaceAssigner", () => {
-  it("POSTs the document id with the internal secret", async () => {
+  it("POSTs the document id with the worker credential", async () => {
     const fetchFn = fetchReturning(200);
     await apiHomeSpaceAssigner("http://api:8002/", "s3cret", fetchFn as unknown as typeof fetch)(42);
 
@@ -17,7 +17,8 @@ describe("apiHomeSpaceAssigner", () => {
     expect(url).toBe("http://api:8002/api/tenancy/assign-home-space");
     expect(init?.method).toBe("POST");
     expect(JSON.parse(String(init?.body))).toEqual({ document_id: 42 });
-    expect((init?.headers as Record<string, string>)["X-Aktenraum-Secret"]).toBe("s3cret");
+    expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer s3cret");
+    expect(init?.headers as Record<string, string>).not.toHaveProperty("X-Aktenraum-Secret");
   });
 
   it("turns 409 into HomeSpacePendingError", async () => {

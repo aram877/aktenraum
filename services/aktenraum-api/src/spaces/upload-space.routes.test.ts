@@ -6,11 +6,10 @@ import { hashPassword } from "../auth/passwords.js";
 import { documentSpaces, memberRemovals, members, spaceMembers, spaces, uploadTaskSpaces, users } from "../db/schema.js";
 import type { PaperlessGateway } from "../paperless/paperless.gateway.js";
 import { FakeGateway, makeDoc } from "../test/fake-gateway.js";
-import { createHarness, type Harness } from "../test/harness.js";
+import { SERVICE_ENV, asWorker, createHarness, type Harness } from "../test/harness.js";
 import { TenancyService } from "../tenancy/tenancy.service.js";
 import { registerPasskey } from "../test/passkey-helpers.js";
 
-const SECRET = "s3cret-for-tests";
 
 let harness: Harness | null = null;
 
@@ -23,7 +22,7 @@ async function setup() {
   const paperless = new FakeGateway({ docs: [makeDoc({ id: 300 })] });
   harness = await createHarness({
     gateway: paperless as unknown as Partial<PaperlessGateway>,
-    env: { WEBHOOK_SECRET: SECRET },
+    env: { ...SERVICE_ENV },
   });
   const h = harness;
   const password = await hashPassword("password-123");
@@ -54,9 +53,8 @@ async function setup() {
   /** Paperless finished the task with document 300; the worker asks for its home space. */
   const assign = async () => {
     paperless.tasks.push({ task_id: "task-uuid-1234", status: "SUCCESS", related_document: "300", owner: 0 });
-    return request(h.app.getHttpServer())
-      .post("/api/tenancy/assign-home-space")
-      .set("X-Aktenraum-Secret", SECRET)
+    return asWorker(request(h.app.getHttpServer())
+      .post("/api/tenancy/assign-home-space"))
       .send({ document_id: 300 })
       .expect(200);
   };

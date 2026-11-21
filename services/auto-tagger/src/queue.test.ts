@@ -1,4 +1,3 @@
-import { secretMatches } from "@aktenraum/core";
 import { describe, expect, it } from "vitest";
 
 import { AsyncQueue } from "./queue.js";
@@ -66,21 +65,6 @@ describe("ProcessingState", () => {
 });
 
 describe("webhook helpers", () => {
-  it("rejects every request when no secret is configured", () => {
-    expect(secretMatches(undefined, "")).toBe(false);
-    expect(secretMatches("anything", "")).toBe(false);
-  });
-
-  it("rejects a missing or wrong secret once one is configured", () => {
-    expect(secretMatches(undefined, "s3cret")).toBe(false);
-    expect(secretMatches("wrong", "s3cret")).toBe(false);
-    expect(secretMatches("s3cret", "s3cret")).toBe(true);
-  });
-
-  it("rejects a secret of a different length without throwing", () => {
-    expect(secretMatches("short", "muchlongersecret")).toBe(false);
-  });
-
   it("parses a document id from the webhook body", () => {
     expect(parseDocumentId('{"document_id": 12}')).toBe(12);
     expect(parseDocumentId('{"document_id": "12"}')).toBe(12);

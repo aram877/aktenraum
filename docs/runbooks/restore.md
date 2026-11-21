@@ -44,7 +44,7 @@ and fill in at least:
 - `AKTENRAUM_DATA_DIR` — the absolute data path to restore into
 - `PAPERLESS_SECRET_KEY` — the **same** value as the original instance, or Paperless cannot decrypt stored data
 - `RESTIC_PASSWORD` — the backup passphrase
-- `PAPERLESS_DBPASS`, `PAPERLESS_ADMIN_PASSWORD`, `AKTENRAUM_SECRET_KEY`, `WEBHOOK_SECRET`, `BOOTSTRAP_PASSWORD` — reuse the originals or generate new ones with `bash scripts/bootstrap-secrets.sh` (it only fills empty values)
+- `PAPERLESS_DBPASS`, `PAPERLESS_ADMIN_PASSWORD`, `AKTENRAUM_SECRET_KEY`, `SVC_TOKEN_PAPERLESS_HOOK` / `SVC_TOKEN_WORKER` / `SVC_TOKEN_API`, `BOOTSTRAP_PASSWORD` — reuse the originals or generate new ones with `bash scripts/bootstrap-secrets.sh` (it only fills empty values; the service credentials are only checked against each other, so fresh ones are fine)
 
 If you have the original `PAPERLESS_API_TOKEN`, keep it — the token is stored in the `paperless` database you are about to restore. Otherwise leave it empty and mint one in step 8.
 

@@ -4,11 +4,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { documentSpaces, members, spaces, users } from "../db/schema.js";
 import type { PaperlessDocument, PaperlessGateway } from "../paperless/paperless.gateway.js";
 import { FakeGateway, TAGS, makeDoc } from "../test/fake-gateway.js";
-import { createHarness, type Harness } from "../test/harness.js";
+import { SERVICE_ENV, asWorker, createHarness, type Harness } from "../test/harness.js";
 import { TenancyService } from "./tenancy.service.js";
 import { registerPasskey } from "../test/passkey-helpers.js";
 
-const SECRET = "s3cret-for-tests";
 
 let harness: Harness | null = null;
 
@@ -35,7 +34,7 @@ async function setup(docs: PaperlessDocument[]) {
   const paperless = new FakeGateway({ docs });
   harness = await createHarness({
     gateway: paperless as unknown as Partial<PaperlessGateway>,
-    env: { WEBHOOK_SECRET: SECRET, BOOTSTRAP_USERNAME: "admin", BOOTSTRAP_PASSWORD: "correct-horse" },
+    env: { ...SERVICE_ENV, BOOTSTRAP_USERNAME: "admin", BOOTSTRAP_PASSWORD: "correct-horse" },
   });
   await harness.db.insert(users).values({ username: "partner", passwordHash: "x" });
   await harness.app.get(TenancyService).reconcile();
@@ -59,9 +58,8 @@ describe("GET /api/tenancy/documents/:doc_id/space (worker)", () => {
       { paperlessDocId: 3, spaceId: spaceOf(partner.id) },
     ]);
 
-    const response = await request(h.app.getHttpServer())
-      .get("/api/tenancy/documents/1/space")
-      .set("X-Aktenraum-Secret", SECRET)
+    const response = await asWorker(request(h.app.getHttpServer())
+      .get("/api/tenancy/documents/1/space"))
       .expect(200);
 
     expect(response.body).toEqual({
@@ -74,9 +72,8 @@ describe("GET /api/tenancy/documents/:doc_id/space (worker)", () => {
 
   it("answers null for a document without a home space", async () => {
     const { h } = await setup([makeDoc({ id: 1 })]);
-    const response = await request(h.app.getHttpServer())
-      .get("/api/tenancy/documents/1/space")
-      .set("X-Aktenraum-Secret", SECRET)
+    const response = await asWorker(request(h.app.getHttpServer())
+      .get("/api/tenancy/documents/1/space"))
       .expect(200);
     expect(response.body).toMatchObject({ space_id: null, space_document_ids: [] });
   });

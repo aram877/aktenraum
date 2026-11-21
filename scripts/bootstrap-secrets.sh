@@ -38,6 +38,13 @@ gen_secret_hex() {
   openssl rand -hex 32
 }
 
+# Service credential (ADR-010 step 5): `akt_svc_` + base64url of 32 random
+# bytes (43 chars). The prefix lets humans and secret scanners recognise a
+# leaked value and keeps it apart from future `akt_pat_` personal tokens.
+gen_service_token() {
+  printf 'akt_svc_%s' "$(openssl rand -base64 32 | tr -d '\n=' | tr '+/' '-_')"
+}
+
 # Random alphanumeric password — friendlier to display in a UI than base64
 # (no '+', '/', '=' that get URL-encoded or copy-pasted oddly).
 gen_password() {
@@ -163,8 +170,17 @@ fi
 if fill_if_empty QDRANT_API_KEY gen_secret_hex; then
   generated_lines+=("Qdrant API key: generated ✓")
 fi
-if fill_if_empty WEBHOOK_SECRET gen_secret_b64; then
-  generated_lines+=("Internal webhook secret: generated ✓")
+# One credential per internal caller (service-credentials). WEBHOOK_SECRET is
+# retired: no longer generated, but never deleted, so the previous code can
+# still be rolled back to.
+if fill_if_empty SVC_TOKEN_PAPERLESS_HOOK gen_service_token; then
+  generated_lines+=("Service credential Paperless hook → worker: generated ✓")
+fi
+if fill_if_empty SVC_TOKEN_WORKER gen_service_token; then
+  generated_lines+=("Service credential worker → api: generated ✓")
+fi
+if fill_if_empty SVC_TOKEN_API gen_service_token; then
+  generated_lines+=("Service credential api → worker: generated ✓")
 fi
 
 # 3. User-facing passwords — print in plaintext exactly once if generated.

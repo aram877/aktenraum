@@ -333,7 +333,10 @@ Qdrant chunks via the vector store's `deleteByDocId`; failures log
 
 The SPA's `/settings` page consumes the auth-gated endpoints. The
 `active-*` variants are internal — the auto-tagger reads them with a
-short TTL cache, secret-gated via `WEBHOOK_SECRET` when set.
+short TTL cache, authenticated with the worker's service credential
+(`Authorization: Bearer <SVC_TOKEN_WORKER>`, ADR-010 step 5). A missing or
+non-worker credential is 401 (`Invalid credential`); the endpoints never accept
+a session cookie.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
@@ -342,10 +345,10 @@ short TTL cache, secret-gated via `WEBHOOK_SECRET` when set.
 | GET  | `/api/settings/answer-llm` | 🔒 | Active answer model for `/api/ai/answer*`. `{model}` (`app_settings.answer_llm_model`). |
 | PATCH | `/api/settings/answer-llm` | 🔒 | Body `{model}`. Sets the answer model. |
 | GET  | `/api/settings/available-models` | 🔒 | `{models: string[]}` — the tags currently pulled in Ollama (`GET /api/tags` on `OLLAMA_BASE_URL`). Empty list when `LLM_BACKEND` is not `ollama` or Ollama is unreachable; the SPA then shows a free-text input. |
-| GET  | `/api/settings/active-llm-model` | secret | Internal: auto-tagger reads the active extraction model. Returns `{ollama_model}`. No cookie needed (in-network only); `X-Aktenraum-Secret` required when `WEBHOOK_SECRET` is set. |
+| GET  | `/api/settings/active-llm-model` | worker | Internal: auto-tagger reads the active extraction model. Returns `{ollama_model}`. Worker credential only (in-network). |
 | GET  | `/api/settings/auto-approve` | 🔒 | `{rules: AutoApproveRule[]}` — per-`DocumentType` `enabled`, `min_confidence`, `updated_at`, `updated_by`. One row per enum value. |
 | PUT  | `/api/settings/auto-approve` | 🔒 | Body `{rules: [{document_type, enabled, min_confidence}]}`. Replaces the rule set (transactional). Unknown or duplicate types are rejected. |
-| GET  | `/api/settings/active-auto-approve-rules` | secret | Internal: auto-tagger reads the rules every 60s (TTL cache). No cookie needed (in-network only); `X-Aktenraum-Secret` required when `WEBHOOK_SECRET` is set. |
+| GET  | `/api/settings/active-auto-approve-rules` | worker | Internal: auto-tagger reads the rules every 60s (TTL cache). Worker credential only (in-network). |
 
 ---
 
@@ -384,7 +387,7 @@ These endpoints serve the SPA's "Typenspezifische Felder" section
 |---|---|---|---|
 | GET | `/api/document-types/schema` | 🔒 | The full `TYPE_FIELD_SCHEMA` for all 27 doc types (`Cache-Control: private, max-age=3600`). The SPA caches this and renders inputs based on the field's `kind` (`string`, `date`, `month`, `year`, `money`). |
 | GET | `/api/documents/{id}/type-fields` | 🔒 | Current values for one doc — `{document_type, fields: {name: value}}`. 404 when none are stored. |
-| PATCH | `/api/documents/{id}/type-fields` | 🔒 or secret | Body `{fields, document_type?}`. Upserts the values. Accepts either the session cookie or `X-Aktenraum-Secret` (the auto-tagger writes extracted type fields through this route). Unknown field names → 422. |
+| PATCH | `/api/documents/{id}/type-fields` | 🔒 or worker | Body `{fields, document_type?}`. Upserts the values. Accepts either the session cookie or the worker credential (the auto-tagger writes extracted type fields through this route). A request with an `Authorization` header is judged by it alone: anything but the worker credential is 401 `Invalid credential`, never a fallback to the cookie. Unknown field names → 422. |
 
 ---
 
@@ -414,22 +417,32 @@ Not part of the public API. The auto-tagger runs a small `node:http`
 listener on internal port 8001 (`services/auto-tagger/src/webhook.ts`),
 reachable only from inside the compose network.
 
-| Method | Path | Purpose |
-|---|---|---|
-| POST | `/trigger/extract` | Body `{document_id}`. Enqueues extraction. Called by Paperless's `post_consume_script` and by `aktenraum-api` reprocess. |
-| POST | `/trigger/propagate` | Enqueues propagation. Called by `aktenraum-api` after approve. |
-| POST | `/trigger/reindex-metadata` | Refreshes a doc's Qdrant payload metadata (no re-embed). Called after star/unstar. |
-| GET | `/processing` | Current extraction / propagation / indexer slot occupants; backs `/api/documents/processing`. |
-| GET | `/health` | Liveness. |
+Every route except `/health` needs a service credential as
+`Authorization: Bearer <token>` (ADR-010 step 5, `service-credentials`). Each
+caller may use only its own routes:
+
+| Method | Path | Allowed callers | Purpose |
+|---|---|---|---|
+| POST | `/trigger/extract` | `paperless-hook`, `api` | Body `{document_id}`. Enqueues extraction. Called by Paperless's `post_consume_script` (`SVC_TOKEN_PAPERLESS_HOOK`) and by `aktenraum-api` reprocess (`SVC_TOKEN_API`). |
+| POST | `/trigger/propagate` | `api` | Enqueues propagation. Called by `aktenraum-api` after approve. |
+| POST | `/trigger/reindex-metadata` | `api` | Refreshes a doc's Qdrant payload metadata (no re-embed). Called after star/unstar. |
+| GET | `/processing` | `api` | Current extraction / propagation / indexer slot occupants; backs `/api/documents/processing`. |
+| GET | `/health` | anyone | Liveness. |
+
+An unknown or missing credential is **401** (`webhook_rejected
+reason=unknown_credential`); a known caller outside its row — e.g. the hook on
+`/trigger/propagate`, or the worker's own credential on any route — is **403**
+(`webhook_rejected reason=not_allowed caller=… route=…`). Accepted triggers log
+`webhook_enqueued` with `caller`. The old `X-Aktenraum-Secret` header is not
+accepted.
 
 ```bash
-# From a container inside the network
-curl -sS -X POST \
-  -H "Content-Type: application/json" \
-  -H "X-Aktenraum-Secret: $WEBHOOK_SECRET" \
-  -d '{"document_id": 27}' \
-  http://auto-tagger:8001/trigger/extract
+# From the paperless container (it holds the hook token as AKTENRAUM_HOOK_TOKEN)
+docker compose --project-directory docker exec paperless sh -c \
+  'curl -sS -X POST -H "Content-Type: application/json" \
+     -H "Authorization: Bearer $AKTENRAUM_HOOK_TOKEN" \
+     -d "{\"document_id\": 27}" http://auto-tagger:8001/trigger/extract'
 ```
 
-When `WEBHOOK_SECRET` is empty, the `X-Aktenraum-Secret` header is
-not required. Successful triggers return `{queued, trigger}`.
+When a credential is empty, every call that needs it is rejected (fail-closed).
+Successful triggers return `{queued, trigger}`.

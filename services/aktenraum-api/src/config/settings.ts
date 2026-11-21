@@ -93,7 +93,10 @@ export const settingsSchema = z.object({
   BACKUP_STATUS_FILE: str("/run/backup-status/backup-status.json"),
 
   AUTO_TAGGER_URL: str("http://auto-tagger:8001"),
-  WEBHOOK_SECRET: str(""),
+  // Service credentials (ADR-010 step 5): the worker's, verified on internal
+  // routes, and the api's own, sent to the worker. WEBHOOK_SECRET is retired.
+  SVC_TOKEN_WORKER: str(""),
+  SVC_TOKEN_API: str(""),
 
   LLM_BACKEND: z
     .enum(["anthropic", "ollama"])

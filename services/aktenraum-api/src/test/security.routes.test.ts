@@ -8,7 +8,7 @@ import { hashPassword } from "../auth/passwords.js";
 import { users } from "../db/schema.js";
 import type { PaperlessGateway } from "../paperless/paperless.gateway.js";
 import { FakeGateway } from "./fake-gateway.js";
-import { createHarness, type Harness } from "./harness.js";
+import { SERVICE_ENV, TEST_WORKER_TOKEN, asWorker, createHarness, type Harness } from "./harness.js";
 import { registerPasskey } from "./passkey-helpers.js";
 
 let harness: Harness | null = null;
@@ -53,26 +53,24 @@ describe("login hardening", () => {
   });
 });
 
-describe("internal secret", () => {
-  it("never exempts a cross-site request from the CSRF check, even with the correct secret", async () => {
-    const { server } = await boot({ env: { WEBHOOK_SECRET: "s3cret" } });
+describe("service credential", () => {
+  it("never exempts a cross-site request from the CSRF check, even with the worker credential", async () => {
+    const { server } = await boot({ env: SERVICE_ENV });
     const agent = await loggedIn(server);
 
-    for (const secret of ["guess", "s3cret"]) {
+    for (const token of ["guess", TEST_WORKER_TOKEN]) {
       const response = await agent
         .post("/api/documents/42/star")
         .set("Sec-Fetch-Site", "cross-site")
-        .set("X-Aktenraum-Secret", secret);
+        .set("Authorization", `Bearer ${token}`);
       expect(response.status).toBe(403);
       expect(response.body).toEqual({ detail: "Cross-site request blocked" });
     }
   });
 
   it("lets an internal caller without Sec-Fetch-Site through to the guard", async () => {
-    const { server } = await boot({ env: { WEBHOOK_SECRET: "s3cret" } });
-    const response = await request(server)
-      .patch("/api/documents/42/type-fields")
-      .set("X-Aktenraum-Secret", "s3cret")
+    const { server } = await boot({ env: SERVICE_ENV });
+    const response = await asWorker(request(server).patch("/api/documents/42/type-fields"))
       .send({ document_type: "Rechnung", fields: { gesamtbetrag: "10,00 EUR" } });
     expect(response.status).toBe(200);
   });

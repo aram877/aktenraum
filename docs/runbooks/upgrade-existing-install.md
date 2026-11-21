@@ -291,6 +291,22 @@ approval.
 - `"webhook_rejected","reason":"not_allowed"` → report the line (it names the
   caller and route).
 
+Finally, check that nothing failed while the services held mismatched
+credentials. A document consumed between `git pull` and the recreate (or with
+step 3 skipped) ends in `ai-error` with
+`Ablage-Zuordnung fehlgeschlagen – … 401: {"detail":"Invalid credential"}`:
+
+```bash
+TOKEN="$(grep '^PAPERLESS_API_TOKEN=' docker/.env | cut -d= -f2-)"
+ERR_ID="$(curl -s -H "Authorization: Token $TOKEN" "http://localhost:8000/api/tags/?name__iexact=ai-error" | python -c "import sys,json; r=json.load(sys.stdin)['results']; print(r[0]['id'] if r else '')")"
+[ -n "$ERR_ID" ] && curl -s -H "Authorization: Token $TOKEN" "http://localhost:8000/api/documents/?tags__id__all=${ERR_ID}&page_size=1" | python -c "import sys,json; print('ai-error documents:', json.load(sys.stdin)['count'])"
+```
+
+**Expected:** the same count as before the upgrade (usually `0`). If it went
+up, tell the user to open `/library?status=error` and click **Alle
+fehlerhaften erneut verarbeiten**. Now that the credentials match, those
+documents go through normally.
+
 ## 10. Report
 
 Tell the user, in plain words: which steps changed something, that the backup

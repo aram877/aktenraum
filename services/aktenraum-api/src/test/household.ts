@@ -25,6 +25,8 @@ export async function household(
   const vectorStore = {
     setSpaceByDocId: vi.fn(async (_docId: number, _space: unknown) => undefined),
     deleteByDocId: vi.fn(async () => undefined),
+    setTrashedByDocId: vi.fn(async (_docId: number, _trashed: boolean) => undefined),
+    reconcileTrashed: vi.fn(async (_ids: readonly number[]) => undefined),
   };
   const h: Harness = await createHarness({ gateway: paperless as unknown as Partial<PaperlessGateway>, vectorStore, env });
   const password = await hashPassword("password-123");

@@ -4,27 +4,6 @@ Small, self-contained follow-ups that aren't worth an OpenSpec change yet.
 Each entry: what's wrong, where, and a sketch of the fix. Take one, and if it
 grows beyond a day's work, turn it into a change with `/opsx:propose`.
 
-## Trashed documents stay citable in Ask
-
-- **Problem**: deleting a document moves it to the Paperless trash (soft
-  delete), but its Qdrant chunks stay until the trash is emptied ("Endgültig
-  löschen" / "Papierkorb leeren", or Paperless's auto-purge after
-  `PAPERLESS_EMPTY_TRASH_DELAY` days). Until then Ask can retrieve and cite a
-  document the user binned. Known gotcha in CLAUDE.md
-  ("`DELETE /api/documents/{id}/` is a soft-delete").
-- **Where**: `services/aktenraum-api/src/ai/retrieval.ts` (search),
-  `trash/trash.service.ts` + `documents` delete (lifecycle), Qdrant payload in
-  `packages/aktenraum-core/src/rag/vectorStore.ts`.
-- **Fix options**: (a) a `trashed` payload flag set on delete and cleared on
-  restore, excluded in every member search filter — cheap at query time, needs
-  both paths wired; (b) query-time exclusion: drop hits whose document the
-  caller's Paperless token can't fetch (already true for citations, which
-  resolve through Paperless — check whether the prompt context leaks first).
-  Prefer (a); (b) as defence in depth. Remember the member-removal re-trash
-  (`member-removal.service.ts` `syncDocument`) would need to keep the flag.
-- **Test**: api route test — trash a document, Ask doesn't see its chunk;
-  restore, it's back.
-
 ## Qdrant for the e2e api
 
 - **Problem**: `docker/docker-compose.e2e.yml` runs the api with

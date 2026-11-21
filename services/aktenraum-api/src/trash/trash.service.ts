@@ -11,6 +11,7 @@ import { customFieldValues, parseDate } from "../inbox/inbox.service.js";
 import { PaperlessNotFoundError } from "../paperless/errors.js";
 import type { PaperlessDocument, PaperlessGateway } from "../paperless/paperless.gateway.js";
 import { VECTOR_STORE } from "../rag/rag.module.js";
+import { TrashFlagsService } from "./trash-flags.service.js";
 import type { EmptyTrashResponse, TrashItem, TrashList } from "./trash.schemas.js";
 
 const DEFAULT_ORDERING = "deleted_at";
@@ -36,6 +37,7 @@ export class TrashService {
     private readonly gateways: MemberGateways,
     @Inject(VECTOR_STORE) private readonly vectorStore: QdrantVectorStore | null,
     @Inject(DB) private readonly db: Database,
+    private readonly flags: TrashFlagsService,
   ) {}
 
   /** The member's own Paperless gateway (service gateway for the worker). */
@@ -76,6 +78,7 @@ export class TrashService {
   async restore(principal: Principal, docId: number): Promise<void> {
     const gateway = await this.gateway(principal);
     await this.notInTrashOnMissing(docId, () => gateway.restoreDocuments([docId]));
+    await this.flags.markRestored(docId);
   }
 
   async deleteForever(principal: Principal, docId: number): Promise<void> {

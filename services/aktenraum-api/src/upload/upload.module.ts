@@ -8,6 +8,7 @@ import { SETTINGS, type Settings } from "../config/settings.js";
 
 import { AuthModule } from "../auth/auth.module.js";
 import { SpacesModule } from "../spaces/spaces.module.js";
+import { TrashModule } from "../trash/trash.module.js";
 import { UploadController } from "./upload.controller.js";
 import { UploadService } from "./upload.service.js";
 
@@ -15,6 +16,7 @@ import { UploadService } from "./upload.service.js";
   imports: [
     AuthModule,
     SpacesModule,
+    TrashModule,
     MulterModule.registerAsync({
       inject: [SETTINGS],
       useFactory: (settings: Settings) => ({

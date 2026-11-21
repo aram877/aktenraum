@@ -27,6 +27,7 @@ import {
 } from "../auth/principal.js";
 import { SETTINGS, type Settings } from "../config/settings.js";
 import { SpacesService } from "../spaces/spaces.service.js";
+import { TrashFlagsService } from "../trash/trash-flags.service.js";
 import { UploadService, type IncomingFile, type UploadResponse } from "./upload.service.js";
 
 const MAX_FILES_HARD_CAP = 100;
@@ -38,6 +39,7 @@ export class UploadController {
     private readonly uploadService: UploadService,
     private readonly gateways: MemberGateways,
     private readonly spaces: SpacesService,
+    private readonly trashFlags: TrashFlagsService,
     @Inject(SETTINGS) private readonly settings: Settings,
   ) {}
 
@@ -86,5 +88,6 @@ export class UploadController {
     @Param("doc_id", ParseIntPipe) docId: number,
   ): Promise<void> {
     await (await this.gateways.forPrincipal(principal)).deleteDocument(docId);
+    await this.trashFlags.markTrashed(docId);
   }
 }

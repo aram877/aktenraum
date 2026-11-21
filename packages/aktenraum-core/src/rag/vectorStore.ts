@@ -38,7 +38,7 @@ const POINT_ID_NAMESPACE = "e9f31cae-1b4a-4c72-9b67-2a4b8b5ed45f";
 
 // Payload fields we filter on at query time. Indexes here turn a linear
 // scan over the entire collection into an O(log n) lookup.
-const INDEXED_PAYLOAD_FIELDS: Record<string, "integer" | "keyword"> = {
+const INDEXED_PAYLOAD_FIELDS: Record<string, "integer" | "keyword" | "bool"> = {
   doc_id: "integer",
   doc_type: "keyword",
   correspondent: "keyword",
@@ -48,7 +48,16 @@ const INDEXED_PAYLOAD_FIELDS: Record<string, "integer" | "keyword"> = {
   // collections pick them up on the next start.
   space_id: "integer",
   shared_with: "integer",
+  // Set while the document sits in the Paperless trash (soft delete), so
+  // search can skip it until it is restored or purged for good.
+  trashed: "bool",
 };
+
+/**
+ * "Chunk belongs to a trashed document". Used as MUST_NOT in search, so
+ * chunks without the flag (indexed before it existed) still match.
+ */
+const NOT_TRASHED = { key: "trashed", match: { value: true } } as const;
 
 /**
  * Per-chunk metadata stored alongside its vector. Includes the chunk's text
@@ -311,6 +320,45 @@ export class QdrantVectorStore {
   }
 
   /**
+   * Flag (or unflag) every chunk of `docId` as belonging to a trashed
+   * document. Search never returns flagged chunks. A soft delete keeps the
+   * chunks so a restore is instant — no re-embedding. No-op when the
+   * document has no chunks.
+   */
+  async setTrashedByDocId(docId: number, trashed: boolean): Promise<void> {
+    await this.client.setPayload(this.collectionName, {
+      payload: { trashed },
+      filter: { must: [{ key: "doc_id", match: { value: docId } }] },
+      wait: true,
+    });
+  }
+
+  /**
+   * Make the `trashed` flags match the Paperless trash: clear it on chunks
+   * of documents that are no longer trashed (restored in Paperless's own UI,
+   * or flagged by a request that later failed), set it on every chunk of a
+   * trashed document (trashed before the flag existed, or in Paperless's UI).
+   * Two set_payload calls, no re-embedding.
+   */
+  async reconcileTrashed(trashedDocIds: readonly number[]): Promise<void> {
+    const ids = [...trashedDocIds];
+    await this.client.setPayload(this.collectionName, {
+      payload: { trashed: false },
+      filter: {
+        must: [NOT_TRASHED],
+        ...(ids.length > 0 ? { must_not: [{ key: "doc_id", match: { any: ids } }] } : {}),
+      },
+      wait: true,
+    });
+    if (ids.length === 0) return;
+    await this.client.setPayload(this.collectionName, {
+      payload: { trashed: true },
+      filter: { must: [{ key: "doc_id", match: { any: ids } }] },
+      wait: true,
+    });
+  }
+
+  /**
    * How many chunks of `docId` do not (yet) carry `spaceId` — lets the
    * tenancy backfill skip documents that are already done.
    */
@@ -329,14 +377,14 @@ export class QdrantVectorStore {
    * Nearest-neighbour search with optional payload filtering. `topK=50` is
    * the recommended fan-out before reranker — higher than the answer LLM
    * ever sees, but the reranker re-ranks cheaply enough that a wide first
-   * stage helps recall.
+   * stage helps recall. Chunks of trashed documents are always excluded.
    */
   async search(
     queryVector: readonly number[],
     options: { topK?: number; filter?: SearchFilter } = {},
   ): Promise<SearchHit[]> {
     const topK = options.topK ?? 50;
-    const qdrantFilter = options.filter ? buildQdrantFilter(options.filter) : undefined;
+    const qdrantFilter = buildQdrantFilter(options.filter ?? {});
     const result = await this.client.query(this.collectionName, {
       query: [...queryVector],
       limit: topK,
@@ -455,6 +503,7 @@ export function buildAccessCondition(access: SearchAccess): Record<string, unkno
  * Compose a Qdrant filter from our small SearchFilter shape. All
  * conditions go into MUST, so different fields AND together; a single
  * field with multiple values uses MatchAny so its values OR together.
+ * MUST_NOT always drops chunks of trashed documents.
  */
 export function buildQdrantFilter(f: SearchFilter) {
   const must: Record<string, unknown>[] = [];
@@ -471,5 +520,5 @@ export function buildQdrantFilter(f: SearchFilter) {
     must.push({ key: "tags", match: { any: [...f.tags] } });
   }
   if (f.access) must.push(buildAccessCondition(f.access));
-  return { must };
+  return { must, must_not: [NOT_TRASHED] };
 }

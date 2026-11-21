@@ -320,9 +320,12 @@ describe("member removal: hand-over", () => {
     await removeBob(f).expect(200);
     expect(f.paperless.trashed.has(7)).toBe(true);
     expect(f.paperless.docs.has(7)).toBe(false);
+    // The re-trash keeps its chunks out of Ask; the restore lets them back in.
+    expect(f.vectorStore.setTrashedByDocId).toHaveBeenLastCalledWith(7, true);
     const trash = (await f.asAlice.get("/api/trash").expect(200)).body as { results: { id: number }[] };
     expect(trash.results.map((d) => d.id)).toContain(7);
     await f.asAlice.post("/api/trash/7/restore").expect(204);
+    expect(f.vectorStore.setTrashedByDocId).toHaveBeenLastCalledWith(7, false);
     await f.asAlice.get("/api/documents/7/detail").expect(200);
   });
 

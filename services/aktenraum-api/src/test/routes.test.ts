@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 
 import { hashPassword } from "../auth/passwords.js";
@@ -7,14 +7,18 @@ import type { PaperlessGateway } from "../paperless/paperless.gateway.js";
 import { FakeGateway, TAGS, makeDoc } from "./fake-gateway.js";
 import { createHarness, type Harness } from "./harness.js";
 import { registerPasskey } from "./passkey-helpers.js";
+import { TrashFlagsService } from "../trash/trash-flags.service.js";
 
 let harness: Harness | null = null;
 let gateway: FakeGateway;
 let agent: ReturnType<typeof request.agent>;
 
-async function boot(options: { gateway?: FakeGateway } = {}): Promise<void> {
+async function boot(options: { gateway?: FakeGateway; vectorStore?: unknown } = {}): Promise<void> {
   gateway = options.gateway ?? new FakeGateway();
-  harness = await createHarness({ gateway: gateway as unknown as Partial<PaperlessGateway> });
+  harness = await createHarness({
+    gateway: gateway as unknown as Partial<PaperlessGateway>,
+    vectorStore: options.vectorStore,
+  });
   await harness.db
     .insert(users)
     .values({ username: "admin", passwordHash: await hashPassword("correct-horse") });
@@ -277,6 +281,53 @@ describe("trash routes", () => {
     const response = await agent.post("/api/trash/empty");
     expect(response.body).toEqual({ emptied: 0 });
     expect(gateway.emptyTrashCalls).toEqual([]);
+  });
+});
+
+describe("trash flag in the vector index", () => {
+  function fakeStore(failing = false) {
+    const fail = async () => {
+      throw new Error("qdrant down");
+    };
+    return {
+      setTrashedByDocId: vi.fn(failing ? fail : async (_docId: number, _trashed: boolean) => undefined),
+      reconcileTrashed: vi.fn(async (_ids: readonly number[]) => undefined),
+      deleteByDocId: vi.fn(async (_docId: number) => undefined),
+      ensureCollection: vi.fn(async () => undefined),
+    };
+  }
+
+  it("flags the chunks on delete and clears the flag on restore", async () => {
+    const store = fakeStore();
+    await boot({ vectorStore: store });
+    expect((await agent.delete("/api/documents/42")).status).toBe(204);
+    expect(store.setTrashedByDocId).toHaveBeenLastCalledWith(42, true);
+    expect((await agent.post("/api/trash/42/restore")).status).toBe(204);
+    expect(store.setTrashedByDocId).toHaveBeenLastCalledWith(42, false);
+  });
+
+  it("a Qdrant failure never fails the delete or the restore", async () => {
+    const store = fakeStore(true);
+    await boot({ vectorStore: store });
+    expect((await agent.delete("/api/documents/42")).status).toBe(204);
+    expect(gateway.trashed.has(42)).toBe(true);
+    expect((await agent.post("/api/trash/42/restore")).status).toBe(204);
+    expect(gateway.docs.has(42)).toBe(true);
+  });
+
+  it("reconcile hands Qdrant the full Paperless trash", async () => {
+    const store = fakeStore();
+    await boot({
+      gateway: new FakeGateway({ trashed: [makeDoc({ id: 7 }), makeDoc({ id: 9 })] }),
+      vectorStore: store,
+    });
+    expect(await harness!.app.get(TrashFlagsService).reconcile()).toBe(true);
+    expect(store.reconcileTrashed).toHaveBeenLastCalledWith([7, 9]);
+  });
+
+  it("reconcile is skipped without a vector store", async () => {
+    await boot();
+    expect(await harness!.app.get(TrashFlagsService).reconcile()).toBe(false);
   });
 });
 

@@ -30,6 +30,7 @@ import {
 import { PaperlessNotFoundError } from "../paperless/errors.js";
 import type { PaperlessDocument, PaperlessGateway } from "../paperless/paperless.gateway.js";
 import { PaperlessGatewayProvider } from "../paperless/paperless.module.js";
+import { TrashFlagsService } from "../trash/trash-flags.service.js";
 import { VECTOR_STORE } from "../rag/rag.module.js";
 import { MemberGateways } from "../tenancy/member-gateways.js";
 import { mirrorDocument, syncSpaceMembership } from "../tenancy/paperless-mirror.js";
@@ -104,6 +105,7 @@ export class MemberRemovalService implements OnApplicationBootstrap, OnModuleDes
     @Inject(VECTOR_STORE) private readonly vectorStore: QdrantVectorStore | null,
     private readonly sessions: SessionService,
     private readonly authAudit: AuthAuditService,
+    private readonly trashFlags: TrashFlagsService,
   ) {}
 
   onApplicationBootstrap(): void {
@@ -493,6 +495,7 @@ export class MemberRemovalService implements OnApplicationBootstrap, OnModuleDes
       await mirrorDocument(this.db, service, docId);
     }
     await service.deleteDocument(docId);
+    await this.trashFlags.markTrashed(docId);
     logger.info("member_removal_trashed_document_mirrored", { member_id: memberId, doc_id: docId });
     return true;
   }

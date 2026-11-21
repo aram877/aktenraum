@@ -150,7 +150,7 @@ describe("ensureCollection", () => {
       callsOf(fake, "createPayloadIndex").map((c) => c.args["field_name"]),
     );
     expect(indexedFields).toEqual(
-      new Set(["doc_id", "doc_type", "correspondent", "tags", "space_id", "shared_with"]),
+      new Set(["doc_id", "doc_type", "correspondent", "tags", "space_id", "shared_with", "trashed"]),
     );
   });
 
@@ -352,14 +352,17 @@ describe("search", () => {
     expect(hits[0]!.payload.text).toBe("Frontend bei Kopfstand seit 2022.");
   });
 
-  it("omits the filter when none is given", async () => {
+  it("excludes trashed documents even when no filter is given", async () => {
     const fake = new FakeQdrantClient({ searchPoints: [] });
     const store = makeStore(fake);
 
     await store.search(Array(2560).fill(0.0), { topK: 5 });
 
     const queryCall = callsOf(fake, "query")[0]!;
-    expect(queryCall.args["filter"]).toBeUndefined();
+    expect(queryCall.args["filter"]).toEqual({
+      must: [],
+      must_not: [{ key: "trashed", match: { value: true } }],
+    });
   });
 });
 
@@ -478,6 +481,52 @@ describe("buildQdrantFilter", () => {
     const qfilter = buildQdrantFilter(f);
     const cond = qfilter.must[0]!;
     expect(cond.match).toEqual({ any: ["Lebenslauf", "Bewerbung"] });
+  });
+});
+
+describe("trashed flag", () => {
+  it("setTrashedByDocId writes only the flag for that document", async () => {
+    const fake = new FakeQdrantClient({ collectionExists: true });
+    const store = makeStore(fake);
+    await store.setTrashedByDocId(5, true);
+    await store.setTrashedByDocId(5, false);
+    const [trash, restore] = callsOf(fake, "setPayload");
+    expect(trash!.args["payload"]).toEqual({ trashed: true });
+    expect(restore!.args["payload"]).toEqual({ trashed: false });
+    expect(trash!.args["filter"]).toEqual({ must: [{ key: "doc_id", match: { value: 5 } }] });
+  });
+
+  it("reconcileTrashed clears stale flags, then flags every trashed document", async () => {
+    const fake = new FakeQdrantClient({ collectionExists: true });
+    const store = makeStore(fake);
+    await store.reconcileTrashed([3, 7]);
+    const [clear, flag] = callsOf(fake, "setPayload");
+    expect(clear!.args["payload"]).toEqual({ trashed: false });
+    expect(clear!.args["filter"]).toEqual({
+      must: [{ key: "trashed", match: { value: true } }],
+      must_not: [{ key: "doc_id", match: { any: [3, 7] } }],
+    });
+    expect(flag!.args["payload"]).toEqual({ trashed: true });
+    expect(flag!.args["filter"]).toEqual({ must: [{ key: "doc_id", match: { any: [3, 7] } }] });
+  });
+
+  it("reconcileTrashed with an empty trash only clears flags", async () => {
+    const fake = new FakeQdrantClient({ collectionExists: true });
+    const store = makeStore(fake);
+    await store.reconcileTrashed([]);
+    const calls = callsOf(fake, "setPayload");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.args["filter"]).toEqual({ must: [{ key: "trashed", match: { value: true } }] });
+  });
+
+  it("every composed filter drops trashed chunks; chunks without the flag still match", () => {
+    // must_not on `trashed == true` (not must on `== false`) so chunks
+    // indexed before the flag existed stay searchable.
+    const filter = buildQdrantFilter({
+      docTypes: ["Rechnung"],
+      access: { spaceIds: [1], memberId: 4, includeUnassigned: false },
+    });
+    expect(filter.must_not).toEqual([{ key: "trashed", match: { value: true } }]);
   });
 });
 

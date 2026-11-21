@@ -44,3 +44,6 @@ docker/.env.before-upgrade-*
 
 # Claude Code per-machine settings (permissions can contain secrets)
 .claude/settings.local.json
+
+# Passkey recovery codes downloaded from /settings → Konto (secrets)
+aktenraum-wiederherstellungscodes*.txt

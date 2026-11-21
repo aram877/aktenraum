@@ -385,6 +385,27 @@ export class TenancyService implements OnApplicationBootstrap, TenancyLookup {
     return new Set(docIds.filter((id) => (spaceByDoc.get(id) ?? null) === home));
   }
 
+  /** A member by `members.id` with its username, or null when unknown or removed. */
+  async memberById(memberId: number): Promise<(MemberRecord & { username: string }) | null> {
+    const rows = await this.db
+      .select({
+        id: members.id,
+        userId: members.userId,
+        householdId: members.householdId,
+        role: members.role,
+        username: users.username,
+        removedId: memberRemovals.memberId,
+      })
+      .from(members)
+      .innerJoin(users, eq(users.id, members.userId))
+      .leftJoin(memberRemovals, eq(memberRemovals.memberId, members.id))
+      .where(eq(members.id, memberId))
+      .limit(1);
+    const row = rows[0];
+    if (row === undefined || row.removedId !== null) return null;
+    return { id: row.id, userId: row.userId, householdId: row.householdId, role: row.role, username: row.username };
+  }
+
   private async findMember(userId: number): Promise<MemberRecord | typeof REMOVED | null> {
     const rows = await this.db
       .select({

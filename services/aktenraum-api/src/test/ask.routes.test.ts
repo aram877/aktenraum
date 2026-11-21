@@ -10,6 +10,7 @@ import { users } from "../db/schema.js";
 import type { PaperlessGateway } from "../paperless/paperless.gateway.js";
 import { FakeGateway, makeDoc } from "./fake-gateway.js";
 import { createHarness, type Harness } from "./harness.js";
+import { registerPasskey } from "./passkey-helpers.js";
 
 let harness: Harness | null = null;
 
@@ -100,6 +101,7 @@ async function ask(options: {
     .values({ username: "admin", passwordHash: await hashPassword("correct-horse") });
   const agent = request.agent(harness.app.getHttpServer());
   await agent.post("/api/auth/login").send({ username: "admin", password: "correct-horse" });
+  await registerPasskey(agent);
   const response = await agent
     .post("/api/ai/answer/stream")
     .send({ question: "Wie lange war ich bei der Firma?" })

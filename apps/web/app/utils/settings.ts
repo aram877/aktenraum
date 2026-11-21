@@ -43,12 +43,3 @@ export function formatTimestamp(value: string | null): string {
   if (Number.isNaN(parsed.getTime())) return "—";
   return parsed.toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" });
 }
-
-export function mapChangePasswordError(status: number | null): string {
-  if (status === 401) return "Aktuelles Passwort ist nicht korrekt.";
-  if (status === 400) return "Das neue Passwort muss sich vom aktuellen unterscheiden.";
-  if (status === 422) {
-    return "Bitte fülle alle Felder korrekt aus (min. 8 Zeichen für das neue Passwort).";
-  }
-  return "Unbekannter Fehler beim Ändern des Passworts.";
-}

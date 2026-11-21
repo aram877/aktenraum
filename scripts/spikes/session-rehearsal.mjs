@@ -6,18 +6,23 @@
 // itself to play two browsers on different machines (the api trusts one hop).
 //
 // Covers: two devices in the device list with distinct addresses → revoke the
-// other → 401; logout replay → 401; password change → both devices 401; open
-// live stream + revoke → session_ended; 11 failed logins → 429, api restart →
-// still 429; an old JWT-shaped cookie → 401; auth_audit rows written.
+// other → 401; logout replay → 401; the enrolled admin's password refused;
+// open live stream + revoke → session_ended; 11 failed logins → 429, api
+// restart → still 429; an old JWT-shaped cookie → 401; auth_audit rows written.
+//
+// auth-passkeys: devices sign in with the admin's passkey (software
+// authenticator), enrolled first through a host-CLI setup link.
 import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+
+import { ORIGIN, SoftAuthenticator, browser as passkeyBrowser, register } from "./soft-authenticator.mjs";
 
 const API = "http://127.0.0.1:8102";
 const COMPOSE = `docker compose -f "${fileURLToPath(new URL("../../docker/docker-compose.e2e.yml", import.meta.url))}"`;
 const RUN = Date.now().toString(36);
 const ADMIN = "admin";
 const PASSWORD = "e2epassword";
-const NEW_PASSWORD = `e2e-new-${RUN}`;
+const adminKey = new SoftAuthenticator();
 
 let pass = 0;
 let fail = 0;
@@ -47,6 +52,7 @@ function browser(ip, userAgent) {
   };
   const headers = () => ({
     "content-type": "application/json",
+    origin: ORIGIN,
     "x-forwarded-for": ip,
     "user-agent": userAgent,
     ...(jar.size > 0 ? { cookie: [...jar].map(([k, v]) => `${k}=${v}`).join("; ") } : {}),
@@ -72,7 +78,16 @@ function browser(ip, userAgent) {
     get: (p) => call("GET", p),
     post: (p, b) => call("POST", p, b ?? {}),
     del: (p) => call("DELETE", p),
-    login: (username = ADMIN, password = PASSWORD) => call("POST", "/api/auth/login", { username, password }),
+    passwordLogin: (username = ADMIN, password = PASSWORD) => call("POST", "/api/auth/login", { username, password }),
+    /** Discoverable sign-in with the admin's passkey. */
+    login: async () => {
+      const begin = await call("POST", "/api/auth/passkeys/login/begin", {});
+      if (begin.status !== 200) return begin;
+      return call("POST", "/api/auth/passkeys/login/finish", {
+        ceremony: begin.body.ceremony,
+        response: adminKey.authenticate(begin.body.options),
+      });
+    },
     cookie: () => [...jar].map(([k, v]) => `${k}=${v}`).join("; "),
     headers,
   };
@@ -107,6 +122,15 @@ const SAFARI_IOS =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1";
 
 await waitForApi();
+
+console.log("0. Admin passkey via a host-CLI setup link");
+const link = execSync(`${COMPOSE} exec -T aktenraum-api node dist/auth/setup-link-cli.js ${ADMIN}`, {
+  encoding: "utf8",
+  env: { ...process.env, MSYS_NO_PATHCONV: "1" },
+  stdio: ["ignore", "pipe", "ignore"],
+}).trim();
+const setup = await register(passkeyBrowser(API), `/api/setup/${link.split("/setup/")[1]}/register`, adminKey);
+check("admin enrolled a passkey", setup.finish?.status === 200, JSON.stringify(setup.finish?.body));
 
 console.log("1. Old JWT-shaped cookie");
 const jwtShaped =
@@ -165,42 +189,28 @@ check("stream ended with session_ended/revoked", text.includes("event: session_e
 check("within one poll interval (+1 s)", Date.now() - t0 < 4_500, `${Date.now() - t0} ms`);
 check("reconnect → 401", (await viewer.get("/api/events/counts")).status === 401);
 
-console.log("5. Password change revokes both devices");
-const a = browser("203.0.113.70", CHROME_WIN);
-const b = browser("203.0.113.71", SAFARI_IOS);
-await a.login();
-await b.login();
-check(
-  "change password 204",
-  (await a.post("/api/auth/change-password", { current_password: PASSWORD, new_password: NEW_PASSWORD })).status === 204,
-);
-check("device A → 401", (await a.get("/api/auth/me")).status === 401);
-check("device B → 401", (await b.get("/api/auth/me")).status === 401);
-check("controller (same member) → 401", (await controller.get("/api/auth/me")).status === 401);
-check("new password logs in", (await a.login(ADMIN, NEW_PASSWORD)).status === 200);
-check(
-  "password changed back",
-  (await a.post("/api/auth/change-password", { current_password: NEW_PASSWORD, new_password: PASSWORD })).status === 204,
-);
+console.log("5. The enrolled admin's password is refused");
+const retired = await browser("203.0.113.70", CHROME_WIN).passwordLogin();
+check("correct password → 401 after enrolment", retired.status === 401, String(retired.status));
 
 console.log("6. Rate limit survives a restart");
 const sprayer = browser("203.0.113.99", CHROME_WIN);
 const victim = `nobody-${RUN}`;
-for (let i = 0; i < 10; i += 1) await sprayer.login(victim, "wrong-password");
-const eleventh = await sprayer.login(victim, "wrong-password");
+for (let i = 0; i < 10; i += 1) await sprayer.passwordLogin(victim, "wrong-password");
+const eleventh = await sprayer.passwordLogin(victim, "wrong-password");
 check("11th attempt → 429", eleventh.status === 429, String(eleventh.status));
 check("Retry-After set", Number(eleventh.headers.get("retry-after")) > 0, eleventh.headers.get("retry-after"));
 check("admin from another address unaffected", (await browser("198.51.100.200", CHROME_WIN).login()).status === 200);
 execSync(`${COMPOSE} restart aktenraum-api`, { stdio: "ignore" });
 await waitForApi();
-const afterRestart = await browser("198.51.100.201", CHROME_WIN).login(victim, "wrong-password");
+const afterRestart = await browser("198.51.100.201", CHROME_WIN).passwordLogin(victim, "wrong-password");
 check("after restart, username still → 429", afterRestart.status === 429, String(afterRestart.status));
-const sprayAfter = await sprayer.login(ADMIN, PASSWORD);
+const sprayAfter = await sprayer.login();
 check("after restart, spraying address still → 429", sprayAfter.status === 429, String(sprayAfter.status));
 
 console.log("7. Audit log");
 const events = psql("SELECT string_agg(DISTINCT event, ',' ORDER BY event) FROM auth_audit");
-for (const event of ["login_failed", "login_succeeded", "login_throttled", "logout", "password_changed", "session_revoked"]) {
+for (const event of ["login_failed", "login_succeeded", "login_throttled", "logout", "session_revoked"]) {
   check(`auth_audit has ${event}`, events.split(",").includes(event), events);
 }
 const leaked = psql(`SELECT count(*) FROM auth_audit WHERE CONCAT_WS(' ', username, reason, ip, user_agent) LIKE '%${token}%'`);

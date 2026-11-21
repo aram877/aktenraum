@@ -20,15 +20,23 @@ import {
 import type { Request, Response } from "express";
 import { z } from "zod";
 
+import type { PublicKeyCredentialCreationOptionsJSON, RegistrationResponseJSON } from "@simplewebauthn/server";
+
 import { AuthGuard } from "../auth/auth.guard.js";
 import { AuthAuditService } from "../auth/auth-audit.service.js";
-import { AuthService } from "../auth/auth.service.js";
+import { EnrolmentService } from "../auth/enrolment.service.js";
+import { finishSchema } from "../auth/passkeys.controller.js";
 import { AuthRateLimiter, inviteIpKey } from "../auth/rate-limiter.js";
 import { clientIp } from "../auth/session.service.js";
-import { CurrentPrincipal, RequireScope, type Principal } from "../auth/principal.js";
+import { CurrentPrincipal, RequireScope, RequireStepUp, type Principal } from "../auth/principal.js";
+import { SetupLinkService } from "../auth/setup.controller.js";
+import type { CreatedSetupLink } from "../auth/setup-links.js";
+import { WebauthnService, type Ceremony } from "../auth/webauthn.service.js";
+import { TenancyService } from "../tenancy/tenancy.service.js";
 import { ZodValidationPipe } from "../common/zod-validation.pipe.js";
 import {
   HouseholdService,
+  INVITE_INVALID,
   type CreatedInvite,
   type HouseholdMember,
   type PendingInvite,
@@ -57,6 +65,7 @@ export class HouseholdController {
   constructor(
     private readonly household: HouseholdService,
     private readonly removals: MemberRemovalService,
+    private readonly setupLinks: SetupLinkService,
   ) {}
 
   @Get("members")
@@ -90,8 +99,26 @@ export class HouseholdController {
     return this.removals.preview(memberOf(principal), id, successorId);
   }
 
+  /**
+   * A single-use setup link (30 minutes) for a member who lost every passkey
+   * and recovery code — the admin themselves included. Shown once.
+   */
+  @Post("members/:id/setup-link")
+  @RequireScope("household:admin")
+  @RequireStepUp()
+  @HttpCode(HttpStatus.CREATED)
+  createSetupLink(
+    @CurrentPrincipal() principal: Principal,
+    @Param("id", ParseIntPipe) id: number,
+    @Req() request: Request,
+  ): Promise<CreatedSetupLink> {
+    const admin = memberOf(principal);
+    return this.setupLinks.issue(id, { memberId: admin.memberId, sessionId: admin.sessionId === null ? null : Number(admin.sessionId) }, request);
+  }
+
   @Post("members/:id/remove")
   @RequireScope("household:admin")
+  @RequireStepUp()
   @HttpCode(HttpStatus.OK)
   removeMember(
     @CurrentPrincipal() principal: Principal,
@@ -115,6 +142,7 @@ export class HouseholdController {
 
   @Post("invites")
   @RequireScope("household:admin")
+  @RequireStepUp()
   @HttpCode(HttpStatus.CREATED)
   createInvite(@CurrentPrincipal() principal: Principal): Promise<CreatedInvite> {
     if (principal.kind !== "member") throw new UnauthorizedException("Not authenticated");
@@ -123,33 +151,37 @@ export class HouseholdController {
 
   @Delete("invites/:id")
   @RequireScope("household:admin")
+  @RequireStepUp()
   @HttpCode(HttpStatus.NO_CONTENT)
   revokeInvite(@Param("id", ParseIntPipe) id: number): Promise<void> {
     return this.household.revokeInvite(id);
   }
 }
 
-const redeemSchema = z.object({
-  username: z
-    .string()
-    .trim()
-    .min(3)
-    .max(64)
-    .regex(/^[\p{L}\p{N}._-]+$/u, "Nur Buchstaben, Ziffern, Punkt, Unterstrich und Bindestrich"),
-  password: z.string().min(8).max(128),
-});
-type RedeemRequest = z.infer<typeof redeemSchema>;
+const usernameSchema = z
+  .string()
+  .trim()
+  .min(3)
+  .max(64)
+  .regex(/^[\p{L}\p{N}._-]+$/u, "Nur Buchstaben, Ziffern, Punkt, Unterstrich und Bindestrich");
+
+const inviteBeginSchema = z.object({ username: usernameSchema });
+type InviteBeginRequest = z.infer<typeof inviteBeginSchema>;
+type InviteFinishRequest = z.infer<typeof finishSchema>;
 
 /**
  * Public on purpose (route-inventory allowlist): the invitee has no session
  * yet. Every invalid state answers the same 404; failures are throttled per
- * client address.
+ * client address. Joining = picking a username and creating a passkey
+ * (auth-passkeys §8); the invite is claimed only once the ceremony verified.
  */
 @Controller("invites")
 export class InvitesController {
   constructor(
     private readonly household: HouseholdService,
-    private readonly auth: AuthService,
+    private readonly webauthn: WebauthnService,
+    private readonly enrolment: EnrolmentService,
+    private readonly tenancy: TenancyService,
     private readonly limiter: AuthRateLimiter,
     private readonly audit: AuthAuditService,
   ) {}
@@ -186,19 +218,55 @@ export class InvitesController {
     return this.counted(key, () => this.household.checkInvite(token));
   }
 
-  @Post(":token/redeem")
+  @Post(":token/register/begin")
   @HttpCode(HttpStatus.OK)
-  async redeem(
+  async registerBegin(
     @Param("token") token: string,
-    @Body(new ZodValidationPipe(redeemSchema)) body: RedeemRequest,
+    @Body(new ZodValidationPipe(inviteBeginSchema)) body: InviteBeginRequest,
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
-  ): Promise<{ username: string }> {
+  ): Promise<Ceremony<PublicKeyCredentialCreationOptionsJSON>> {
     const key = await this.guard(request, response);
-    const user = await this.counted(key, () => this.household.redeem(token, body));
-    const issued = await this.auth.issueSession(response, request, user, "invite");
-    if (issued === null) throw new UnauthorizedException("Invalid session");
-    await this.audit.record("invite_redeemed", { memberId: issued.memberId, sessionId: issued.sessionId, request });
-    return { username: user.username };
+    const inviteId = await this.counted(key, () => this.household.assertRedeemable(token, body.username));
+    const target = this.webauthn.originOf(request);
+    return this.webauthn.beginRegistration(target, {
+      purpose: "invite",
+      userHandle: this.webauthn.newUserHandle(),
+      username: body.username,
+      inviteId,
+    });
+  }
+
+  @Post(":token/register/finish")
+  @HttpCode(HttpStatus.OK)
+  async registerFinish(
+    @Param("token") token: string,
+    @Body(new ZodValidationPipe(finishSchema)) body: InviteFinishRequest,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<{ username: string; recovery_codes: string[] | null }> {
+    const key = await this.guard(request, response);
+    const row = await this.webauthn.claim(body.ceremony, "register");
+    if (row === null || row.purpose !== "invite" || row.inviteId === null || row.username === null || row.userHandle === null) {
+      await this.limiter.recordFailure([key]);
+      throw new NotFoundException(INVITE_INVALID);
+    }
+    // Verified before anything is claimed: a failed ceremony leaves the invite pending.
+    const verified = await this.webauthn.verifyRegistration(row, body.response as unknown as RegistrationResponseJSON);
+    const user = await this.counted(key, () =>
+      this.household.redeem(token, { username: row.username!, inviteId: row.inviteId! }),
+    );
+    const member = await this.tenancy.resolveMember(user.id);
+    if (member === null) throw new UnauthorizedException("Invalid session");
+    await this.webauthn.ensureUserHandle(member.id, row.userHandle);
+    const result = await this.enrolment.complete({
+      memberId: member.id,
+      verified,
+      method: "invite",
+      request,
+      response,
+    });
+    await this.audit.record("invite_redeemed", { memberId: member.id, sessionId: result.sessionId, request });
+    return { username: user.username, recovery_codes: result.recoveryCodes };
   }
 }

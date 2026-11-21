@@ -6,6 +6,7 @@ import type { PaperlessDocument, PaperlessGateway } from "../paperless/paperless
 import { FakeGateway, TAGS, makeDoc } from "../test/fake-gateway.js";
 import { createHarness, type Harness } from "../test/harness.js";
 import { TenancyService } from "./tenancy.service.js";
+import { registerPasskey } from "../test/passkey-helpers.js";
 
 const SECRET = "s3cret-for-tests";
 
@@ -45,6 +46,7 @@ async function setup(docs: PaperlessDocument[]) {
   const spaceOf = (memberId: number) => allSpaces.find((s) => s.personalMemberId === memberId)!.id;
   const agent = request.agent(harness.app.getHttpServer());
   await agent.post("/api/auth/login").send({ username: "admin", password: "correct-horse" }).expect(200);
+  await registerPasskey(agent);
   return { h: harness, admin, partner, spaceOf, agent };
 }
 

@@ -9,7 +9,7 @@ import {
 import type { Reflector } from "@nestjs/core";
 import type { Request } from "express";
 
-import type { ShareAccessKindValue } from "../db/schema.js";
+import type { SessionAuthMethod, ShareAccessKindValue } from "../db/schema.js";
 import type { DocumentAction, PolicyService } from "../policy/policy.service.js";
 
 /**
@@ -37,9 +37,12 @@ export const INTERNAL_SCOPES = [
   "internal:tenancy-read",
 ] as const;
 
+/** The only scope of a restricted session: enrol a passkey (auth-passkeys §4). */
+export const ENROL_SCOPE = "auth:enrol" as const;
+
 export type MemberScope = (typeof MEMBER_SCOPES)[number];
 export type InternalScope = (typeof INTERNAL_SCOPES)[number];
-export type Scope = MemberScope | InternalScope;
+export type Scope = MemberScope | InternalScope | typeof ENROL_SCOPE;
 
 export type HouseholdRole = "admin" | "member";
 
@@ -50,6 +53,8 @@ export function memberScopes(role: HouseholdRole): ReadonlySet<Scope> {
     role === "admin" ? MEMBER_SCOPES : MEMBER_SCOPES.filter((scope) => !ADMIN_ONLY.has(scope)),
   );
 }
+
+export const RESTRICTED_SCOPES: ReadonlySet<Scope> = new Set<Scope>([ENROL_SCOPE]);
 
 /** The worker reads its settings, writes type fields, assigns and reads home spaces — nothing else. */
 export const WORKER_SCOPES: ReadonlySet<Scope> = new Set<Scope>(INTERNAL_SCOPES);
@@ -68,6 +73,15 @@ export interface MemberPrincipal {
   readonly sessionId: string | null;
   /** When the session was created (login / invite redemption). */
   readonly authTime: Date | null;
+  /** How the session was started. */
+  readonly authMethod: SessionAuthMethod;
+  /**
+   * May only enrol a passkey: password or recovery-code session, or no
+   * active passkey. Such a principal holds only `auth:enrol`.
+   */
+  readonly restricted: boolean;
+  /** A passkey confirmation within the last 5 minutes (step-up). */
+  readonly stepUpFresh: boolean;
   readonly clientId: "spa";
 }
 
@@ -94,6 +108,11 @@ export function workerPrincipal(): ServicePrincipal {
 export const REQUIRED_SCOPES = "aktenraum:required-scopes";
 export const DOCUMENT_ACCESS = "aktenraum:document-access";
 export const SHARE_ACCESS_KIND = "aktenraum:share-access-kind";
+export const ALLOW_RESTRICTED = "aktenraum:allow-restricted";
+export const REQUIRE_STEP_UP = "aktenraum:require-step-up";
+
+export const ENROLMENT_REQUIRED = "enrolment_required";
+export const STEP_UP_REQUIRED = "step_up_required";
 
 /**
  * Scopes a route accepts — the principal needs ANY of them. No arguments means
@@ -109,6 +128,21 @@ export const DocumentAccess = (action: DocumentAction) => SetMetadata(DOCUMENT_A
  * download). Space members are never logged.
  */
 export const ShareAccessKind = (kind: Exclude<ShareAccessKindValue, "ask">) => SetMetadata(SHARE_ACCESS_KIND, kind);
+
+/**
+ * A route a restricted session (password / recovery before enrolment) may
+ * call. Every other route answers 403 `enrolment_required` to it — deny by
+ * default, so a forgotten marker fails closed.
+ */
+export const AllowRestricted = () => SetMetadata(ALLOW_RESTRICTED, true);
+
+/** A sensitive route: needs a passkey confirmation within 5 minutes (403 `step_up_required`). */
+export const RequireStepUp = () => SetMetadata(REQUIRE_STEP_UP, true);
+
+/** The same refusal `authorize` gives, for routes that need step-up only in some cases. */
+export function assertStepUp(principal: MemberPrincipal): void {
+  if (!principal.stepUpFresh) throw new ForbiddenException(STEP_UP_REQUIRED);
+}
 
 export const CurrentPrincipal = createParamDecorator(
   (_data: unknown, context: ExecutionContext): Principal => {
@@ -135,8 +169,17 @@ export async function authorize(
   if (required === undefined) {
     throw new ForbiddenException("Route has no scope declaration");
   }
+  // Before scopes: an unmarked route is closed to a restricted session even
+  // when it declares "any authenticated principal".
+  if (principal.kind === "member" && principal.restricted
+      && reflector.getAllAndOverride<boolean | undefined>(ALLOW_RESTRICTED, targets) !== true) {
+    throw new ForbiddenException(ENROLMENT_REQUIRED);
+  }
   if (required.length > 0 && !required.some((scope) => principal.scopes.has(scope))) {
     throw new ForbiddenException("Insufficient scope");
+  }
+  if (principal.kind === "member" && reflector.getAllAndOverride<boolean | undefined>(REQUIRE_STEP_UP, targets) === true) {
+    assertStepUp(principal);
   }
 
   const action = reflector.getAllAndOverride<DocumentAction | undefined>(DOCUMENT_ACCESS, targets);

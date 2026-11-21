@@ -232,10 +232,14 @@ Validated in [`services/aktenraum-api/src/config/settings.ts`](../services/akten
 | `AKTENRAUM_SECRET_KEY` | empty (**required**, generated) | none (**required**) | 32 random bytes, base64 (`openssl rand -base64 32`; `bootstrap-secrets.sh` fills it). Encrypts the members' Paperless API tokens at rest (AES-256-GCM). Missing or not 32 bytes aborts startup. Changing it is harmless — the tokens are re-minted on next use. |
 | `SESSION_IDLE_DAYS` | not in template | `7` (1–365) | A browser session expires after this many days without use. Use slides it (written at most once a minute), never past `SESSION_ABSOLUTE_DAYS`. |
 | `SESSION_ABSOLUTE_DAYS` | not in template | `30` (1–365) | A browser session expires this many days after login, used or not. |
-| `BOOTSTRAP_USERNAME` | `admin` | empty | First-run user, inserted only while the `users` table is empty. |
-| `BOOTSTRAP_PASSWORD` | empty (**required**, generated) | empty | Password for that user. |
+| `BOOTSTRAP_USERNAME` | `admin` | empty | First-run user (the household admin), inserted only while the `users` table is empty. |
+| `BOOTSTRAP_PASSWORD` | empty (no longer generated) | empty | Leave empty (auth-passkeys): the admin is created without a password (`password_hash = '!'`) and `first-run.sh` / `task setup-link USER=<name>` prints a single-use setup link to create the first passkey. When set (existing installs, the e2e stack), it yields a password member whose password only leads to passkey enrolment and stops working once a passkey exists. |
+| `WEBAUTHN_ORIGINS` | commented out | `http://localhost:8080,http://localhost:4300` | Comma list of origins a passkey ceremony may come from (the request's `Origin` header; anything else → 400 before a challenge exists). Each origin's host name must be one of `WEBAUTHN_RP_IDS`; IP addresses are refused at startup (browsers refuse passkeys there). The first entry is the base of links printed by the setup-link CLI. Add the Tailscale HTTPS name to use passkeys there. |
+| `WEBAUTHN_RP_IDS` | commented out | `localhost` | Comma list of relying-party IDs (host names). A passkey is bound to the RP ID it was created on, which is the host name of the origin it was created from — a passkey made on `localhost` doesn't work on the Tailscale name; add a second passkey there. |
 | `COOKIE_NAME` | `aktenraum_session` | `aktenraum_session` | Session cookie name. With `COOKIE_SECURE=true` the cookie is sent as `__Host-<name>` (browser-enforced: `Secure`, `Path=/`, no `Domain`). The cookie holds an opaque random token; the server stores only its SHA-256 hash in the `sessions` table. |
 | `COOKIE_SECURE` | commented out | `true` | Marks the cookie `Secure`. Set `false` only for plain-HTTP `http://localhost:8080` dev; for remote access use the Tailscale HTTPS URL instead. |
+
+Passkeys (auth-passkeys, 2026-11-21) need no secret of their own: challenges are single-use rows in Postgres (5 minutes), recovery codes and setup tokens are stored as SHA-256. `GET /api/auth/webauthn` tells the login page where passkeys work.
 
 `JWT_SECRET` and `JWT_EXPIRES_SECONDS` are retired (auth-server-sessions, 2026-11-20): nothing reads them. Existing `docker/.env` files may keep the lines — they let a code rollback start without editing `.env`.
 

@@ -12,6 +12,7 @@ const WINDOW = sql.raw(`interval '${AUTH_WINDOW_MINUTES} minutes'`);
 export const loginUserKey = (username: string): string => `login:user:${username.trim().toLowerCase()}`.slice(0, 160);
 export const loginIpKey = (ip: string | null): string => `login:ip:${ip ?? "unknown"}`;
 export const inviteIpKey = (ip: string | null): string => `invite:ip:${ip ?? "unknown"}`;
+export const setupIpKey = (ip: string | null): string => `setup:ip:${ip ?? "unknown"}`;
 
 /**
  * Failed login / invite attempts, persisted in Postgres so a restart doesn't

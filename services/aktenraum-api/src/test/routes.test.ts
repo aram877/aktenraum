@@ -6,6 +6,7 @@ import { users } from "../db/schema.js";
 import type { PaperlessGateway } from "../paperless/paperless.gateway.js";
 import { FakeGateway, TAGS, makeDoc } from "./fake-gateway.js";
 import { createHarness, type Harness } from "./harness.js";
+import { registerPasskey } from "./passkey-helpers.js";
 
 let harness: Harness | null = null;
 let gateway: FakeGateway;
@@ -19,6 +20,7 @@ async function boot(options: { gateway?: FakeGateway } = {}): Promise<void> {
     .values({ username: "admin", passwordHash: await hashPassword("correct-horse") });
   agent = request.agent(harness.app.getHttpServer());
   await agent.post("/api/auth/login").send({ username: "admin", password: "correct-horse" });
+  await registerPasskey(agent);
 }
 
 afterEach(async () => {
@@ -413,6 +415,7 @@ describe("service-unavailable behaviour without a Paperless token", () => {
     await localAgent
       .post("/api/auth/login")
       .send({ username: "admin", password: "correct-horse" });
+    await registerPasskey(localAgent);
 
     expect((await localAgent.get("/api/health")).status).toBe(200);
     expect((await localAgent.get("/api/auth/me")).status).toBe(200);

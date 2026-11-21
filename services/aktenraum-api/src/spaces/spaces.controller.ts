@@ -19,6 +19,7 @@ import {
   CurrentPrincipal,
   DocumentAccess,
   RequireScope,
+  RequireStepUp,
   type MemberPrincipal,
   type Principal,
 } from "../auth/principal.js";
@@ -88,6 +89,7 @@ export class SpacesController {
 
   @Delete(":id")
   @RequireScope("spaces:manage")
+  @RequireStepUp()
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@CurrentPrincipal() principal: Principal, @Param("id", ParseIntPipe) id: number): Promise<void> {
     return this.spaces.remove(member(principal), id);
@@ -101,6 +103,7 @@ export class SpacesController {
 
   @Post(":id/members")
   @RequireScope("spaces:manage")
+  @RequireStepUp()
   @HttpCode(HttpStatus.CREATED)
   addMember(
     @CurrentPrincipal() principal: Principal,
@@ -112,6 +115,7 @@ export class SpacesController {
 
   @Patch(":id/members/:member_id")
   @RequireScope("spaces:manage")
+  @RequireStepUp()
   changeRole(
     @CurrentPrincipal() principal: Principal,
     @Param("id", ParseIntPipe) id: number,
@@ -124,6 +128,7 @@ export class SpacesController {
   /** The owner removes a member; any non-owner may remove themselves (leave). */
   @Delete(":id/members/:member_id")
   @RequireScope("spaces:manage")
+  @RequireStepUp()
   @HttpCode(HttpStatus.NO_CONTENT)
   removeMember(
     @CurrentPrincipal() principal: Principal,

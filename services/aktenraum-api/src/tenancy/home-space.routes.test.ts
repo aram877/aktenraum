@@ -9,6 +9,7 @@ import { FakeGateway, makeDoc } from "../test/fake-gateway.js";
 import { createHarness, type Harness } from "../test/harness.js";
 import { NO_DOCUMENT } from "./home-space.service.js";
 import { TenancyService } from "./tenancy.service.js";
+import { registerPasskey } from "../test/passkey-helpers.js";
 
 const SECRET = "s3cret-for-tests";
 
@@ -52,6 +53,7 @@ describe("POST /api/tenancy/assign-home-space", () => {
     await request(server).post("/api/tenancy/assign-home-space").send({ document_id: 300 }).expect(401);
     const agent = request.agent(server);
     await agent.post("/api/auth/login").send({ username: "admin", password: "correct-horse" }).expect(200);
+    await registerPasskey(agent);
     await agent.post("/api/tenancy/assign-home-space").send({ document_id: 300 }).expect(401);
   });
 
@@ -174,6 +176,7 @@ describe("upload records the uploading member", () => {
     const { h, admin } = await setup();
     const agent = request.agent(h.app.getHttpServer());
     await agent.post("/api/auth/login").send({ username: "admin", password: "correct-horse" }).expect(200);
+    await registerPasskey(agent);
 
     await agent
       .post("/api/documents/upload")

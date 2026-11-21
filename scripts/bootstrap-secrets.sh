@@ -176,12 +176,9 @@ if fill_if_empty PAPERLESS_ADMIN_PASSWORD gen_password; then
   generated_lines+=("  password: ${PW}")
 fi
 
-if fill_if_empty BOOTSTRAP_PASSWORD gen_password; then
-  PW="$(read_value "$ENV_FILE" BOOTSTRAP_PASSWORD)"
-  generated_lines+=("aktenraum SPA login (http://localhost:8080):")
-  generated_lines+=("  username: $(read_value "$ENV_FILE" BOOTSTRAP_USERNAME || echo admin)")
-  generated_lines+=("  password: ${PW}")
-fi
+# No aktenraum password any more (auth-passkeys): BOOTSTRAP_PASSWORD stays
+# empty, the admin is created passwordless and first-run.sh prints a single-use
+# setup link (task setup-link) to create the first passkey with.
 
 # 4. Final report.
 

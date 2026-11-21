@@ -23,7 +23,9 @@ task setup
 
 This runs `scripts/setup.sh` (host dirs) → `scripts/bootstrap-secrets.sh` (fills secrets in `docker/.env`, prints the generated admin/SPA/restic passwords once) → `docker compose up -d` → `scripts/fix-token.sh` (mints the Paperless API token into `docker/.env` and recreates both Node services) → `scripts/bootstrap-paperless.sh` inside the paperless container → `restic init` in the backup container → a first snapshot.
 
-`task setup` runs `scripts/first-run.sh`: it creates `docker/.env`, asks for `AKTENRAUM_DATA_DIR` (Enter accepts the suggested folder), pulls the Ollama models and finishes with a verified first backup and the login. Nothing has to be prepared by hand.
+`task setup` runs `scripts/first-run.sh`: it creates `docker/.env`, asks for `AKTENRAUM_DATA_DIR` (Enter accepts the suggested folder), pulls the Ollama models and finishes with a verified first backup and a **setup link**. Nothing has to be prepared by hand.
+
+There is no aktenraum password (auth-passkeys): open the printed link `http://localhost:8080/setup/<token>` within 30 minutes, create a passkey (Windows Hello, phone, password manager) and keep the 10 recovery codes it shows. A new link any time: `task setup-link USER=admin`. Passkeys work only on the addresses in `WEBAUTHN_ORIGINS` (default `http://localhost:8080`) — not on an IP address; see [`locked-out.md`](locked-out.md) if nobody can sign in.
 
 The remaining sections walk through every step in detail; do them only if `task setup` doesn't fit your setup or you want the raw commands.
 
@@ -35,7 +37,7 @@ The remaining sections walk through every step in detail; do them only if `task 
 bash scripts/bootstrap-secrets.sh
 ```
 
-This copies `docker/.env.example` → `docker/.env` if absent and fills `PAPERLESS_SECRET_KEY`, `PAPERLESS_ADMIN_PASSWORD`, `PAPERLESS_DBPASS`, `AKTENRAUM_SECRET_KEY`, `QDRANT_API_KEY`, `BOOTSTRAP_PASSWORD`, `WEBHOOK_SECRET` and `RESTIC_PASSWORD`. Record the passwords it prints — they are shown only once. Re-runs are no-ops once everything is populated.
+This copies `docker/.env.example` → `docker/.env` if absent and fills `PAPERLESS_SECRET_KEY`, `PAPERLESS_ADMIN_PASSWORD`, `PAPERLESS_DBPASS`, `AKTENRAUM_SECRET_KEY`, `QDRANT_API_KEY`, `WEBHOOK_SECRET` and `RESTIC_PASSWORD` (`BOOTSTRAP_PASSWORD` stays empty: the admin is created passwordless and signs in through a setup link — `bash scripts/setup-link.sh admin` once the stack runs). Record the passwords it prints — they are shown only once. Re-runs are no-ops once everything is populated.
 
 Then open `docker/.env` and set:
 - `AKTENRAUM_DATA_DIR` — absolute data path (required)

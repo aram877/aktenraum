@@ -101,9 +101,11 @@ for _ in $(seq 1 60); do
 done
 COOKIE_JAR="$(mktemp)"
 trap 'rm -f "${COOKIE_JAR}"' EXIT
-curl -sf -c "${COOKIE_JAR}" -X POST "${API}/api/auth/login" \
-  -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"e2epassword"}' >/dev/null
+# A password session may only enrol a passkey (auth-passkeys) and changing the
+# rules needs a fresh step-up: get a passkey session through the host CLI
+# setup link with the software authenticator (works on every re-run).
+SESSION="$(E2E_API="${API}" node "${REPO_ROOT}/scripts/spikes/e2e-session.mjs")"
+printf '127.0.0.1\tFALSE\t/\tFALSE\t0\taktenraum_session\t%s\n' "${SESSION}" > "${COOKIE_JAR}"
 
 RULES_JSON="$(curl -sf -b "${COOKIE_JAR}" "${API}/api/settings/auto-approve" \
   | "${PY}" -c "

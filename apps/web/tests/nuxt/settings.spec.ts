@@ -62,47 +62,18 @@ describe("AutoApprove", () => {
 });
 
 describe("Konto", () => {
-  async function fill(current: string, next: string, confirm: string) {
-    get.mockResolvedValue([]); // the device list inside Konto
-    const wrapper = await mountSuspended(Konto);
-    await wrapper.find('input[name="current"]').setValue(current);
-    await wrapper.find('input[name="next"]').setValue(next);
-    await wrapper.find('input[name="confirm"]').setValue(confirm);
-    return wrapper;
-  }
-
-  it("keeps the submit disabled until the confirmation matches", async () => {
-    const wrapper = await fill("old-password", "new-password", "new-passwort");
-    expect(wrapper.find('button[type="submit"]').attributes("disabled")).toBeDefined();
-    expect(wrapper.text()).toContain("Passwörter stimmen nicht überein.");
-  });
-
-  it("shows the mapped German error on a wrong current password", async () => {
-    post.mockRejectedValue(fetchError(401));
-    const wrapper = await fill("wrong", "new-password", "new-password");
-    await wrapper.find("form").trigger("submit");
-    await flushPromises();
-    expect(wrapper.find('[data-testid="konto-error"]').text()).toBe(
-      "Aktuelles Passwort ist nicht korrekt.",
-    );
-  });
-
-  it("clears the session and sends the user to the login after success", async () => {
-    vi.useFakeTimers();
-    post.mockResolvedValue(undefined);
-    useNuxtApp().$queryClient.setQueryData(ME_KEY, { username: "admin" });
-    const wrapper = await fill("old-password", "new-password", "new-password");
-    await wrapper.find("form").trigger("submit");
-    await flushPromises();
-    expect(post).toHaveBeenCalledWith("/auth/change-password", {
-      current_password: "old-password",
-      new_password: "new-password",
+  it("has no password form any more — passkeys, recovery codes and devices", async () => {
+    get.mockImplementation((path: string) => {
+      if (path === "/auth/passkeys") return Promise.resolve([]);
+      if (path === "/auth/recovery-codes") return Promise.resolve({ remaining: 10 });
+      return Promise.resolve([]);
     });
-    expect(useNuxtApp().$queryClient.getQueryData(ME_KEY)).toBeNull();
-    expect(wrapper.find('[data-testid="konto-success"]').exists()).toBe(true);
-    vi.advanceTimersByTime(1500);
-    expect(navigate).toHaveBeenCalledWith("/login");
-    vi.useRealTimers();
+    const wrapper = await mountSuspended(Konto);
+    await flushPromises();
+    expect(wrapper.find('input[type="password"]').exists()).toBe(false);
+    expect(wrapper.text()).toContain("Passkeys");
+    expect(wrapper.text()).toContain("Wiederherstellungscodes");
+    expect(post).not.toHaveBeenCalledWith("/auth/change-password", expect.anything());
   });
 });
 

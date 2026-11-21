@@ -289,6 +289,118 @@ CREATE TABLE IF NOT EXISTS "auth_audit" (
 
 CREATE INDEX IF NOT EXISTS "auth_audit_at_idx" ON "auth_audit" ("at");
 
+-- Passkeys (auth-passkeys, ADR-010 step 4). One random WebAuthn user handle
+-- per member (64 bytes base64url) — never the member id or name.
+CREATE TABLE IF NOT EXISTS "webauthn_users" (
+	"member_id" integer PRIMARY KEY NOT NULL REFERENCES "members"("id"),
+	"user_handle" varchar(86) NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "webauthn_users_user_handle_key" UNIQUE("user_handle")
+);
+
+-- A member's passkeys. credential_id / public_key base64url; removed_at set =
+-- the passkey no longer signs in (the authenticator still holds it).
+CREATE TABLE IF NOT EXISTS "passkeys" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"member_id" integer NOT NULL REFERENCES "members"("id"),
+	"credential_id" varchar(1366) NOT NULL,
+	"public_key" text NOT NULL,
+	"sign_count" bigint DEFAULT 0 NOT NULL,
+	"transports" varchar(128),
+	"aaguid" varchar(36),
+	"device_type" varchar(16) NOT NULL,
+	"backed_up" boolean NOT NULL,
+	"prf_enabled" boolean DEFAULT false NOT NULL,
+	"rp_id" varchar(253) NOT NULL,
+	"name" varchar(64) NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"last_used_at" timestamp with time zone,
+	"removed_at" timestamp with time zone,
+	CONSTRAINT "passkeys_credential_id_key" UNIQUE("credential_id"),
+	CONSTRAINT "passkeys_device_type_check" CHECK ("device_type" IN ('singleDevice', 'multiDevice'))
+);
+
+CREATE INDEX IF NOT EXISTS "passkeys_member_id_idx" ON "passkeys" ("member_id");
+
+-- One row per begun WebAuthn ceremony, 5 minutes, claimed exactly once
+-- (UPDATE … SET used_at = now() WHERE used_at IS NULL AND expires_at > now()).
+-- kind: register | login | step_up; purpose: enrol | add | invite | setup | login | step_up.
+CREATE TABLE IF NOT EXISTS "webauthn_challenges" (
+	"id" bigserial PRIMARY KEY NOT NULL,
+	"ceremony" varchar(43) NOT NULL,
+	"challenge" varchar(128) NOT NULL,
+	"kind" varchar(16) NOT NULL,
+	"purpose" varchar(16) NOT NULL,
+	"member_id" integer,
+	"session_id" bigint,
+	"invite_id" integer,
+	"setup_token_id" integer,
+	"username" varchar(64),
+	"user_handle" varchar(86),
+	"rp_id" varchar(253) NOT NULL,
+	"origin" varchar(255) NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"expires_at" timestamp with time zone NOT NULL,
+	"used_at" timestamp with time zone,
+	CONSTRAINT "webauthn_challenges_ceremony_key" UNIQUE("ceremony")
+);
+
+-- Recovery codes: sha256 hex of the normalised code, never the code. A new
+-- batch sets invalidated_at on the old unused ones.
+CREATE TABLE IF NOT EXISTS "recovery_codes" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"member_id" integer NOT NULL REFERENCES "members"("id"),
+	"batch_id" varchar(32) NOT NULL,
+	"code_hash" varchar(64) NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"used_at" timestamp with time zone,
+	"invalidated_at" timestamp with time zone,
+	CONSTRAINT "recovery_codes_code_hash_key" UNIQUE("code_hash")
+);
+
+CREATE INDEX IF NOT EXISTS "recovery_codes_member_id_idx" ON "recovery_codes" ("member_id");
+
+-- Single-use setup links (30 minutes), sha256 of the token stored.
+-- created_by_member_id NULL = host CLI / first run.
+CREATE TABLE IF NOT EXISTS "setup_tokens" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"token_hash" varchar(64) NOT NULL,
+	"member_id" integer NOT NULL REFERENCES "members"("id"),
+	"created_by_member_id" integer,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"expires_at" timestamp with time zone NOT NULL,
+	"used_at" timestamp with time zone,
+	"revoked_at" timestamp with time zone,
+	CONSTRAINT "setup_tokens_token_hash_key" UNIQUE("token_hash")
+);
+
+-- A row = password login is off for that member (the hash stays for a code
+-- rollback).
+CREATE TABLE IF NOT EXISTS "password_retirements" (
+	"member_id" integer PRIMARY KEY NOT NULL REFERENCES "members"("id"),
+	"retired_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"session_id" bigint
+);
+
+-- Credential events (passkeys, recovery codes, setup links, password
+-- retirement, step-up), kept 180 days. No CHECK on event (a TypeScript union,
+-- so it can grow) and no foreign keys. Never holds codes, tokens, hashes,
+-- public keys or authenticator responses.
+CREATE TABLE IF NOT EXISTS "credential_audit" (
+	"id" bigserial PRIMARY KEY NOT NULL,
+	"at" timestamp with time zone DEFAULT now() NOT NULL,
+	"event" varchar(32) NOT NULL,
+	"member_id" integer,
+	"actor_member_id" integer,
+	"session_id" bigint,
+	"passkey_id" integer,
+	"detail" varchar(128),
+	"ip" varchar(64),
+	"user_agent" varchar(512)
+);
+
+CREATE INDEX IF NOT EXISTS "credential_audit_at_idx" ON "credential_audit" ("at");
+
 INSERT INTO "alembic_version" ("version_num")
 SELECT '0006'
 WHERE NOT EXISTS (SELECT 1 FROM "alembic_version");

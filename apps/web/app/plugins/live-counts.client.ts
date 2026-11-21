@@ -6,9 +6,10 @@ export default defineNuxtPlugin({
   setup(nuxtApp) {
     const queryClient = nuxtApp.$queryClient;
     const stream = createLiveCountsStream(queryClient);
-    const me = new QueryObserver(queryClient, { queryKey: ME_KEY, enabled: false });
+    const me = new QueryObserver<User | null>(queryClient, { queryKey: ME_KEY, enabled: false });
     me.subscribe((result) => {
-      if (result.data) stream.start();
+      // A restricted session (enrolment pending) can't open the stream (403).
+      if (result.data && !result.data.enrolment_required) stream.start();
       else stream.stop();
     });
   },

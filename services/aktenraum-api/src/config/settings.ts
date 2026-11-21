@@ -37,6 +37,16 @@ const str = (fallback = "") =>
     .optional()
     .transform((raw) => (raw === undefined || raw === "" ? fallback : raw));
 
+/** A comma list; blank entries dropped, fallback when unset or empty. */
+const list = (fallback: string[]) =>
+  z
+    .string()
+    .optional()
+    .transform((raw) => {
+      const items = (raw ?? "").split(",").map((item) => item.trim()).filter((item) => item !== "");
+      return items.length > 0 ? items : fallback;
+    });
+
 const required = (name: string) =>
   z
     .string({ required_error: `${name} is required` })
@@ -60,6 +70,12 @@ export const settingsSchema = z.object({
 
   COOKIE_NAME: str("aktenraum_session"),
   COOKIE_SECURE: bool(true),
+
+  // Passkeys (auth-passkeys): the origins a WebAuthn ceremony may come from
+  // and the relying-party IDs passkeys are bound to. Every origin's hostname
+  // must be one of the RP IDs; IP addresses are refused (browsers refuse them).
+  WEBAUTHN_ORIGINS: list(["http://localhost:8080", "http://localhost:4300"]),
+  WEBAUTHN_RP_IDS: list(["localhost"]),
 
   BOOTSTRAP_USERNAME: str(""),
   BOOTSTRAP_PASSWORD: str(""),
@@ -110,5 +126,45 @@ export function loadSettings(env: NodeJS.ProcessEnv = process.env): Settings {
       .join("; ");
     throw new Error(`Invalid configuration — ${detail}`);
   }
+  const webauthnProblems = webauthnConfigProblems(parsed.data.WEBAUTHN_ORIGINS, parsed.data.WEBAUTHN_RP_IDS);
+  if (webauthnProblems.length > 0) {
+    throw new Error(`Invalid configuration — ${webauthnProblems.join("; ")}`);
+  }
   return parsed.data;
+}
+
+function isIpLiteral(host: string): boolean {
+  return /^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(":") || host.startsWith("[");
+}
+
+/**
+ * Startup validation of the passkey addresses (design §3): origins parse as
+ * http(s) URLs without a path, their hostname is a configured RP ID, and
+ * neither is an IP literal.
+ */
+export function webauthnConfigProblems(origins: readonly string[], rpIds: readonly string[]): string[] {
+  const problems: string[] = [];
+  for (const rpId of rpIds) {
+    if (isIpLiteral(rpId)) problems.push(`WEBAUTHN_RP_IDS: ${rpId} is an IP address (browsers refuse passkeys there)`);
+    else if (!/^[a-z0-9.-]+$/i.test(rpId)) problems.push(`WEBAUTHN_RP_IDS: ${rpId} is not a host name`);
+  }
+  for (const origin of origins) {
+    let url: URL;
+    try {
+      url = new URL(origin);
+    } catch {
+      problems.push(`WEBAUTHN_ORIGINS: ${origin} is not a URL`);
+      continue;
+    }
+    if ((url.protocol !== "http:" && url.protocol !== "https:") || url.origin !== origin.replace(/\/$/, "")) {
+      problems.push(`WEBAUTHN_ORIGINS: ${origin} must be scheme://host[:port] without a path`);
+      continue;
+    }
+    if (isIpLiteral(url.hostname)) {
+      problems.push(`WEBAUTHN_ORIGINS: ${origin} uses an IP address (browsers refuse passkeys there)`);
+    } else if (!rpIds.includes(url.hostname)) {
+      problems.push(`WEBAUTHN_ORIGINS: the host of ${origin} is not in WEBAUTHN_RP_IDS`);
+    }
+  }
+  return problems;
 }

@@ -1,5 +1,4 @@
 import { eq } from "drizzle-orm";
-import request from "supertest";
 import { vi } from "vitest";
 
 import { hashPassword } from "../auth/passwords.js";
@@ -9,6 +8,7 @@ import { MemberGateways } from "../tenancy/member-gateways.js";
 import { TenancyService } from "../tenancy/tenancy.service.js";
 import { FakeGateway, TAGS, makeDoc } from "./fake-gateway.js";
 import { createHarness, type Harness } from "./harness.js";
+import { loginEnrolled, passwordLogin } from "./passkey-helpers.js";
 
 const PROPAGATED = TAGS["ai-propagated"] as number;
 
@@ -19,6 +19,7 @@ const PROPAGATED = TAGS["ai-propagated"] as number;
 export async function household(
   docs: PaperlessDocument[] = [1, 2, 3, 5].map((id) => makeDoc({ id, tags: [PROPAGATED] })),
   env?: Record<string, string>,
+  options: { enrol?: boolean } = {},
 ) {
   const paperless = new FakeGateway({ docs });
   const vectorStore = {
@@ -63,11 +64,12 @@ export async function household(
   await own(2, bob.id);
   await own(5, carol.id);
 
-  const login = async (username: string) => {
-    const agent = request.agent(h.app.getHttpServer());
-    await agent.post("/api/auth/login").send({ username, password: "password-123" }).expect(200);
-    return agent;
-  };
+  // Passwords only lead to enrolment (auth-passkeys): enrol a passkey for a full session.
+  // enrol: false leaves everyone a password member (restricted sessions) — for password-login tests.
+  const login = (username: string) =>
+    options.enrol === false
+      ? passwordLogin(h.app, username, "password-123").then((agent) => Object.assign(agent, { enrolled: null }))
+      : loginEnrolled(h.app, username, "password-123");
   return {
     h,
     paperless,

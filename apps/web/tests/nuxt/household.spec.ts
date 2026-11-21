@@ -7,15 +7,19 @@ import InvitePage from "~/pages/invite/[token].vue";
 import SettingsPage from "~/pages/settings.vue";
 import { fetchError } from "../fetch-error";
 
-const { get, post, del, navigate } = vi.hoisted(() => ({
+const { get, post, del, navigate, startRegistration } = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
   del: vi.fn(),
   navigate: vi.fn(),
+  startRegistration: vi.fn(),
 }));
 
 mockNuxtImport("useApi", () => () => ({ get, post, patch: vi.fn(), put: vi.fn(), upload: vi.fn(), del }));
 mockNuxtImport("navigateTo", () => navigate);
+vi.mock("@simplewebauthn/browser", () => ({ startRegistration, startAuthentication: vi.fn() }));
+
+const CODES = Array.from({ length: 10 }, (_, i) => `AAAA-BBBB-CCCC-000${i}`);
 
 const MEMBERS = [
   { id: 1, username: "aram", role: "admin", joined_at: "2026-05-01T10:00:00Z" },
@@ -35,7 +39,7 @@ function serve(me: { username: string; household_role: "admin" | "member" }, inv
 
 beforeEach(() => {
   useNuxtApp().$queryClient.clear();
-  for (const fn of [get, post, del, navigate]) fn.mockReset();
+  for (const fn of [get, post, del, navigate, startRegistration]) fn.mockReset();
 });
 
 describe("settings page by role", () => {
@@ -88,6 +92,34 @@ describe("Mitglieder", () => {
   });
 });
 
+describe("Mitglieder: setup links", () => {
+  it("creates a single-use setup link for a member and shows it once", async () => {
+    serve({ username: "aram", household_role: "admin" });
+    post.mockResolvedValue({ id: 4, token: "setup_TOK", expires_at: "2026-11-21T10:30:00Z" });
+    const wrapper = await mountSuspended(Mitglieder);
+    await vi.waitFor(() => expect(wrapper.findAll('[data-testid="member-row"]')).toHaveLength(2));
+    // Every member row has it — the admin's own too.
+    expect(wrapper.findAll('[data-testid="create-setup-link"]')).toHaveLength(2);
+    await wrapper.findAll('[data-testid="create-setup-link"]')[1]!.trigger("click");
+    await flushPromises();
+    expect(post).toHaveBeenCalledWith("/household/members/2/setup-link");
+    const url = wrapper.find('[data-testid="setup-link-url"]').element as HTMLInputElement;
+    expect(url.value).toBe(`${window.location.origin}/setup/setup_TOK`);
+    expect(wrapper.find('[data-testid="setup-link"]').text()).toContain("partner");
+  });
+
+  it("explains a cancelled confirmation", async () => {
+    serve({ username: "aram", household_role: "admin" });
+    post.mockRejectedValue(Object.assign(new Error("x"), { name: "PasskeyCancelledError", message: "Bestätigung abgebrochen." }));
+    const wrapper = await mountSuspended(Mitglieder);
+    await vi.waitFor(() => expect(wrapper.findAll('[data-testid="create-setup-link"]')).toHaveLength(2));
+    await wrapper.findAll('[data-testid="create-setup-link"]')[1]!.trigger("click");
+    await flushPromises();
+    expect(wrapper.find('[data-testid="setup-link"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="setup-link-error"]').exists()).toBe(true);
+  });
+});
+
 describe("invite page", () => {
   function servePublic(check: () => Promise<unknown>) {
     get.mockImplementation((path: string) => {
@@ -97,26 +129,45 @@ describe("invite page", () => {
     });
   }
 
-  it("redeems with username + password and goes home", async () => {
+  it("joins with a username and a passkey, shows the recovery codes once, then goes home", async () => {
     servePublic(() => Promise.resolve({ expires_at: "2026-11-26T10:00:00Z" }));
-    post.mockResolvedValue({ username: "partner" });
+    post.mockImplementation((path: string) =>
+      Promise.resolve(
+        path.endsWith("/begin")
+          ? { ceremony: "c1", options: { challenge: "x" } }
+          : { username: "partner", recovery_codes: CODES },
+      ),
+    );
+    startRegistration.mockResolvedValue({ id: "new-cred" });
     const wrapper = await mountSuspended(InvitePage, { route: "/invite/tok123" });
     await vi.waitFor(() => expect(wrapper.find('[data-testid="invite-form"]').exists()).toBe(true));
+    expect(wrapper.find('input[name="password"]').exists()).toBe(false);
 
-    const redeem = wrapper.find('[data-testid="redeem"]');
     await wrapper.find('input[name="username"]').setValue("partner");
-    await wrapper.find('input[name="password"]').setValue("partner-pass");
-    await wrapper.find('input[name="confirm"]').setValue("partner-other");
-    expect(redeem.attributes("disabled")).toBeDefined();
-    expect(wrapper.text()).toContain("stimmen nicht überein");
-
-    await wrapper.find('input[name="confirm"]').setValue("partner-pass");
     await wrapper.find('[data-testid="invite-form"]').trigger("submit");
     await flushPromises();
 
-    expect(post).toHaveBeenCalledWith("/invites/tok123/redeem", { username: "partner", password: "partner-pass" });
+    expect(post).toHaveBeenNthCalledWith(1, "/invites/tok123/register/begin", { username: "partner" });
+    expect(post).toHaveBeenNthCalledWith(2, "/invites/tok123/register/finish", { ceremony: "c1", response: { id: "new-cred" } });
+    expect(wrapper.findAll('[data-testid="recovery-code"]')).toHaveLength(10);
+    expect(useNuxtApp().$queryClient.getQueryData(["me"])).toMatchObject({ username: "partner", household_role: "member" });
+    expect(navigate).not.toHaveBeenCalled();
+    await wrapper.find('[data-testid="codes-continue"]').trigger("click");
     expect(navigate).toHaveBeenCalledWith("/");
-    expect(useNuxtApp().$queryClient.getQueryData(["me"])).toEqual({ username: "partner", household_role: "member" });
+  });
+
+  it("a cancelled passkey dialog keeps the form and says so", async () => {
+    servePublic(() => Promise.resolve({ expires_at: "2026-11-26T10:00:00Z" }));
+    post.mockResolvedValue({ ceremony: "c1", options: {} });
+    startRegistration.mockRejectedValue(Object.assign(new Error("x"), { name: "NotAllowedError" }));
+    const wrapper = await mountSuspended(InvitePage, { route: "/invite/tok123" });
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="invite-form"]').exists()).toBe(true));
+    await wrapper.find('input[name="username"]').setValue("partner");
+    await wrapper.find('[data-testid="invite-form"]').trigger("submit");
+    await flushPromises();
+    expect(wrapper.find('[data-testid="redeem-error"]').text()).toContain("abgebrochen");
+    expect(wrapper.find('[data-testid="invite-form"]').exists()).toBe(true);
+    expect(post).toHaveBeenCalledTimes(1); // begin only
   });
 
   it("explains an invalid link", async () => {
@@ -133,11 +184,10 @@ describe("invite page", () => {
     const wrapper = await mountSuspended(InvitePage, { route: "/invite/tok123" });
     await vi.waitFor(() => expect(wrapper.find('[data-testid="invite-form"]').exists()).toBe(true));
     await wrapper.find('input[name="username"]').setValue("aram");
-    await wrapper.find('input[name="password"]').setValue("partner-pass");
-    await wrapper.find('input[name="confirm"]').setValue("partner-pass");
     await wrapper.find('[data-testid="invite-form"]').trigger("submit");
     await flushPromises();
     expect(wrapper.find('[data-testid="redeem-error"]').text()).toContain("bereits vergeben");
+    expect(startRegistration).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalledWith("/");
   });
 });

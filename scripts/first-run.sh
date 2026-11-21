@@ -146,11 +146,23 @@ step "Setting up backups"
 "${COMPOSE[@]}" exec -T -e RESTIC_REPOSITORY=/repo backup //usr/local/bin/verify-backup.sh
 
 USERNAME="$(env_value BOOTSTRAP_USERNAME)"
+USERNAME="${USERNAME:-admin}"
 PASSWORD="$(env_value BOOTSTRAP_PASSWORD)"
+SETUP_LINK=""
+if [ -z "${PASSWORD}" ]; then
+  # Passwordless admin (auth-passkeys): a single-use setup link creates the first passkey.
+  step "Creating a setup link for ${USERNAME}"
+  SETUP_LINK="$(bash scripts/setup-link.sh "${USERNAME}")" || die "Could not create a setup link — run: task setup-link USER=${USERNAME}"
+fi
 printf '\n\033[1;32m✓ aktenraum is ready\033[0m\n\n'
-printf '  Open:      http://localhost:8080\n'
-printf '  Username:  %s\n' "${USERNAME:-admin}"
-printf '  Password:  %s\n' "${PASSWORD}"
+if [ -n "${SETUP_LINK}" ]; then
+  printf '  Open this link within 30 minutes and create a passkey (Windows Hello, phone, password manager):\n\n'
+  printf '    %s\n\n' "${SETUP_LINK}"
+  printf '  Keep the recovery codes it shows you. A new link any time:  task setup-link USER=%s\n' "${USERNAME}"
+else
+  printf '  Open:      http://localhost:8080\n'
+  printf '  Username:  %s\n' "${USERNAME}"
+  printf '  Password:  %s   (only to create your passkey; it stops working afterwards)\n' "${PASSWORD}"
+fi
 printf '\n  Documents, databases and backups live in: %s\n' "${DATA_DIR}"
-printf '  All passwords are in docker/.env — back that file up somewhere safe.\n'
-printf '  Show the login again any time with:  task login\n\n'
+printf '  All secrets are in docker/.env — back that file up somewhere safe.\n\n'

@@ -280,3 +280,128 @@ export const authAudit = pgTable("auth_audit", {
 	check("auth_audit_event_check", sql`${table.event} IN ('login_succeeded', 'login_failed', 'login_throttled', 'logout', 'session_revoked', 'password_changed', 'invite_redeemed')`),
 	index("auth_audit_at_idx").on(table.at),
 ]);
+
+// ---------------------------------------------------------------------------
+// Passkeys, recovery and step-up (auth-passkeys, ADR-010 step 4).
+// ---------------------------------------------------------------------------
+
+/** One random WebAuthn user handle per member (base64url of 64 bytes). */
+export const webauthnUsers = pgTable("webauthn_users", {
+	memberId: integer("member_id").primaryKey().notNull().references(() => members.id),
+	userHandle: varchar("user_handle", { length: 86 }).notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	unique("webauthn_users_user_handle_key").on(table.userHandle),
+]);
+
+export type PasskeyDeviceType = "singleDevice" | "multiDevice";
+
+export const passkeys = pgTable("passkeys", {
+	id: serial().primaryKey().notNull(),
+	memberId: integer("member_id").notNull().references(() => members.id),
+	credentialId: varchar("credential_id", { length: 1366 }).notNull(),
+	publicKey: text("public_key").notNull(),
+	signCount: bigint("sign_count", { mode: "number" }).default(0).notNull(),
+	transports: varchar({ length: 128 }),
+	aaguid: varchar({ length: 36 }),
+	deviceType: varchar("device_type", { length: 16 }).$type<PasskeyDeviceType>().notNull(),
+	backedUp: boolean("backed_up").notNull(),
+	prfEnabled: boolean("prf_enabled").default(false).notNull(),
+	rpId: varchar("rp_id", { length: 253 }).notNull(),
+	name: varchar({ length: 64 }).notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	lastUsedAt: timestamp("last_used_at", { withTimezone: true, mode: 'string' }),
+	removedAt: timestamp("removed_at", { withTimezone: true, mode: 'string' }),
+}, (table) => [
+	unique("passkeys_credential_id_key").on(table.credentialId),
+	check("passkeys_device_type_check", sql`${table.deviceType} IN ('singleDevice', 'multiDevice')`),
+	index("passkeys_member_id_idx").on(table.memberId),
+]);
+
+export type WebauthnCeremonyKind = "register" | "login" | "step_up";
+export type WebauthnPurpose = "enrol" | "add" | "invite" | "setup" | "login" | "step_up";
+
+/** A begun WebAuthn ceremony: 5 minutes, claimed exactly once. */
+export const webauthnChallenges = pgTable("webauthn_challenges", {
+	id: bigserial({ mode: "number" }).primaryKey().notNull(),
+	ceremony: varchar({ length: 43 }).notNull(),
+	challenge: varchar({ length: 128 }).notNull(),
+	kind: varchar({ length: 16 }).$type<WebauthnCeremonyKind>().notNull(),
+	purpose: varchar({ length: 16 }).$type<WebauthnPurpose>().notNull(),
+	memberId: integer("member_id"),
+	sessionId: bigint("session_id", { mode: "number" }),
+	inviteId: integer("invite_id"),
+	setupTokenId: integer("setup_token_id"),
+	username: varchar({ length: 64 }),
+	userHandle: varchar("user_handle", { length: 86 }),
+	rpId: varchar("rp_id", { length: 253 }).notNull(),
+	origin: varchar({ length: 255 }).notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	expiresAt: timestamp("expires_at", { withTimezone: true, mode: 'string' }).notNull(),
+	usedAt: timestamp("used_at", { withTimezone: true, mode: 'string' }),
+}, (table) => [
+	unique("webauthn_challenges_ceremony_key").on(table.ceremony),
+]);
+
+/** sha256 hex of the normalised code; never the code itself. */
+export const recoveryCodes = pgTable("recovery_codes", {
+	id: serial().primaryKey().notNull(),
+	memberId: integer("member_id").notNull().references(() => members.id),
+	batchId: varchar("batch_id", { length: 32 }).notNull(),
+	codeHash: varchar("code_hash", { length: 64 }).notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	usedAt: timestamp("used_at", { withTimezone: true, mode: 'string' }),
+	invalidatedAt: timestamp("invalidated_at", { withTimezone: true, mode: 'string' }),
+}, (table) => [
+	unique("recovery_codes_code_hash_key").on(table.codeHash),
+	index("recovery_codes_member_id_idx").on(table.memberId),
+]);
+
+/** Single-use setup links; created_by_member_id NULL = host CLI / first run. */
+export const setupTokens = pgTable("setup_tokens", {
+	id: serial().primaryKey().notNull(),
+	tokenHash: varchar("token_hash", { length: 64 }).notNull(),
+	memberId: integer("member_id").notNull().references(() => members.id),
+	createdByMemberId: integer("created_by_member_id"),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	expiresAt: timestamp("expires_at", { withTimezone: true, mode: 'string' }).notNull(),
+	usedAt: timestamp("used_at", { withTimezone: true, mode: 'string' }),
+	revokedAt: timestamp("revoked_at", { withTimezone: true, mode: 'string' }),
+}, (table) => [
+	unique("setup_tokens_token_hash_key").on(table.tokenHash),
+]);
+
+/** A row = password login is off for the member; the hash stays for a rollback. */
+export const passwordRetirements = pgTable("password_retirements", {
+	memberId: integer("member_id").primaryKey().notNull().references(() => members.id),
+	retiredAt: timestamp("retired_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	sessionId: bigint("session_id", { mode: "number" }),
+});
+
+export type CredentialAuditEvent =
+	| "passkey_added"
+	| "passkey_renamed"
+	| "passkey_removed"
+	| "recovery_codes_generated"
+	| "recovery_code_used"
+	| "setup_link_created"
+	| "setup_link_used"
+	| "password_retired"
+	| "step_up_succeeded"
+	| "step_up_failed";
+
+/** Credential events, kept 180 days. No CHECK on event, no foreign keys. */
+export const credentialAudit = pgTable("credential_audit", {
+	id: bigserial({ mode: "number" }).primaryKey().notNull(),
+	at: timestamp({ withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	event: varchar({ length: 32 }).$type<CredentialAuditEvent>().notNull(),
+	memberId: integer("member_id"),
+	actorMemberId: integer("actor_member_id"),
+	sessionId: bigint("session_id", { mode: "number" }),
+	passkeyId: integer("passkey_id"),
+	detail: varchar({ length: 128 }),
+	ip: varchar({ length: 64 }),
+	userAgent: varchar("user_agent", { length: 512 }),
+}, (table) => [
+	index("credential_audit_at_idx").on(table.at),
+]);

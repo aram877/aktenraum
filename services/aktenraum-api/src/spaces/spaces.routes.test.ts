@@ -160,6 +160,9 @@ describe("spaces API", { timeout: 60_000 }, () => {
       sessionId: null,
       authTime: null,
       clientId: "spa",
+      authMethod: "passkey" as const,
+      restricted: false,
+      stepUpFresh: true,
     });
     expect(counts.errors).toBe(0);
     expect((await asBob.get("/api/spaces").expect(200)).body.spaces).toHaveLength(1);

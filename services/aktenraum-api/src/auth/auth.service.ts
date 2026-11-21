@@ -4,12 +4,12 @@ import { eq } from "drizzle-orm";
 
 import { SETTINGS, type Settings } from "../config/settings.js";
 import { DB, type Database } from "../db/db.module.js";
-import { users } from "../db/schema.js";
+import { members, passwordRetirements, users } from "../db/schema.js";
 import type { SessionAuthMethod } from "../db/schema.js";
 import { TenancyService } from "../tenancy/tenancy.service.js";
 import type { Request, Response } from "express";
 
-import { hashPassword, verifyPassword } from "./passwords.js";
+import { NO_PASSWORD, hashPassword, verifyPassword } from "./passwords.js";
 import { SessionService } from "./session.service.js";
 
 let timingDummyHash: Promise<string> | null = null;
@@ -41,7 +41,7 @@ export class AuthService implements OnModuleInit {
   async bootstrapUserIfEmpty(): Promise<void> {
     const username = this.settings.BOOTSTRAP_USERNAME;
     const password = this.settings.BOOTSTRAP_PASSWORD;
-    if (!username || !password) {
+    if (!username) {
       logger.info("bootstrap_skipped_no_creds");
       return;
     }
@@ -50,11 +50,13 @@ export class AuthService implements OnModuleInit {
       logger.info("bootstrap_skipped_user_exists");
       return;
     }
+    // Without BOOTSTRAP_PASSWORD the admin is passwordless and enrols through
+    // a setup link (task setup-link); with it, a password member who must enrol.
     await this.db.insert(users).values({
       username,
-      passwordHash: await hashPassword(password),
+      passwordHash: password ? await hashPassword(password) : NO_PASSWORD,
     });
-    logger.info("bootstrap_user_created", { username });
+    logger.info("bootstrap_user_created", { username, passwordless: !password });
   }
 
   async findByUsername(username: string): Promise<AuthUser | null> {
@@ -86,7 +88,19 @@ export class AuthService implements OnModuleInit {
     // neither timing nor answer tells that the username belongs to a removed
     // member (tenancy-member-removal). The controller counts it as a failure.
     if (await this.tenancy.isUserRemoved(user.id)) return null;
+    // Retired passwords (auth-passkeys §5): refused exactly like a wrong one.
+    if (await this.isPasswordRetired(user.id)) return null;
     return user;
+  }
+
+  async isPasswordRetired(userId: number): Promise<boolean> {
+    const rows = await this.db
+      .select({ memberId: passwordRetirements.memberId })
+      .from(passwordRetirements)
+      .innerJoin(members, eq(members.id, passwordRetirements.memberId))
+      .where(eq(members.userId, userId))
+      .limit(1);
+    return rows.length > 0;
   }
 
   /**
@@ -104,12 +118,5 @@ export class AuthService implements OnModuleInit {
     if (member === null) return null;
     const sessionId = await this.sessions.issue(response, request, member, method);
     return { memberId: member.id, sessionId };
-  }
-
-  async setPassword(userId: number, newPassword: string): Promise<void> {
-    await this.db
-      .update(users)
-      .set({ passwordHash: await hashPassword(newPassword) })
-      .where(eq(users.id, userId));
   }
 }

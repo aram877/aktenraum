@@ -9,12 +9,13 @@ import { Reflector } from "@nestjs/core";
 import { PolicyService } from "../policy/policy.service.js";
 import { TenancyService } from "../tenancy/tenancy.service.js";
 import {
+  RESTRICTED_SCOPES,
   type MemberPrincipal,
   type PrincipalRequest,
   authorize,
   memberScopes,
 } from "./principal.js";
-import { SessionService } from "./session.service.js";
+import { SessionService, isRestricted } from "./session.service.js";
 
 /**
  * Browser requests: the session cookie is read here and nowhere else. Builds
@@ -45,6 +46,7 @@ export class AuthGuard implements CanActivate {
     if (member === null || member.id !== session.memberId) {
       throw new UnauthorizedException("Invalid session");
     }
+    const restricted = isRestricted(session);
     const principal: MemberPrincipal = {
       kind: "member",
       memberId: member.id,
@@ -52,9 +54,12 @@ export class AuthGuard implements CanActivate {
       householdId: member.householdId,
       username: session.username,
       householdRole: member.role,
-      scopes: memberScopes(member.role),
+      scopes: restricted ? RESTRICTED_SCOPES : memberScopes(member.role),
       sessionId: String(session.sessionId),
       authTime: new Date(session.createdAt),
+      authMethod: session.authMethod,
+      restricted,
+      stepUpFresh: !restricted && session.stepUpFresh,
       clientId: "spa",
     };
     request.principal = principal;

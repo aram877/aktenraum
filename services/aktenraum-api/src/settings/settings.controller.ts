@@ -2,7 +2,7 @@ import { Body, Controller, Get, Patch, Put, UseGuards } from "@nestjs/common";
 
 import { AuthGuard } from "../auth/auth.guard.js";
 import { InternalGuard } from "../auth/internal.guard.js";
-import { CurrentPrincipal, RequireScope, type Principal } from "../auth/principal.js";
+import { CurrentPrincipal, RequireScope, RequireStepUp, type Principal } from "../auth/principal.js";
 import { ZodValidationPipe } from "../common/zod-validation.pipe.js";
 import {
   autoApproveRulesUpdateSchema,
@@ -29,6 +29,7 @@ export class SettingsController {
 
   @Patch("llm")
   @RequireScope("settings:write")
+  @RequireStepUp()
   @UseGuards(AuthGuard)
   async updateLlmSettings(
     @Body(new ZodValidationPipe(llmSettingsUpdateSchema)) body: LLMSettingsUpdate,
@@ -45,6 +46,7 @@ export class SettingsController {
 
   @Patch("answer-llm")
   @RequireScope("settings:write")
+  @RequireStepUp()
   @UseGuards(AuthGuard)
   async updateAnswerLlmSettings(
     @Body(new ZodValidationPipe(llmSettingsUpdateSchema)) body: LLMSettingsUpdate,
@@ -75,6 +77,7 @@ export class SettingsController {
 
   @Put("auto-approve")
   @RequireScope("settings:write")
+  @RequireStepUp()
   @UseGuards(AuthGuard)
   async updateAutoApproveRules(
     @Body(new ZodValidationPipe(autoApproveRulesUpdateSchema)) body: AutoApproveRulesUpdate,

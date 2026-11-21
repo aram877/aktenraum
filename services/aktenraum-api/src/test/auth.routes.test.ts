@@ -26,7 +26,8 @@ describe("auth routes", () => {
       .send({ username: "admin", password: "correct-horse" });
 
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({ username: "admin" });
+    // A password only leads to passkey enrolment (auth-passkeys).
+    expect(response.body).toEqual({ username: "admin", enrolment_required: true });
     const cookie = (response.headers["set-cookie"] as unknown as string[]).find((c) => c.startsWith("aktenraum_session=")) as string;
     expect(cookie).toContain("HttpOnly");
     expect(cookie).toContain("SameSite=Lax");
@@ -78,7 +79,12 @@ describe("auth routes", () => {
     await agent.post("/api/auth/login").send({ username: "admin", password: "correct-horse" });
     const authenticated = await agent.get("/api/auth/me");
     expect(authenticated.status).toBe(200);
-    expect(authenticated.body).toEqual({ username: "admin", household_role: "admin" });
+    expect(authenticated.body).toEqual({
+      username: "admin",
+      household_role: "admin",
+      enrolment_required: true,
+      auth_method: "password",
+    });
   });
 
   it("rejects a JWT-shaped cookie from before the upgrade, and unknown tokens", async () => {
@@ -102,69 +108,15 @@ describe("auth routes", () => {
     expect((response.headers["set-cookie"] as unknown as string[]).some((c) => c.startsWith("aktenraum_session=;"))).toBe(true);
   });
 
-  // bcrypt is deliberately slow; four vitest workers hashing at once under
-  // `pnpm -r test` pushes this past the 5s default. Not a product concern.
-  it("changes the password, rejects the old one, and accepts the new one", { timeout: 30_000 }, async () => {
+  it("no longer offers a password change", async () => {
     harness = await createHarness();
     await seedUser(harness);
     const agent = request.agent(harness.app.getHttpServer());
     await agent.post("/api/auth/login").send({ username: "admin", password: "correct-horse" });
-
-    const changed = await agent
+    await agent
       .post("/api/auth/change-password")
-      .send({ current_password: "correct-horse", new_password: "battery-staple-1" });
-    expect(changed.status).toBe(204);
-
-    const oldPassword = await request(harness.app.getHttpServer())
-      .post("/api/auth/login")
-      .send({ username: "admin", password: "correct-horse" });
-    expect(oldPassword.status).toBe(401);
-
-    const newPassword = await request(harness.app.getHttpServer())
-      .post("/api/auth/login")
-      .send({ username: "admin", password: "battery-staple-1" });
-    expect(newPassword.status).toBe(200);
-  });
-
-  it("refuses a password change when the current password is wrong", async () => {
-    harness = await createHarness();
-    await seedUser(harness);
-    const agent = request.agent(harness.app.getHttpServer());
-    await agent.post("/api/auth/login").send({ username: "admin", password: "correct-horse" });
-
-    const response = await agent
-      .post("/api/auth/change-password")
-      .send({ current_password: "nope", new_password: "battery-staple-1" });
-
-    expect(response.status).toBe(401);
-    expect(response.body).toEqual({ detail: "Current password is incorrect" });
-  });
-
-  it("refuses a new password identical to the current one", async () => {
-    harness = await createHarness();
-    await seedUser(harness);
-    const agent = request.agent(harness.app.getHttpServer());
-    await agent.post("/api/auth/login").send({ username: "admin", password: "correct-horse" });
-
-    const response = await agent
-      .post("/api/auth/change-password")
-      .send({ current_password: "correct-horse", new_password: "correct-horse" });
-
-    expect(response.status).toBe(400);
-    expect(response.body).toEqual({ detail: "New password must differ from current password" });
-  });
-
-  it("rejects a new password shorter than 8 characters", async () => {
-    harness = await createHarness();
-    await seedUser(harness);
-    const agent = request.agent(harness.app.getHttpServer());
-    await agent.post("/api/auth/login").send({ username: "admin", password: "correct-horse" });
-
-    const response = await agent
-      .post("/api/auth/change-password")
-      .send({ current_password: "correct-horse", new_password: "short" });
-
-    expect(response.status).toBe(422);
+      .send({ current_password: "correct-horse", new_password: "battery-staple-1" })
+      .expect(404);
   });
 
   it("bootstraps exactly one user and is idempotent across restarts", async () => {
@@ -182,5 +134,15 @@ describe("auth routes", () => {
   it("does not bootstrap when the credentials are absent", async () => {
     harness = await createHarness();
     expect(await harness.db.select().from(users)).toHaveLength(0);
+  });
+
+  it("bootstraps a passwordless admin when BOOTSTRAP_PASSWORD is empty", async () => {
+    harness = await createHarness({ env: { BOOTSTRAP_USERNAME: "seeded", BOOTSTRAP_PASSWORD: "" } });
+    const [user] = await harness.db.select().from(users);
+    expect(user).toMatchObject({ username: "seeded", passwordHash: "!" });
+    await request(harness.app.getHttpServer())
+      .post("/api/auth/login")
+      .send({ username: "seeded", password: "!" })
+      .expect(401);
   });
 });

@@ -57,6 +57,9 @@ function principalOf(memberId: number): MemberPrincipal {
     sessionId: null,
     authTime: null,
     clientId: "spa",
+    authMethod: "passkey" as const,
+    restricted: false,
+    stepUpFresh: true,
   };
 }
 

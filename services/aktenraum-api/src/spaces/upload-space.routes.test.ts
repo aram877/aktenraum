@@ -8,6 +8,7 @@ import type { PaperlessGateway } from "../paperless/paperless.gateway.js";
 import { FakeGateway, makeDoc } from "../test/fake-gateway.js";
 import { createHarness, type Harness } from "../test/harness.js";
 import { TenancyService } from "../tenancy/tenancy.service.js";
+import { registerPasskey } from "../test/passkey-helpers.js";
 
 const SECRET = "s3cret-for-tests";
 
@@ -37,6 +38,7 @@ async function setup() {
   const login = async (username: string) => {
     const agent = request.agent(h.app.getHttpServer());
     await agent.post("/api/auth/login").send({ username, password: "password-123" }).expect(200);
+    await registerPasskey(agent);
     return agent;
   };
   const asAlice = await login("alice");

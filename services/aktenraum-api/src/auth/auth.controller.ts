@@ -1,6 +1,5 @@
 import { logger } from "@aktenraum/core";
 import {
-  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -22,16 +21,9 @@ import type { Request, Response } from "express";
 import { ZodValidationPipe } from "../common/zod-validation.pipe.js";
 import { AuthAuditService } from "./auth-audit.service.js";
 import { AuthGuard } from "./auth.guard.js";
-import {
-  changePasswordRequestSchema,
-  loginRequestSchema,
-  type ChangePasswordRequest,
-  type LoginRequest,
-  type UserResponse,
-} from "./auth.schemas.js";
+import { loginRequestSchema, type LoginRequest, type UserResponse } from "./auth.schemas.js";
 import { AuthService } from "./auth.service.js";
-import { verifyPassword } from "./passwords.js";
-import { CurrentPrincipal, RequireScope, type MemberPrincipal, type Principal } from "./principal.js";
+import { AllowRestricted, CurrentPrincipal, RequireScope, type MemberPrincipal, type Principal } from "./principal.js";
 import { AuthRateLimiter, loginIpKey, loginUserKey } from "./rate-limiter.js";
 import { SessionService, clientIp, type SessionListEntry } from "./session.service.js";
 
@@ -74,7 +66,7 @@ export class AuthController {
     // Only the account's count resets: an address that sprayed stays limited.
     await this.limiter.reset(userKey);
     await this.audit.record("login_succeeded", { memberId: issued.memberId, sessionId: issued.sessionId, request });
-    return { username: user.username };
+    return { username: user.username, enrolment_required: true };
   }
 
   /** Unguarded: an unknown or expired cookie is a no-op that still clears it. */
@@ -89,44 +81,19 @@ export class AuthController {
     this.sessions.clearCookies(response);
   }
 
+  /** Allowed for restricted sessions: the SPA learns from it that enrolment is due. */
   @Get("me")
   @UseGuards(AuthGuard)
   @RequireScope()
+  @AllowRestricted()
   me(@CurrentPrincipal() principal: Principal): UserResponse {
     const member = memberOf(principal);
-    return { username: member.username, household_role: member.householdRole };
-  }
-
-  @Post("change-password")
-  @UseGuards(AuthGuard)
-  @RequireScope()
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async changePassword(
-    @Body(new ZodValidationPipe(changePasswordRequestSchema)) body: ChangePasswordRequest,
-    @CurrentPrincipal() principal: Principal,
-    @Req() request: Request,
-    @Res({ passthrough: true }) response: Response,
-  ): Promise<void> {
-    const member = memberOf(principal);
-    // The principal carries no secrets; the current hash comes from the database.
-    const user = await this.authService.findById(member.userId);
-    if (user === null || !(await verifyPassword(body.current_password, user.passwordHash))) {
-      throw new UnauthorizedException("Current password is incorrect");
-    }
-    if (body.new_password === body.current_password) {
-      throw new BadRequestException("New password must differ from current password");
-    }
-    await this.authService.setPassword(user.id, body.new_password);
-    // Every device signs in again with the new password, this one included.
-    const revoked = await this.sessions.revokeAllOfMember(member.memberId, "password_change");
-    await this.audit.record("password_changed", { memberId: member.memberId, sessionId: sessionIdOf(member), request });
-    await this.audit.recordRevocations(revoked, {
-      memberId: member.memberId,
-      actorMemberId: member.memberId,
-      reason: "password_change",
-      request,
-    });
-    this.sessions.clearCookies(response);
+    return {
+      username: member.username,
+      household_role: member.householdRole,
+      enrolment_required: member.restricted,
+      auth_method: member.authMethod,
+    };
   }
 
   // -------------------------------------------------------------------------

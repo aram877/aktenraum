@@ -75,9 +75,17 @@ tasks:
       - bash scripts/first-run.sh
 
   login:
-    desc: "Show the aktenraum login from docker/.env"
+    desc: "How to sign in (passkeys; there is no aktenraum password any more)"
     cmds:
-      - grep -E '^BOOTSTRAP_(USERNAME|PASSWORD)=' docker/.env
+      - echo "aktenraum signs in with passkeys. No passkey on this device yet? Use a recovery code on the login page, or print a single-use setup link with  task setup-link USER=<username>"
+      - "grep -E '^BOOTSTRAP_USERNAME=' docker/.env || true"
+
+  setup-link:
+    desc: "Print a single-use setup link (30 min) to create a passkey: first run or locked out. USER=<username>"
+    requires:
+      vars: [USER]
+    cmds:
+      - bash scripts/setup-link.sh "{{.USER}}"
 
   recover:
     desc: "Fix 401 / 'API rejected' errors after a database wipe — re-mints the Paperless token"

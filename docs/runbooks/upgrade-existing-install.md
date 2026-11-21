@@ -198,14 +198,15 @@ Tell the user to reload the app **on every device** (laptop, phone, any
 browser tab) and log in once; open tabs show the login page by themselves.
 After that, logins last 7 days without use / 30 days at most, and
 `/settings → Konto → Geräte` lists and signs out devices. The login, if they
-need it:
+need it (only until they have a passkey — see step 9b):
 
 ```bash
 grep '^BOOTSTRAP_' docker/.env
 ```
 
 `BOOTSTRAP_USERNAME` / `BOOTSTRAP_PASSWORD` are the original login; if the user
-changed the password in the app later, the file still shows the old one.
+changed the password in the app later, the file still shows the old one. On an
+install that already has passkeys, use `task setup-link USER=<name>` instead.
 
 Check that the three session tables exist (created at api start):
 
@@ -215,6 +216,41 @@ docker compose --project-directory docker exec postgres psql -U paperless -d akt
 
 **Expected:** `3`. `JWT_SECRET` / `JWT_EXPIRES_SECONDS` in `docker/.env` are
 now unused; leave them (a code rollback needs `JWT_SECRET`).
+
+## 9b. Every member enrols a passkey (the upgrade that introduces passkeys)
+
+From `auth-passkeys` (2026-11-21) aktenraum signs in with passkeys. Existing
+sessions stay valid but become **restricted**: on their next request every
+member lands on `/enrol` ("Passkey anlegen"). Tell the user:
+
+1. Open `http://localhost:8080` in Chrome/Edge on the host (passkeys don't work
+   on an IP address), create a passkey (Windows Hello or the phone), and **save
+   the 10 recovery codes** it shows (print them or put them in a password
+   manager) — they are the way back in if the passkey is lost.
+2. Every other member does the same at their next visit. Their password works
+   exactly once more, only to reach `/enrol`; afterwards it is refused like a
+   wrong password.
+3. Using aktenraum on another address too (e.g. the Tailscale name)? Add it to
+   `WEBAUTHN_ORIGINS` / `WEBAUTHN_RP_IDS` in `docker/.env`, `docker compose up
+   -d aktenraum-api`, then add a second passkey from that address in
+   `/settings → Konto → Passkeys`.
+
+If enrolment fails for someone: `task setup-link USER=<name>` prints a
+single-use link (30 minutes) — see [`locked-out.md`](locked-out.md).
+
+Check the seven tables exist:
+
+```bash
+docker compose --project-directory docker exec postgres psql -U paperless -d aktenraum -At \
+  -c "SELECT count(*) FROM information_schema.tables WHERE table_name IN ('webauthn_users','passkeys','webauthn_challenges','recovery_codes','setup_tokens','password_retirements','credential_audit');"
+```
+
+**Expected:** `7`.
+
+**Rolling the code back** later: members who had a password keep it and log in
+as before; members created without one (joined by invite after this upgrade)
+need a temporary password first — see ADR-010 "As built (`auth-passkeys`)",
+*Rollback*.
 
 ## 10. Report
 

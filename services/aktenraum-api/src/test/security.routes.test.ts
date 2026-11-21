@@ -9,6 +9,7 @@ import { users } from "../db/schema.js";
 import type { PaperlessGateway } from "../paperless/paperless.gateway.js";
 import { FakeGateway } from "./fake-gateway.js";
 import { createHarness, type Harness } from "./harness.js";
+import { registerPasskey } from "./passkey-helpers.js";
 
 let harness: Harness | null = null;
 
@@ -33,6 +34,7 @@ async function loggedIn(server: unknown, password = "correct-horse") {
   const agent = request.agent(server as Parameters<typeof request.agent>[0]);
   const response = await agent.post("/api/auth/login").send({ username: "admin", password });
   expect(response.status).toBe(200);
+  await registerPasskey(agent);
   return agent;
 }
 
@@ -48,22 +50,6 @@ describe("login hardening", () => {
       .send({ username: "Admin", password: "correct-horse" });
     expect(blocked.status).toBe(429);
     expect(Number(blocked.headers["retry-after"])).toBeGreaterThan(0);
-  });
-
-  it("logs out every other session when the password changes", { timeout: 30_000 }, async () => {
-    const { server } = await boot();
-    const laptop = await loggedIn(server);
-    const phone = await loggedIn(server);
-    expect((await phone.get("/api/auth/me")).status).toBe(200);
-
-    const changed = await laptop
-      .post("/api/auth/change-password")
-      .send({ current_password: "correct-horse", new_password: "battery-staple" });
-    expect(changed.status).toBe(204);
-
-    expect((await phone.get("/api/auth/me")).status).toBe(401);
-    const fresh = await loggedIn(server, "battery-staple");
-    expect((await fresh.get("/api/auth/me")).status).toBe(200);
   });
 });
 

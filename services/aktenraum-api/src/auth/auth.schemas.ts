@@ -6,14 +6,11 @@ export const loginRequestSchema = z.object({
 });
 export type LoginRequest = z.infer<typeof loginRequestSchema>;
 
-export const changePasswordRequestSchema = z.object({
-  current_password: z.string().min(1).max(128),
-  new_password: z.string().min(8).max(128),
-});
-export type ChangePasswordRequest = z.infer<typeof changePasswordRequestSchema>;
-
 export interface UserResponse {
   username: string;
   /** Present on `/auth/me`; the SPA shows household management only to `admin`. */
   household_role?: "admin" | "member";
+  /** On `/auth/me`: the session may only enrol a passkey (auth-passkeys §4). */
+  enrolment_required?: boolean;
+  auth_method?: string;
 }

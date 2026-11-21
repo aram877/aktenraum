@@ -10,6 +10,7 @@ import { MemberGateways } from "../tenancy/member-gateways.js";
 import { TenancyService } from "../tenancy/tenancy.service.js";
 import { FakeGateway, TAGS, makeDoc } from "./fake-gateway.js";
 import { createHarness, type Harness } from "./harness.js";
+import { registerPasskey } from "./passkey-helpers.js";
 
 let harness: Harness | null = null;
 
@@ -68,6 +69,7 @@ async function household() {
   const login = async (username: string, password: string) => {
     const agent = request.agent(h.app.getHttpServer());
     await agent.post("/api/auth/login").send({ username, password }).expect(200);
+    await registerPasskey(agent);
     return agent;
   };
   return {
@@ -151,6 +153,9 @@ describe("member isolation", { timeout: 30_000 }, () => {
       sessionId: null,
       authTime: null,
       clientId: "spa" as const,
+      authMethod: "passkey" as const,
+      restricted: false,
+      stepUpFresh: true,
     });
     expect((await events.computeCounts(await principalOf(bob.id, "member"))).inbox).toBe(1);
     expect((await events.computeCounts(await principalOf(bob.id, "member"))).trash).toBe(1);

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 import type { MaybeRefOrGetter } from "vue";
+import type { PublicKeyCredentialCreationOptionsJSON } from "@simplewebauthn/browser";
 
 export interface HouseholdMember {
   id: number;
@@ -81,14 +82,27 @@ export function useInviteCheck(token: MaybeRefOrGetter<string>) {
   }));
 }
 
+/** Joins with a username and a new passkey; answers the recovery codes once. */
 export function useRedeemInvite(token: MaybeRefOrGetter<string>) {
   const api = useApi();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (vars: { username: string; password: string }) =>
-      api.post<{ username: string }>(`/invites/${encodeURIComponent(toValue(token))}/redeem`, vars),
-    onSuccess: (user) => {
-      queryClient.setQueryData(ME_KEY, { username: user.username, household_role: "member" });
+    mutationFn: async (vars: { username: string }) => {
+      const path = `/invites/${encodeURIComponent(toValue(token))}/register`;
+      const begin = await api.post<CeremonyStart<PublicKeyCredentialCreationOptionsJSON>>(`${path}/begin`, vars);
+      const response = await createPasskey(begin.options);
+      return api.post<{ username: string; recovery_codes: string[] | null }>(`${path}/finish`, {
+        ceremony: begin.ceremony,
+        response,
+      });
+    },
+    onSuccess: (result) => {
+      queryClient.setQueryData(ME_KEY, {
+        username: result.username,
+        household_role: "member",
+        enrolment_required: false,
+        auth_method: "invite",
+      });
     },
   });
 }

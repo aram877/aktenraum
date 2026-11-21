@@ -35,17 +35,35 @@ schema files listed under "Shape references" are the source of truth.**
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| POST | `/api/auth/login` | — | Body `{username, password}`. Creates a session and sets the session cookie. Returns `UserResponse`. 401 `Invalid credentials` (same answer for unknown users). 429 + `Retry-After` after 10 failures in 15 min for the username **or** the client address (persisted in Postgres, survives restarts); success resets only the username's count. |
+| POST | `/api/auth/login` | — | Body `{username, password}`. Only for members without a passkey: creates a **restricted** session (enrolment only) and returns `{username, enrolment_required: true}`. 401 `Invalid credentials` — the same answer for unknown users, removed members and members whose password is retired (any passkey enrolled). 429 + `Retry-After` after 10 failures in 15 min for the username **or** the client address (persisted in Postgres, survives restarts); success resets only the username's count. |
+| GET | `/api/auth/webauthn` | — | `{origins}` — where passkeys work (`WEBAUTHN_ORIGINS`); the login page compares it with its own origin. |
+| POST | `/api/auth/passkeys/login/begin` | — | Discoverable sign-in: `{ceremony, options}` (WebAuthn request options, UV required, 5 min). 400 when `Origin` is not configured; 429 when the address is throttled. |
+| POST | `/api/auth/passkeys/login/finish` | — | Body `{ceremony, response}` → `{username}` + a `passkey` session cookie with a fresh step-up. Every failure (unknown / removed passkey, removed member, wrong user handle, counter regression, replayed or expired ceremony, bad signature) → the same 401 `Passkey nicht akzeptiert`, counted on `login:ip:<address>` and audited (`login_failed`, reason `passkey`). |
+| POST | `/api/auth/passkeys/register/begin` | 🔒 restricted ok | Body `{}`. Restricted session → `enrol` ceremony (no step-up); full session → `add` ceremony (step-up). `excludeCredentials` = the caller's passkeys on this RP ID. |
+| POST | `/api/auth/passkeys/register/finish` | 🔒 restricted ok | Body `{ceremony, response, name?}` → `{passkey, recovery_codes}`. Enrol: stores the passkey, creates 10 recovery codes when none is unused (shown once, else `null`), retires the password, revokes the member's `password` sessions (`password_change`) and the enrolling recovery session (`user`), and sets a **new** `passkey` session cookie. Add: stores it, `recovery_codes: null`. 409 duplicate credential. |
+| GET | `/api/auth/passkeys` | 🔒 | `[{id, name, provider, synced, rp_id, created_at, last_used_at, prf}]` — own active passkeys. `provider` from the AAGUID ("Passkey" when unknown); `synced` = multi-device. |
+| PATCH | `/api/auth/passkeys/:id` | 🔒 step-up | Body `{name}` (1–64) → the passkey. 404 for another member's or unknown. |
+| DELETE | `/api/auth/passkeys/:id` | 🔒 step-up | 204. 409 for the last active passkey; 404 for another member's. Sessions stay (use the device list). |
+| POST | `/api/auth/step-up/begin` | 🔒 | `{ceremony, options}` with `allowCredentials` = the caller's passkeys on this RP ID; 409 when there is none here. |
+| POST | `/api/auth/step-up/finish` | 🔒 | Body `{ceremony, response}` → 204 and `step_up_at = now()` on the session (valid 5 min). Another member's passkey, no UV, a replay → 401, counted on `login:ip`, audited `step_up_failed`. |
+| POST | `/api/auth/recovery` | — | Body `{username, code}` (case, spaces, dashes, O/0, I/L/1 forgiven). One unused code → `{username, enrolment_required: true}` + a restricted `recovery` session; the code is used up. Wrong code or unknown name → the same 401; limits `login:user` + `login:ip`. |
+| GET | `/api/auth/recovery-codes` | 🔒 | `{remaining}` unused codes. |
+| POST | `/api/auth/recovery-codes` | 🔒 step-up | A new set `{codes}` (10, shown once); the old unused codes stop working. |
 | POST | `/api/auth/logout` | — | Revokes the current session on the server (a copied cookie stops working) and clears the cookie. Unknown/expired cookie = no-op. 204 No Content. |
 | GET  | `/api/auth/me` | 🔒 | Returns the current `UserResponse`. The SPA's router uses this to decide whether to redirect to `/login`. |
-| POST | `/api/auth/change-password` | 🔒 | Body `{current_password, new_password}`. Verifies current + enforces min 8 chars + `new != current`. On success revokes **every** session of the member (all devices log in again) and clears the cookie. 204 No Content. |
 | GET  | `/api/auth/sessions` | 🔒 | The caller's active sessions, most recently used first: `[{id, created_at, last_seen_at, auth_method, ip, user_agent, current}]`. `ip` / `user_agent` are those of the login. |
 | DELETE | `/api/auth/sessions/:id` | 🔒 | Revokes one of the caller's own sessions (204). Another member's, unknown or already ended → 404. Revoking the current one behaves like logout (cookie cleared). |
 | POST | `/api/auth/sessions/revoke-others` | 🔒 | Revokes every active session of the caller except the current one. Returns `{revoked: n}`. |
 
-The client address is the browser's: the api trusts exactly one proxy hop (nginx, `trust proxy` = 1). Authentication events (login succeeded/failed/throttled, logout, session revoked with actor + reason, password changed, invite redeemed) are written to `auth_audit` (180 days); there is no route for them yet.
+`POST /api/auth/change-password` is gone (auth-passkeys) — there is no password to change.
 
-`UserResponse`: `{username, household_role?}` (`household_role` on `/me` only).
+**Restricted sessions.** A session started with a password or a recovery code, or of a member without an active passkey, may call only `GET /auth/me`, `POST /auth/passkeys/register/begin|finish` (and the unguarded logout). Every other guarded route answers **403 `{"detail": "enrolment_required"}`** — deny by default (`@AllowRestricted()` marks the three; `test/route-inventory.test.ts` pins them). The live-counts stream is refused too.
+
+**Step-up.** Routes marked "step-up" answer **403 `{"detail": "step_up_required"}`** unless the session has a passkey confirmation from the last 5 minutes (a passkey / setup / invite sign-in counts): passkey rename / remove / add, `POST /auth/recovery-codes`, `POST|DELETE /household/invites*`, `POST /household/members/:id/setup-link`, `POST /household/members/:id/remove`, `DELETE /spaces/:id`, `POST|PATCH|DELETE /spaces/:id/members*`, `POST /trash/empty`, `POST /trash/:doc_id/delete`, `PATCH /settings/llm`, `PATCH /settings/answer-llm`, `PUT /settings/auto-approve`. The SPA's `useApi` runs the step-up ceremony and repeats the request once.
+
+The client address is the browser's: the api trusts exactly one proxy hop (nginx, `trust proxy` = 1). Authentication events (login succeeded/failed/throttled — `reason` = `passkey` / `recovery` for those methods —, logout, session revoked with actor + reason, invite redeemed) are written to `auth_audit`; credential events (passkey added/renamed/removed, recovery codes generated/used, setup link created/used, password retired, step-up succeeded/failed) to `credential_audit`; both 180 days, no route yet.
+
+`UserResponse`: `{username, household_role?, enrolment_required?, auth_method?}` (the last three on `/me`).
 
 ---
 
@@ -59,20 +77,30 @@ Household admin only (`household:admin`), session cookie:
 | GET | `/api/household/invites` | pending invites `[{id, created_at, expires_at}]` |
 | POST | `/api/household/invites` | `201 {id, token, expires_at}` — the token is shown only here; the SPA turns it into `<origin>/invite/<token>` |
 | DELETE | `/api/household/invites/{id}` | `204`; `404` when not pending |
+| POST | `/api/household/members/{id}/setup-link` | step-up. `201 {id, token, expires_at}` — a single-use setup link (30 min) for any non-removed member, the admin included; earlier unused links of that member are revoked. The SPA turns the token into `<origin>/setup/<token>`. `404` unknown or removed member |
 | GET | `/api/household/members/{id}/removal-preview?successor={member_id}` | what removing `{id}` would do, changes nothing: `{member_id, username, successor_member_id, successor, documents, trashed, spaces_owned: [{id, name}], spaces_left: [{id, name}], shares_revoked, shares_kept}`. `successor` defaults to the admin. `documents` = personal-space documents (trashed ones included), `trashed` = of those in the Paperless trash (`null` when Paperless couldn't be asked). Same errors as the removal, minus the confirmation |
 | POST | `/api/household/members/{id}/remove` | body `{confirm_username, successor_member_id?}` → `200 {member_id, successor_member_id, status: "done"\|"completing"}`. `completing` = locked out and database changes done, Paperless/Qdrant still catching up (the sync retries every 5 min). `404` unknown or already removed, `409` the admin / yourself, `422` username mismatch or invalid successor (removed, unknown, the member itself). Irreversible |
 | GET | `/api/household/removals` | `[{member_id, username, successor, removed_at, status: "done"\|"completing", last_error}]`, oldest first |
 
 Removed members (`tenancy-member-removal`) disappear from `/members`, `/directory` and every picker, count no longer in `household_member_count`, and are refused as space member (`404`) and share recipient (`422`). All their sessions are revoked (`401`, open streams end with `session_ended`), their login answers like a wrong password (and counts towards the throttle), and their username stays taken (`409` on redeem).
 
-Public (no session; throttled per client address in Postgres, 10 failures / 15 min → `429` + `Retry-After`; redemption creates a session with `auth_method = invite`):
+Public (no session; throttled per client address in Postgres, 10 failures / 15 min → `429` + `Retry-After`; joining creates a session with `auth_method = invite` and a fresh step-up):
 
 | Method | Path | Result |
 | --- | --- | --- |
 | GET | `/api/invites/{token}` | `{expires_at}`; **every** invalid state (unknown, expired, revoked, used) → `404 {"detail": "Einladung ungültig oder abgelaufen"}` |
-| POST | `/api/invites/{token}/redeem` | body `{username (3–64, letters/digits/._-), password (≥ 8)}` → `200 {username}` + session cookie; `409` username taken (invite stays valid); `404` as above |
+| POST | `/api/invites/{token}/register/begin` | body `{username (3–64, letters/digits/._-)}` → `{ceremony, options}`; `409` username taken, `404` as above (counted). Nothing is claimed yet |
+| POST | `/api/invites/{token}/register/finish` | body `{ceremony, response}` → `200 {username, recovery_codes}` + session cookie: a passwordless member (`password_hash = '!'`, password retired) with the passkey and 10 recovery codes. A failed or cancelled ceremony leaves the invite pending |
 
-`GET /api/auth/me` returns `{username, household_role}`.
+`/redeem` (username + password) is gone (auth-passkeys).
+
+Setup links (public, same throttle shape on `setup:ip:<address>`; every invalid state — unknown, expired, used, revoked, member removed — is the same `404 {"detail": "Einrichtungslink ungültig oder abgelaufen"}`):
+
+| Method | Path | Result |
+| --- | --- | --- |
+| GET | `/api/setup/{token}` | `{username, expires_at}` |
+| POST | `/api/setup/{token}/register/begin` | `{ceremony, options}` |
+| POST | `/api/setup/{token}/register/finish` | body `{ceremony, response}` → `200 {username, recovery_codes}` + a full `setup` session; the link is used up only after a verified ceremony; a new recovery set replaces the old one; other sessions stay. Also issued on the host: `task setup-link USER=<name>` (`node dist/auth/setup-link-cli.js <name>` in the api container) |
 
 Any member (`spaces:manage`): `GET /api/household/directory` → `[{id, username}]` — member ids for the space member picker, nothing else.
 

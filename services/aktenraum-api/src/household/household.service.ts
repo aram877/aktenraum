@@ -5,7 +5,7 @@ import { ConflictException, Inject, Injectable, NotFoundException } from "@nestj
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 
 import type { AuthUser } from "../auth/auth.service.js";
-import { hashPassword } from "../auth/passwords.js";
+import { NO_PASSWORD } from "../auth/passwords.js";
 import type { MemberPrincipal } from "../auth/principal.js";
 import { DB, type Database } from "../db/db.module.js";
 import { invites, members, users } from "../db/schema.js";
@@ -46,8 +46,8 @@ const pending = () =>
 /**
  * Household membership (ADR-009, ADR-010 "Adding a member"): the household
  * admin creates single-use invite links (7 days); an invitee redeems one with a
- * username and password — the interim form until passkey enrolment replaces it
- * (ADR-010 step 4) — and becomes a `member` with their own personal space.
+ * username and a passkey (auth-passkeys §8) and becomes a passwordless
+ * `member` with their own personal space.
  */
 @Injectable()
 export class HouseholdService {
@@ -111,6 +111,22 @@ export class HouseholdService {
       .orderBy(asc(members.id));
   }
 
+  /**
+   * Before a passkey ceremony: the invite is pending (404 otherwise) and the
+   * username is free (409). Returns the invite id; nothing is claimed.
+   */
+  async assertRedeemable(token: string, username: string): Promise<number> {
+    const rows = await this.db
+      .select({ id: invites.id })
+      .from(invites)
+      .where(and(eq(invites.tokenHash, hashToken(token)), pending()))
+      .limit(1);
+    if (rows[0] === undefined) throw new NotFoundException(INVITE_INVALID);
+    const taken = await this.db.select({ id: users.id }).from(users).where(eq(users.username, username.trim())).limit(1);
+    if (taken.length > 0) throw new ConflictException("Benutzername bereits vergeben");
+    return rows[0].id;
+  }
+
   /** Whether a link is redeemable; every other state is the same 404 (no oracle). */
   async checkInvite(token: string): Promise<{ expires_at: string }> {
     const rows = await this.db
@@ -128,7 +144,7 @@ export class HouseholdService {
    * provisions Paperless. A Paperless failure doesn't undo the redemption: the
    * member exists, logs in, and provisioning retries on their first request.
    */
-  async redeem(token: string, input: { username: string; password: string }): Promise<AuthUser> {
+  async redeem(token: string, input: { username: string; inviteId?: number }): Promise<AuthUser> {
     const username = input.username.trim();
     const taken = await this.db.select({ id: users.id }).from(users).where(eq(users.username, username)).limit(1);
     if (taken.length > 0) {
@@ -143,12 +159,17 @@ export class HouseholdService {
       .returning({ id: invites.id });
     const inviteId = claimed[0]?.id;
     if (inviteId === undefined) throw new NotFoundException(INVITE_INVALID);
+    if (input.inviteId !== undefined && input.inviteId !== inviteId) {
+      // The ceremony was begun for another invite: give this one back.
+      await this.db.update(invites).set({ redeemedAt: null }).where(eq(invites.id, inviteId));
+      throw new NotFoundException(INVITE_INVALID);
+    }
 
     let user: AuthUser;
     try {
       const [created] = await this.db
         .insert(users)
-        .values({ username, passwordHash: await hashPassword(input.password) })
+        .values({ username, passwordHash: NO_PASSWORD })
         .returning({ id: users.id, username: users.username, passwordHash: users.passwordHash });
       user = created!;
     } catch (error: unknown) {

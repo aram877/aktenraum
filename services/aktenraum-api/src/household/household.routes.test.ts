@@ -2,10 +2,23 @@ import { eq, sql } from "drizzle-orm";
 import request from "supertest";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { invites, memberPaperlessTokens, members, spaces, users } from "../db/schema.js";
+import { verifyPassword } from "../auth/passwords.js";
+import {
+  authRateLimitEvents,
+  invites,
+  memberPaperlessTokens,
+  members,
+  passkeys,
+  passwordRetirements,
+  recoveryCodes,
+  spaces,
+  users,
+} from "../db/schema.js";
 import type { PaperlessGateway } from "../paperless/paperless.gateway.js";
 import { FakeGateway, TAGS, makeDoc } from "../test/fake-gateway.js";
 import { createHarness, type Harness } from "../test/harness.js";
+import { ORIGIN, joinWithInvite, registerPasskey } from "../test/passkey-helpers.js";
+import { SoftAuthenticator } from "../test/soft-authenticator.js";
 
 let harness: Harness | null = null;
 
@@ -26,12 +39,18 @@ async function setup() {
   const server = h.app.getHttpServer();
   const admin = request.agent(server);
   await admin.post("/api/auth/login").send({ username: "admin", password: "correct-horse" }).expect(200);
+  await registerPasskey(admin);
   const createInvite = async () => (await admin.post("/api/household/invites").expect(201)).body as {
     id: number;
     token: string;
     expires_at: string;
   };
   return { h, server, admin, paperless, createInvite };
+}
+
+/** begin → (optionally) finish, raw — for the non-happy paths. */
+function beginInvite(server: unknown, token: string, username: string) {
+  return request(server as never).post(`/api/invites/${token}/register/begin`).set("Origin", ORIGIN).send({ username });
 }
 
 describe("household invites (admin)", { timeout: 30_000 }, () => {
@@ -67,23 +86,31 @@ describe("household invites (admin)", { timeout: 30_000 }, () => {
   });
 });
 
-describe("invite redemption", { timeout: 30_000 }, () => {
-  it("creates a logged-in member with an empty personal space and their own Paperless user + token", async () => {
+describe("invite redemption with a passkey", { timeout: 30_000 }, () => {
+  it("creates a signed-in, passwordless member with a passkey, recovery codes, a personal space and a Paperless user", async () => {
     const { h, server, admin, paperless, createInvite } = await setup();
     const invite = await createInvite();
-    const invitee = request.agent(server);
 
-    await invitee.get(`/api/invites/${invite.token}`).expect(200, { expires_at: invite.expires_at });
-    const redeemed = await invitee
-      .post(`/api/invites/${invite.token}/redeem`)
-      .send({ username: "partner", password: "partner-password" })
-      .expect(200);
-    expect(redeemed.body).toEqual({ username: "partner" });
+    await request(server).get(`/api/invites/${invite.token}`).expect(200, { expires_at: invite.expires_at });
+    const joined = await joinWithInvite(h.app, invite.token, "partner");
+    expect(joined.response.body.username).toBe("partner");
+    expect(joined.recoveryCodes).toHaveLength(10);
+    const invitee = joined.agent;
 
-    expect((await invitee.get("/api/auth/me").expect(200)).body).toEqual({ username: "partner", household_role: "member" });
+    expect((await invitee.get("/api/auth/me").expect(200)).body).toEqual({
+      username: "partner",
+      household_role: "member",
+      enrolment_required: false,
+      auth_method: "invite",
+    });
     const [user] = await h.db.select().from(users).where(eq(users.username, "partner"));
+    expect(user!.passwordHash).toBe("!");
+    expect(await verifyPassword("anything", user!.passwordHash)).toBe(false);
     const [member] = await h.db.select().from(members).where(eq(members.userId, user!.id));
     expect(member?.role).toBe("member");
+    expect(await h.db.select().from(passkeys).where(eq(passkeys.memberId, member!.id))).toHaveLength(1);
+    expect(await h.db.select().from(recoveryCodes).where(eq(recoveryCodes.memberId, member!.id))).toHaveLength(10);
+    expect(await h.db.select().from(passwordRetirements).where(eq(passwordRetirements.memberId, member!.id))).toHaveLength(1);
     expect(member?.paperlessUserId).not.toBeNull();
     expect(paperless.users.get(member!.paperlessUserId!)?.is_superuser).toBe(false);
     const ownSpace = (await h.db.select().from(spaces)).find((s) => s.personalMemberId === member!.id);
@@ -105,25 +132,50 @@ describe("invite redemption", { timeout: 30_000 }, () => {
     expect((await admin.get("/api/household/invites").expect(200)).body).toEqual([]);
     const [row] = await h.db.select().from(invites);
     expect(row?.redeemedByMemberId).toBe(member!.id);
+
+    // And they sign in with that passkey later; no password exists.
+    await request(server).post("/api/auth/login").send({ username: "partner", password: "!" }).expect(401);
+  });
+
+  it("the old password redemption route is gone", async () => {
+    const { server, createInvite } = await setup();
+    const invite = await createInvite();
+    await request(server).post(`/api/invites/${invite.token}/redeem`).send({ username: "x", password: "password-1" }).expect(404);
   });
 
   it("a member cannot manage invites or members", async () => {
-    const { server, createInvite } = await setup();
+    const { h, createInvite } = await setup();
     const invite = await createInvite();
-    const invitee = request.agent(server);
-    await invitee.post(`/api/invites/${invite.token}/redeem`).send({ username: "partner", password: "partner-password" }).expect(200);
-
+    const { agent: invitee } = await joinWithInvite(h.app, invite.token, "partner");
     await invitee.post("/api/household/invites").expect(403);
     await invitee.get("/api/household/invites").expect(403);
     await invitee.get("/api/household/members").expect(403);
   });
 
   it("is single use", async () => {
-    const { server, createInvite } = await setup();
+    const { h, server, createInvite } = await setup();
     const invite = await createInvite();
-    await request(server).post(`/api/invites/${invite.token}/redeem`).send({ username: "one", password: "password-1" }).expect(200);
-    await request(server).post(`/api/invites/${invite.token}/redeem`).send({ username: "two", password: "password-2" }).expect(404);
+    await joinWithInvite(h.app, invite.token, "one");
+    await beginInvite(server, invite.token, "two").expect(404);
     await request(server).get(`/api/invites/${invite.token}`).expect(404);
+  });
+
+  it("a cancelled or failed ceremony leaves the invite usable", async () => {
+    const { h, server, createInvite } = await setup();
+    const invite = await createInvite();
+    // Cancelled: begin, never finish.
+    await beginInvite(server, invite.token, "partner").expect(200);
+    // Failed: a response from the wrong origin.
+    const begin = await beginInvite(server, invite.token, "partner").expect(200);
+    const bad = new SoftAuthenticator({ origin: "http://evil.example" }).register(begin.body.options);
+    await request(server)
+      .post(`/api/invites/${invite.token}/register/finish`)
+      .set("Origin", ORIGIN)
+      .send({ ceremony: begin.body.ceremony, response: bad })
+      .expect(401);
+    await request(server).get(`/api/invites/${invite.token}`).expect(200);
+    expect(await h.db.select().from(users).where(eq(users.username, "partner"))).toHaveLength(0);
+    await joinWithInvite(h.app, invite.token, "partner");
   });
 
   it("rejects an expired link with the same 404", async () => {
@@ -132,42 +184,59 @@ describe("invite redemption", { timeout: 30_000 }, () => {
     await h.db.execute(sql`UPDATE invites SET expires_at = now() - interval '1 minute'`);
     const check = await request(server).get(`/api/invites/${invite.token}`).expect(404);
     expect(check.body).toEqual({ detail: "Einladung ungültig oder abgelaufen" });
-    await request(server).post(`/api/invites/${invite.token}/redeem`).send({ username: "late", password: "password-1" }).expect(404);
+    await beginInvite(server, invite.token, "late").expect(404);
     await request(server).get("/api/invites/not-a-real-token").expect(404, { detail: "Einladung ungültig oder abgelaufen" });
   });
 
-  it("a taken username is 409 and keeps the invite redeemable", async () => {
-    const { server, createInvite } = await setup();
-    const invite = await createInvite();
-    const taken = await request(server).post(`/api/invites/${invite.token}/redeem`).send({ username: "admin", password: "password-1" });
-    expect(taken.status).toBe(409);
-    expect(taken.body.detail).toBe("Benutzername bereits vergeben");
-    await request(server).post(`/api/invites/${invite.token}/redeem`).send({ username: "partner", password: "password-1" }).expect(200);
+  it("an invalid invite at begin is 404 and counted on the address", async () => {
+    const { h, server } = await setup();
+    await beginInvite(server, "not-a-real-token", "partner").expect(404);
+    const keys = (await h.db.select().from(authRateLimitEvents)).map((row) => row.key);
+    expect(keys.filter((key) => key.startsWith("invite:ip:"))).toHaveLength(1);
   });
 
-  it("validates username and password", async () => {
+  it("a taken username is 409 and keeps the invite redeemable", async () => {
+    const { h, server, createInvite } = await setup();
+    const invite = await createInvite();
+    const taken = await beginInvite(server, invite.token, "admin");
+    expect(taken.status).toBe(409);
+    expect(taken.body.detail).toBe("Benutzername bereits vergeben");
+    await joinWithInvite(h.app, invite.token, "partner");
+  });
+
+  it("validates the username", async () => {
     const { server, createInvite } = await setup();
     const invite = await createInvite();
-    for (const body of [
-      { username: "ab", password: "password-1" },
-      { username: "has space", password: "password-1" },
-      { username: "partner", password: "short" },
-    ]) {
-      const response = await request(server).post(`/api/invites/${invite.token}/redeem`).send(body);
+    for (const username of ["ab", "has space"]) {
+      const response = await beginInvite(server, invite.token, username);
       expect(response.status).toBeGreaterThanOrEqual(400);
       expect(response.status).toBeLessThan(500);
       expect(response.status).not.toBe(404);
     }
   });
 
+  it("refuses an unconfigured origin before any ceremony starts", async () => {
+    const { server, createInvite } = await setup();
+    const invite = await createInvite();
+    await request(server)
+      .post(`/api/invites/${invite.token}/register/begin`)
+      .set("Origin", "http://192.168.1.5:8080")
+      .send({ username: "partner" })
+      .expect(400);
+  });
+
   it("only one of two simultaneous redemptions wins", async () => {
     const { h, server, createInvite } = await setup();
     const invite = await createInvite();
-    const [a, b] = await Promise.all([
-      request(server).post(`/api/invites/${invite.token}/redeem`).send({ username: "first", password: "password-1" }),
-      request(server).post(`/api/invites/${invite.token}/redeem`).send({ username: "second", password: "password-2" }),
-    ]);
-    expect([a.status, b.status].sort()).toEqual([200, 404]);
+    const a = await beginInvite(server, invite.token, "first").expect(200);
+    const b = await beginInvite(server, invite.token, "second").expect(200);
+    const finish = (begin: request.Response) =>
+      request(server)
+        .post(`/api/invites/${invite.token}/register/finish`)
+        .set("Origin", ORIGIN)
+        .send({ ceremony: begin.body.ceremony, response: new SoftAuthenticator().register(begin.body.options) });
+    const [ra, rb] = await Promise.all([finish(a), finish(b)]);
+    expect([ra.status, rb.status].sort()).toEqual([200, 404]);
     expect(await h.db.select().from(members)).toHaveLength(2);
   });
 
@@ -179,14 +248,13 @@ describe("invite redemption", { timeout: 30_000 }, () => {
   });
 
   it("a Paperless outage doesn't strand the invitee: they're in, provisioning happens later", async () => {
-    const { h, server, paperless, createInvite } = await setup();
+    const { h, paperless, createInvite } = await setup();
     const invite = await createInvite();
     const createUser = paperless.createUser;
     paperless.createUser = async () => {
       throw new Error("paperless down");
     };
-    const invitee = request.agent(server);
-    await invitee.post(`/api/invites/${invite.token}/redeem`).send({ username: "partner", password: "partner-password" }).expect(200);
+    const { agent: invitee } = await joinWithInvite(h.app, invite.token, "partner");
     expect((await invitee.get("/api/auth/me").expect(200)).body.username).toBe("partner");
 
     paperless.createUser = createUser;

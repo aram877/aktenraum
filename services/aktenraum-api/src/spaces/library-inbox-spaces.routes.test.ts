@@ -41,6 +41,9 @@ function principalOf(memberId: number, userId: number, role: "admin" | "member")
     sessionId: null,
     authTime: null,
     clientId: "spa",
+    authMethod: "passkey" as const,
+    restricted: false,
+    stepUpFresh: true,
   };
 }
 

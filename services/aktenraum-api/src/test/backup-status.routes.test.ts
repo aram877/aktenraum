@@ -10,6 +10,7 @@ import { users } from "../db/schema.js";
 import type { PaperlessGateway } from "../paperless/paperless.gateway.js";
 import { FakeGateway } from "./fake-gateway.js";
 import { createHarness, type Harness } from "./harness.js";
+import { registerPasskey } from "./passkey-helpers.js";
 
 let harness: Harness | null = null;
 let dir: string;
@@ -25,6 +26,7 @@ async function boot(): Promise<ReturnType<typeof request.agent>> {
     .values({ username: "admin", passwordHash: await hashPassword("correct-horse") });
   const agent = request.agent(harness.app.getHttpServer());
   await agent.post("/api/auth/login").send({ username: "admin", password: "correct-horse" });
+  await registerPasskey(agent);
   return agent;
 }
 

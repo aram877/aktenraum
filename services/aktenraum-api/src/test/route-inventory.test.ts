@@ -2,7 +2,7 @@ import { GUARDS_METADATA, METHOD_METADATA, PATH_METADATA } from "@nestjs/common/
 import { ModulesContainer } from "@nestjs/core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { DOCUMENT_ACCESS, REQUIRED_SCOPES } from "../auth/principal.js";
+import { ALLOW_RESTRICTED, DOCUMENT_ACCESS, REQUIRED_SCOPES, REQUIRE_STEP_UP } from "../auth/principal.js";
 import type { PaperlessGateway } from "../paperless/paperless.gateway.js";
 import { FakeGateway } from "./fake-gateway.js";
 import { createHarness, type Harness } from "./harness.js";
@@ -14,8 +14,45 @@ const PUBLIC_ROUTES = new Set([
   "GET /health",
   // Invite links: the invitee has no session yet (throttled, uniform 404).
   "GET /invites/:token",
-  "POST /invites/:token/redeem",
+  "POST /invites/:token/register/begin",
+  "POST /invites/:token/register/finish",
+  // Passkeys (auth-passkeys): sign-in, recovery codes, where passkeys work.
+  "GET /auth/webauthn",
+  "POST /auth/passkeys/login/begin",
+  "POST /auth/passkeys/login/finish",
+  "POST /auth/recovery",
+  // Setup links: no credential yet (throttled, uniform 404).
+  "GET /setup/:token",
+  "POST /setup/:token/register/begin",
+  "POST /setup/:token/register/finish",
 ]);
+
+/** The only guarded routes a restricted (password / recovery) session may call. */
+const RESTRICTED_ROUTES = [
+  "GET /auth/me",
+  "POST /auth/passkeys/register/begin",
+  "POST /auth/passkeys/register/finish",
+];
+
+/** Sensitive routes that need a passkey confirmation within 5 minutes (design §9). */
+const STEP_UP_ROUTES = [
+  "DELETE /auth/passkeys/:id",
+  "DELETE /household/invites/:id",
+  "DELETE /spaces/:id",
+  "DELETE /spaces/:id/members/:member_id",
+  "PATCH /auth/passkeys/:id",
+  "PATCH /settings/answer-llm",
+  "PATCH /settings/llm",
+  "PATCH /spaces/:id/members/:member_id",
+  "POST /auth/recovery-codes",
+  "POST /household/invites",
+  "POST /household/members/:id/remove",
+  "POST /household/members/:id/setup-link",
+  "POST /spaces/:id/members",
+  "POST /trash/:doc_id/delete",
+  "POST /trash/empty",
+  "PUT /settings/auto-approve",
+];
 
 const VERBS: Record<number, string> = { 0: "GET", 1: "POST", 2: "PUT", 3: "DELETE", 4: "PATCH" };
 
@@ -24,6 +61,8 @@ interface RouteInfo {
   guarded: boolean;
   scopes: unknown;
   documentAccess: unknown;
+  allowRestricted: boolean;
+  stepUp: boolean;
 }
 
 let harness: Harness;
@@ -54,6 +93,8 @@ beforeAll(async () => {
             Reflect.getMetadata(REQUIRED_SCOPES, handler) ?? Reflect.getMetadata(REQUIRED_SCOPES, ctrl),
           documentAccess:
             Reflect.getMetadata(DOCUMENT_ACCESS, handler) ?? Reflect.getMetadata(DOCUMENT_ACCESS, ctrl),
+          allowRestricted: (Reflect.getMetadata(ALLOW_RESTRICTED, handler) ?? Reflect.getMetadata(ALLOW_RESTRICTED, ctrl)) === true,
+          stepUp: (Reflect.getMetadata(REQUIRE_STEP_UP, handler) ?? Reflect.getMetadata(REQUIRE_STEP_UP, ctrl)) === true,
         });
       }
     }
@@ -101,6 +142,14 @@ describe("route inventory", () => {
     for (const id of ["POST /inbox/:doc_id/approve", "POST /inbox/:doc_id/reject", "PATCH /inbox/:doc_id", "POST /documents/:doc_id/reprocess", "POST /documents/:doc_id/star"]) {
       expect(byId.get(id)?.documentAccess).toBe("write");
     }
+  });
+
+  it("opens exactly the enrolment routes to restricted sessions", () => {
+    expect(routes.filter((r) => r.allowRestricted).map((r) => r.id).sort()).toEqual([...RESTRICTED_ROUTES].sort());
+  });
+
+  it("requires step-up on exactly the sensitive routes", () => {
+    expect(routes.filter((r) => r.stepUp).map((r) => r.id).sort()).toEqual([...STEP_UP_ROUTES].sort());
   });
 
   it("declares a document action on every route that addresses one document", () => {

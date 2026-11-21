@@ -6,6 +6,7 @@ import { users } from "../db/schema.js";
 import type { PaperlessGateway } from "../paperless/paperless.gateway.js";
 import { FakeGateway } from "./fake-gateway.js";
 import { createHarness, type Harness } from "./harness.js";
+import { registerPasskey } from "./passkey-helpers.js";
 
 const SECRET = "s3cret-for-tests";
 const BODY = { document_type: "Rechnung", fields: { gesamtbetrag: "21,42 EUR" } };
@@ -25,6 +26,7 @@ beforeEach(async () => {
   server = harness.app.getHttpServer();
   agent = request.agent(server);
   await agent.post("/api/auth/login").send({ username: "admin", password: "correct-horse" });
+  await registerPasskey(agent);
 });
 
 afterEach(async () => {

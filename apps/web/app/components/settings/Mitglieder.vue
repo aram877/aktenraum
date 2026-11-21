@@ -8,6 +8,30 @@ const removalsQuery = useRemovals(true);
 const create = useCreateInvite();
 const revoke = useRevokeInvite();
 const removeMember = useRemoveMember();
+const createSetup = useCreateSetupLink();
+const setupLink = ref<{ username: string; url: string; expires_at: string } | null>(null);
+const setupCopied = ref(false);
+
+async function onCreateSetupLink(member: HouseholdMember): Promise<void> {
+  setupLink.value = null;
+  setupCopied.value = false;
+  try {
+    const created = await createSetup.mutateAsync(member.id);
+    setupLink.value = { username: member.username, url: setupUrl(created.token), expires_at: created.expires_at };
+  } catch {
+    return;
+  }
+}
+
+async function copySetupLink(): Promise<void> {
+  if (!setupLink.value) return;
+  try {
+    await navigator.clipboard.writeText(setupLink.value.url);
+    setupCopied.value = true;
+  } catch {
+    setupCopied.value = false;
+  }
+}
 
 const created = ref<CreatedInvite | null>(null);
 const copied = ref(false);
@@ -133,6 +157,16 @@ async function onRevoke(id: number): Promise<void> {
         <span class="flex items-center gap-3 text-xs text-ink-subtle">
           {{ member.role === "admin" ? "Verwaltung" : "Mitglied" }} · seit {{ formatDate(member.joined_at) }}
           <button
+            type="button"
+            data-testid="create-setup-link"
+            :disabled="createSetup.isPending.value"
+            title="Für jemanden, der keinen Passkey und keinen Wiederherstellungscode mehr hat"
+            class="rounded border border-hairline px-2 py-1 font-medium text-ink hover:bg-canvas disabled:opacity-60"
+            @click="onCreateSetupLink(member)"
+          >
+            Einrichtungslink erstellen
+          </button>
+          <button
             v-if="member.role !== 'admin'"
             type="button"
             data-testid="remove-member"
@@ -145,6 +179,32 @@ async function onRevoke(id: number): Promise<void> {
       </li>
       <li v-if="membersQuery.isPending.value" class="px-3 py-2 text-xs text-ink-subtle">Lädt…</li>
     </ul>
+
+    <div
+      v-if="setupLink"
+      data-testid="setup-link"
+      class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-xs text-amber-950"
+    >
+      <p class="font-semibold">Einrichtungslink für {{ setupLink.username }}</p>
+      <p class="mt-1">
+        Einmalig, 30 Minuten gültig. Wird nur jetzt angezeigt — persönlich weitergeben. Damit legt
+        {{ setupLink.username }} einen neuen Passkey an und bekommt neue Wiederherstellungscodes.
+      </p>
+      <div class="mt-2 flex items-center gap-2">
+        <input
+          :value="setupLink.url"
+          readonly
+          data-testid="setup-link-url"
+          class="flex-1 rounded border border-amber-200 bg-white px-2 py-1 font-mono text-[11px] text-ink"
+        >
+        <button type="button" class="rounded border border-amber-300 px-2 py-1 font-medium" @click="copySetupLink">
+          {{ setupCopied ? "Kopiert ✓" : "Kopieren" }}
+        </button>
+      </div>
+    </div>
+    <p v-if="createSetup.isError.value" class="mt-2 text-xs text-red-600" data-testid="setup-link-error">
+      {{ passkeyErrorMessage(createSetup.error.value, "Einrichtungslink konnte nicht erstellt werden.") }}
+    </p>
 
     <div
       v-if="removing"

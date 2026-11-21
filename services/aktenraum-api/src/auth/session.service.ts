@@ -10,6 +10,7 @@ import { DB, type Database } from "../db/db.module.js";
 import {
   memberRemovals,
   members,
+  passkeys,
   sessions,
   users,
   type SessionAuthMethod,
@@ -25,6 +26,12 @@ import {
 
 const USER_AGENT_MAX = 512;
 const IP_MAX = 64;
+
+/** How long a passkey confirmation counts for sensitive actions (auth-passkeys §9). */
+export const STEP_UP_MINUTES = 5;
+
+/** The session's step-up is younger than STEP_UP_MINUTES (database clock). */
+const stepUpFreshSql: SQL = sql.raw(`("sessions"."step_up_at" IS NOT NULL AND "sessions"."step_up_at" > now() - interval '${STEP_UP_MINUTES} minutes')`);
 
 /** Active = not revoked, inside both expiries. */
 const active: SQL = sql`(${sessions.revokedAt} IS NULL AND ${sessions.idleExpiresAt} > now() AND ${sessions.absoluteExpiresAt} > now())`;
@@ -45,6 +52,20 @@ export interface ResolvedSession {
   userId: number;
   username: string;
   createdAt: string;
+  authMethod: SessionAuthMethod;
+  /** The member has at least one active passkey. */
+  hasPasskey: boolean;
+  stepUpAt: string | null;
+  /** Step-up within the last STEP_UP_MINUTES. */
+  stepUpFresh: boolean;
+}
+
+/**
+ * Restricted = may only enrol a passkey (design §4): started with a password
+ * or a recovery code, or the member has no active passkey.
+ */
+export function isRestricted(session: Pick<ResolvedSession, "authMethod" | "hasPasskey">): boolean {
+  return session.authMethod === "password" || session.authMethod === "recovery" || !session.hasPasskey;
 }
 
 export interface SessionListEntry {
@@ -123,6 +144,7 @@ export class SessionService {
     request: Request,
     member: { id: number; householdId: number },
     method: SessionAuthMethod,
+    options: { stepUp?: boolean } = {},
   ): Promise<number> {
     const token = randomBytes(32).toString("base64url");
     const absolute = this.settings.SESSION_ABSOLUTE_DAYS;
@@ -138,6 +160,8 @@ export class SessionService {
         absoluteExpiresAt: sql`now() + ${days(absolute)}` as unknown as string,
         userAgent: clientUserAgent(request),
         ip: clientIp(request),
+        // A passkey / setup / invite sign-in is itself a fresh confirmation.
+        stepUpAt: options.stepUp ? (sql`now()` as unknown as string) : null,
       })
       .returning({ id: sessions.id });
     this.clearCookie(response, this.otherCookieName());
@@ -159,6 +183,11 @@ export class SessionService {
         userId: members.userId,
         username: users.username,
         createdAt: sessions.createdAt,
+        authMethod: sessions.authMethod,
+        stepUpAt: sessions.stepUpAt,
+        stepUpFresh: sql<boolean>`${stepUpFreshSql}`,
+        // Uncorrelated IN so pg-mem runs it too (like tenancy/removed.ts).
+        hasPasskey: sql<boolean>`(${sessions.memberId} IN (SELECT ${passkeys.memberId} FROM ${passkeys} WHERE ${passkeys.removedAt} IS NULL))`,
         stale: sql<boolean>`${sessions.lastSeenAt} < now() - interval '1 minute'`,
       })
       .from(sessions)
@@ -175,7 +204,35 @@ export class SessionService {
       userId: row.userId,
       username: row.username,
       createdAt: iso(row.createdAt),
+      authMethod: row.authMethod,
+      hasPasskey: row.hasPasskey === true,
+      stepUpAt: row.stepUpAt === null ? null : iso(row.stepUpAt),
+      stepUpFresh: row.stepUpFresh === true,
     };
+  }
+
+  // -------------------------------------------------------------------------
+  // Step-up (auth-passkeys §9)
+  // -------------------------------------------------------------------------
+
+  /** Records a passkey confirmation on an active session. */
+  async markStepUp(sessionId: number): Promise<boolean> {
+    const rows = await this.db
+      .update(sessions)
+      .set({ stepUpAt: sql`now()` as unknown as string })
+      .where(and(eq(sessions.id, sessionId), active))
+      .returning({ id: sessions.id });
+    return rows.length > 0;
+  }
+
+  /** Whether the session's last confirmation is younger than STEP_UP_MINUTES. */
+  async stepUpFresh(sessionId: number): Promise<boolean> {
+    const rows = await this.db
+      .select({ fresh: sql<boolean>`${stepUpFreshSql}` })
+      .from(sessions)
+      .where(and(eq(sessions.id, sessionId), active))
+      .limit(1);
+    return rows[0]?.fresh === true;
   }
 
   private async touch(sessionId: number): Promise<void> {
@@ -255,6 +312,11 @@ export class SessionService {
   /** Every unrevoked session of the member (expired ones included, harmlessly). */
   revokeAllOfMember(memberId: number, reason: SessionRevokedReason): Promise<number[]> {
     return this.revokeWhere(eq(sessions.memberId, memberId), reason);
+  }
+
+  /** Every unrevoked session of the member started with `method`. */
+  revokeByMethod(memberId: number, method: SessionAuthMethod, reason: SessionRevokedReason): Promise<number[]> {
+    return this.revokeWhere(and(eq(sessions.memberId, memberId), eq(sessions.authMethod, method)), reason);
   }
 
   /** Every active session of the member except `keepSessionId`. */

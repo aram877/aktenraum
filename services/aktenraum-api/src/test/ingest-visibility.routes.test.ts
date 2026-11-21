@@ -9,6 +9,7 @@ import { PaperlessRequestError } from "../paperless/errors.js";
 import type { PaperlessGateway } from "../paperless/paperless.gateway.js";
 import { FakeGateway, TAGS, makeDoc } from "./fake-gateway.js";
 import { createHarness, type Harness } from "./harness.js";
+import { registerPasskey } from "./passkey-helpers.js";
 
 let harness: Harness | null = null;
 let gateway: FakeGateway;
@@ -22,6 +23,7 @@ async function boot(fake: FakeGateway): Promise<void> {
     .values({ username: "admin", passwordHash: await hashPassword("correct-horse") });
   agent = request.agent(harness.app.getHttpServer());
   await agent.post("/api/auth/login").send({ username: "admin", password: "correct-horse" });
+  await registerPasskey(agent);
 }
 
 // Reprocess pings the auto-tagger over global fetch; the test env falls back

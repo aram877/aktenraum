@@ -71,7 +71,7 @@ async function onPickAnswer(model: string): Promise<void> {
         <SettingsMitglieder />
         </template>
 
-        <SettingsKonto />
+        <SettingsKonto id="konto" />
       </div>
     </div>
   </div>

@@ -5,12 +5,13 @@ import request from "supertest";
 import { memberScopes, workerPrincipal, type MemberPrincipal } from "../auth/principal.js";
 import { hashPassword } from "../auth/passwords.js";
 import { documentSpaces, households, members, spaceMembers, spaces, users } from "../db/schema.js";
-import { documentShares } from "../db/schema.js";
+import { documentShares, passwordRetirements } from "../db/schema.js";
 import type { HouseholdRoleValue, ShareRole, SpaceRole } from "../db/schema.js";
 import { createHarness } from "../test/harness.js";
 import type { DocumentSpaceAccess, TenancyLookup } from "../tenancy/tenancy.service.js";
 import { TenancyService } from "../tenancy/tenancy.service.js";
 import { PolicyService, shareRoleAllows, spaceRoleAllows, type DocumentAction } from "./policy.service.js";
+import { registerPasskey } from "../test/passkey-helpers.js";
 
 const ACTIONS: DocumentAction[] = ["read", "write", "edit-fields", "delete", "move", "share"];
 
@@ -26,6 +27,9 @@ function member(role: HouseholdRoleValue, memberId = 1): MemberPrincipal {
     sessionId: null,
     authTime: null,
     clientId: "spa",
+    authMethod: "passkey" as const,
+    restricted: false,
+    stepUpFresh: true,
   };
 }
 
@@ -167,7 +171,7 @@ describe("tenancy-backed policy (pg-mem)", () => {
     }
   });
 
-  it("routes: change-password keys on userId and a plain member gets 404 outside its spaces", async () => {
+  it("routes: enrolment keys on the member and a plain member gets 404 outside its spaces", async () => {
     const h = await createHarness();
     try {
       // users.id and members.id deliberately differ: "owner" is user 2 but member 1.
@@ -192,6 +196,7 @@ describe("tenancy-backed policy (pg-mem)", () => {
       const server = h.app.getHttpServer();
       const strangerAgent = request.agent(server);
       await strangerAgent.post("/api/auth/login").send({ username: "stranger", password: "stranger-pass" }).expect(200);
+      await registerPasskey(strangerAgent);
       // Denied by the policy before the handler runs (no gateway configured → 503 when allowed).
       await strangerAgent.get("/api/documents/100/status").expect(404);
       await strangerAgent.get("/api/documents/101/status").expect(404);
@@ -199,14 +204,14 @@ describe("tenancy-backed policy (pg-mem)", () => {
 
       const ownerAgent = request.agent(server);
       await ownerAgent.post("/api/auth/login").send({ username: "owner", password: "owner-pass" }).expect(200);
+      await registerPasskey(ownerAgent);
       await ownerAgent.get("/api/documents/100/status").expect(503);
       await ownerAgent.get("/api/documents/101/status").expect(503);
-      await ownerAgent
-        .post("/api/auth/change-password")
-        .send({ current_password: "owner-pass", new_password: "owner-pass-2" })
-        .expect(204);
-      await request(server).post("/api/auth/login").send({ username: "owner", password: "owner-pass-2" }).expect(200);
-      await request(server).post("/api/auth/login").send({ username: "stranger", password: "stranger-pass" }).expect(200);
+      // Each enrolment retired exactly that member's password (users.id ≠ members.id).
+      await request(server).post("/api/auth/login").send({ username: "owner", password: "owner-pass" }).expect(401);
+      await request(server).post("/api/auth/login").send({ username: "stranger", password: "stranger-pass" }).expect(401);
+      const retired = await h.db.select().from(passwordRetirements);
+      expect(retired.map((row) => row.memberId).sort()).toContain(ownerMember!.id);
     } finally {
       await h.close();
     }

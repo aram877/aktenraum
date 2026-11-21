@@ -22,6 +22,7 @@ import type { DocumentPermissions } from "../paperless/paperless.gateway.js";
 import { TAGS, makeDoc } from "../test/fake-gateway.js";
 import { createSpace, household } from "../test/household.js";
 import { MemberRemovalService } from "./member-removal.service.js";
+import { ORIGIN, passkeyLogin } from "../test/passkey-helpers.js";
 
 type Fixture = Awaited<ReturnType<typeof household>>;
 
@@ -118,8 +119,9 @@ describe("removed members: lockout", () => {
     await markRemoved(f, f.bob.id);
     const { token } = (await f.asAlice.post("/api/household/invites").expect(201)).body as { token: string };
     const response = await request(f.h.app.getHttpServer())
-      .post(`/api/invites/${token}/redeem`)
-      .send({ username: "bob", password: "password-456" });
+      .post(`/api/invites/${token}/register/begin`)
+      .set("Origin", ORIGIN)
+      .send({ username: "bob" });
     expect(response.status).toBe(409);
     expect(response.body).toEqual({ detail: "Benutzername bereits vergeben" });
   });
@@ -508,24 +510,24 @@ describe("member removal: open live-counts stream", () => {
 describe("member removal: sessions", () => {
   it("revokes every session of the removed member in the lockout step, audited with the admin as actor", async () => {
     const f = await setup();
-    // A second device for bob.
-    await request
-      .agent(f.h.app.getHttpServer())
-      .post("/api/auth/login")
-      .send({ username: "bob", password: "password-123" })
-      .expect(200);
-    const before = await f.h.db.select().from(sessions).where(eq(sessions.memberId, f.bob.id));
+    // A second device for bob (his enrolment already ended the password session).
+    await passkeyLogin(f.h.app, f.asBob.enrolled!.authenticator);
+    const before = (await f.h.db.select().from(sessions).where(eq(sessions.memberId, f.bob.id))).filter(
+      (row) => row.revokedAt === null,
+    );
     expect(before).toHaveLength(2);
 
     await removeBob(f, { confirm_username: "bob" }).expect(200);
 
-    const after = await f.h.db.select().from(sessions).where(eq(sessions.memberId, f.bob.id));
+    const after = (await f.h.db.select().from(sessions).where(eq(sessions.memberId, f.bob.id))).filter((row) =>
+      before.some((b) => b.id === row.id),
+    );
     expect(after).toHaveLength(2);
     for (const row of after) {
       expect(row.revokedAt).not.toBeNull();
       expect(row.revokedReason).toBe("member_removed");
     }
-    const audit = await f.h.db.select().from(authAudit).where(eq(authAudit.event, "session_revoked"));
+    const audit = (await f.h.db.select().from(authAudit).where(eq(authAudit.event, "session_revoked"))).filter((row) => row.reason === "member_removed");
     expect(audit.map((row) => [row.memberId, row.actorMemberId, row.reason]).sort()).toEqual([
       [f.bob.id, f.alice.id, "member_removed"],
       [f.bob.id, f.alice.id, "member_removed"],

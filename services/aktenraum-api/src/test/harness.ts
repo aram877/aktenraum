@@ -193,6 +193,82 @@ CREATE TABLE auth_audit (
   ip varchar(64),
   user_agent varchar(512)
 );
+CREATE TABLE webauthn_users (
+  member_id integer PRIMARY KEY REFERENCES members(id),
+  user_handle varchar(86) NOT NULL UNIQUE,
+  created_at timestamp with time zone NOT NULL DEFAULT now()
+);
+CREATE TABLE passkeys (
+  id serial PRIMARY KEY,
+  member_id integer NOT NULL REFERENCES members(id),
+  credential_id varchar(1366) NOT NULL UNIQUE,
+  public_key text NOT NULL,
+  sign_count bigint NOT NULL DEFAULT 0,
+  transports varchar(128),
+  aaguid varchar(36),
+  device_type varchar(16) NOT NULL CHECK (device_type IN ('singleDevice', 'multiDevice')),
+  backed_up boolean NOT NULL,
+  prf_enabled boolean NOT NULL DEFAULT false,
+  rp_id varchar(253) NOT NULL,
+  name varchar(64) NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  last_used_at timestamp with time zone,
+  removed_at timestamp with time zone
+);
+CREATE TABLE webauthn_challenges (
+  id bigserial PRIMARY KEY,
+  ceremony varchar(43) NOT NULL UNIQUE,
+  challenge varchar(128) NOT NULL,
+  kind varchar(16) NOT NULL,
+  purpose varchar(16) NOT NULL,
+  member_id integer,
+  session_id bigint,
+  invite_id integer,
+  setup_token_id integer,
+  username varchar(64),
+  user_handle varchar(86),
+  rp_id varchar(253) NOT NULL,
+  origin varchar(255) NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  expires_at timestamp with time zone NOT NULL,
+  used_at timestamp with time zone
+);
+CREATE TABLE recovery_codes (
+  id serial PRIMARY KEY,
+  member_id integer NOT NULL REFERENCES members(id),
+  batch_id varchar(32) NOT NULL,
+  code_hash varchar(64) NOT NULL UNIQUE,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  used_at timestamp with time zone,
+  invalidated_at timestamp with time zone
+);
+CREATE TABLE setup_tokens (
+  id serial PRIMARY KEY,
+  token_hash varchar(64) NOT NULL UNIQUE,
+  member_id integer NOT NULL REFERENCES members(id),
+  created_by_member_id integer,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  expires_at timestamp with time zone NOT NULL,
+  used_at timestamp with time zone,
+  revoked_at timestamp with time zone
+);
+CREATE TABLE password_retirements (
+  member_id integer PRIMARY KEY REFERENCES members(id),
+  retired_at timestamp with time zone NOT NULL DEFAULT now(),
+  session_id bigint
+);
+CREATE TABLE credential_audit (
+  id bigserial PRIMARY KEY,
+  at timestamp with time zone NOT NULL DEFAULT now(),
+  event varchar(32) NOT NULL,
+  member_id integer,
+  actor_member_id integer,
+  session_id bigint,
+  passkey_id integer,
+  detail varchar(128),
+  ip varchar(64),
+  user_agent varchar(512)
+);
 INSERT INTO app_settings (id) VALUES (1);
 `;
 

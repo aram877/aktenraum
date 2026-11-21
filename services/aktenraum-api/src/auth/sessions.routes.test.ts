@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { authAudit, authRateLimitEvents, sessions } from "../db/schema.js";
 import { createHarness, type Harness } from "../test/harness.js";
 import { household } from "../test/household.js";
+import { ORIGIN, joinWithInvite } from "../test/passkey-helpers.js";
+import { SoftAuthenticator } from "../test/soft-authenticator.js";
 import { AuthSweepService } from "./auth-sweep.service.js";
 import { hashSessionToken } from "./session.service.js";
 
@@ -19,9 +21,15 @@ afterEach(async () => {
   fx = null;
 });
 
-async function setup(env?: Record<string, string>): Promise<Fixture> {
-  fx = await household(undefined, env);
+async function setup(env?: Record<string, string>, options?: { enrol?: boolean }): Promise<Fixture> {
+  fx = await household(undefined, env, options);
   return fx;
+}
+
+function authenticatorOf(f: Fixture, username: string): SoftAuthenticator {
+  const agent = { alice: f.asAlice, bob: f.asBob, carol: f.asCarol }[username];
+  if (agent?.enrolled == null) throw new Error(`${username} has no passkey`);
+  return agent.enrolled.authenticator;
 }
 
 const CHROME_WIN =
@@ -36,22 +44,25 @@ function cookieValue(setCookie: string[] | undefined, name: string): string | nu
   return value === "" ? null : decodeURIComponent(value);
 }
 
-/** A fresh device: its own agent (cookie jar), address and user agent. */
+/** A fresh device: its own agent (cookie jar), address and user agent; signs in with the member's passkey. */
 async function device(
-  h: Harness,
+  f: Fixture,
   username: string,
-  options: { ip?: string; agent?: string; password?: string } = {},
-): Promise<{ agent: ReturnType<typeof request.agent>; token: string }> {
-  const agent = request.agent(h.app.getHttpServer());
+  options: { ip?: string; agent?: string } = {},
+): Promise<{ agent: ReturnType<typeof request.agent>; token: string; response: request.Response }> {
+  const agent = request.agent(f.h.app.getHttpServer());
   if (options.ip !== undefined) agent.set("X-Forwarded-For", options.ip);
   if (options.agent !== undefined) agent.set("User-Agent", options.agent);
+  const begin = await agent.post("/api/auth/passkeys/login/begin").set("Origin", ORIGIN).send({}).expect(200);
   const response = await agent
-    .post("/api/auth/login")
-    .send({ username, password: options.password ?? "password-123" })
+    .post("/api/auth/passkeys/login/finish")
+    .set("Origin", ORIGIN)
+    .send({ ceremony: begin.body.ceremony, response: authenticatorOf(f, username).authenticate(begin.body.options) })
     .expect(200);
-  const token = cookieValue(response.headers["set-cookie"] as unknown as string[], "aktenraum_session");
+  const cookies = response.headers["set-cookie"] as unknown as string[];
+  const token = cookieValue(cookies, "__Host-aktenraum_session") ?? cookieValue(cookies, "aktenraum_session");
   expect(token).not.toBeNull();
-  return { agent, token: token! };
+  return { agent, token: token!, response };
 }
 
 async function sessionRow(h: Harness, token: string) {
@@ -73,14 +84,14 @@ function streamBody(test: request.Test): Promise<string> {
 describe("sessions: issue and resolve", () => {
   it("stores only the token's hash, with the browser's address behind nginx and its user agent", async () => {
     const f = await setup();
-    const { token } = await device(f.h, "bob", { ip: "203.0.113.7", agent: CHROME_WIN });
+    const { token } = await device(f, "bob", { ip: "203.0.113.7", agent: CHROME_WIN });
     expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
     const row = await sessionRow(f.h, token);
     expect(row.tokenHash).not.toBe(token);
     expect(row.tokenHash).toBe(hashSessionToken(token));
     expect(row.memberId).toBe(f.bob.id);
     expect(row.householdId).toBe(f.bob.householdId);
-    expect(row.authMethod).toBe("password");
+    expect(row.authMethod).toBe("passkey");
     expect(row.ip).toBe("203.0.113.7");
     expect(row.userAgent).toBe(CHROME_WIN);
     // Nothing stored works as a cookie.
@@ -91,10 +102,23 @@ describe("sessions: issue and resolve", () => {
   });
 
   it("sets a __Host- Secure cookie on HTTPS deployments and clears the plain name", async () => {
-    const f = await setup({ COOKIE_SECURE: "true" });
-    const response = await request(f.h.app.getHttpServer())
-      .post("/api/auth/login")
-      .send({ username: "bob", password: "password-123" })
+    // An http test agent drops Secure cookies, so the cookie travels by hand:
+    // password login (restricted) → enrol → the passkey session's cookie.
+    const f = await setup({ COOKIE_SECURE: "true" }, { enrol: false });
+    const server0 = f.h.app.getHttpServer();
+    const login = await request(server0).post("/api/auth/login").send({ username: "bob", password: "password-123" }).expect(200);
+    const restricted = cookieValue(login.headers["set-cookie"] as unknown as string[], "__Host-aktenraum_session")!;
+    const begin = await request(server0)
+      .post("/api/auth/passkeys/register/begin")
+      .set("Cookie", `__Host-aktenraum_session=${restricted}`)
+      .set("Origin", ORIGIN)
+      .send({})
+      .expect(200);
+    const response = await request(server0)
+      .post("/api/auth/passkeys/register/finish")
+      .set("Cookie", `__Host-aktenraum_session=${restricted}`)
+      .set("Origin", ORIGIN)
+      .send({ ceremony: begin.body.ceremony, response: new SoftAuthenticator().register(begin.body.options) })
       .expect(200);
     const cookies = response.headers["set-cookie"] as unknown as string[];
     const session = cookies.find((c) => c.startsWith("__Host-aktenraum_session="))!;
@@ -114,10 +138,7 @@ describe("sessions: issue and resolve", () => {
 
   it("sets a plain, non-Secure cookie when COOKIE_SECURE=false", async () => {
     const f = await setup();
-    const response = await request(f.h.app.getHttpServer())
-      .post("/api/auth/login")
-      .send({ username: "bob", password: "password-123" })
-      .expect(200);
+    const { response } = await device(f, "bob");
     const session = (response.headers["set-cookie"] as unknown as string[]).find((c) =>
       c.startsWith("aktenraum_session="),
     )!;
@@ -130,21 +151,21 @@ describe("sessions: issue and resolve", () => {
     const server = f.h.app.getHttpServer();
     await request(server).get("/api/auth/me").set("Cookie", "aktenraum_session=unknown-token").expect(401);
 
-    const revoked = await device(f.h, "bob");
+    const revoked = await device(f, "bob");
     await f.h.db
       .update(sessions)
       .set({ revokedAt: sql`now()` as unknown as string, revokedReason: "user" })
       .where(eq(sessions.tokenHash, hashSessionToken(revoked.token)));
     await revoked.agent.get("/api/auth/me").expect(401);
 
-    const idle = await device(f.h, "bob");
+    const idle = await device(f, "bob");
     await f.h.db
       .update(sessions)
       .set({ idleExpiresAt: sql`now() - interval '1 minute'` as unknown as string })
       .where(eq(sessions.tokenHash, hashSessionToken(idle.token)));
     await idle.agent.get("/api/auth/me").expect(401);
 
-    const absolute = await device(f.h, "bob");
+    const absolute = await device(f, "bob");
     await f.h.db
       .update(sessions)
       .set({ absoluteExpiresAt: sql`now() - interval '1 minute'` as unknown as string })
@@ -154,7 +175,7 @@ describe("sessions: issue and resolve", () => {
 
   it("slides the idle expiry at most once a minute and never past the absolute expiry", async () => {
     const f = await setup();
-    const { agent, token } = await device(f.h, "bob");
+    const { agent, token } = await device(f, "bob");
     const fresh = await sessionRow(f.h, token);
     // Two requests within the first minute write nothing.
     await agent.get("/api/auth/me").expect(200);
@@ -196,7 +217,7 @@ describe("sessions: issue and resolve", () => {
 describe("sessions: revocation", () => {
   it("logout revokes the session on the server; a replayed cookie answers 401", async () => {
     const f = await setup();
-    const { agent, token } = await device(f.h, "bob");
+    const { agent, token } = await device(f, "bob");
     const response = await agent.post("/api/auth/logout").expect(204);
     expect((response.headers["set-cookie"] as unknown as string[]).some((c) => c.startsWith("aktenraum_session=;"))).toBe(
       true,
@@ -213,30 +234,37 @@ describe("sessions: revocation", () => {
     await f.asBob.get("/api/auth/me").expect(200);
   });
 
-  it("a password change revokes every session of the member", { timeout: 30_000 }, async () => {
-    const f = await setup();
-    const laptop = await device(f.h, "bob");
-    const phone = await device(f.h, "bob");
-    await laptop.agent
-      .post("/api/auth/change-password")
-      .send({ current_password: "password-123", new_password: "password-456" })
-      .expect(204);
-    await laptop.agent.get("/api/auth/me").expect(401);
-    await phone.agent.get("/api/auth/me").expect(401);
-    await f.asBob.get("/api/auth/me").expect(401);
-    for (const token of [laptop.token, phone.token]) {
-      expect((await sessionRow(f.h, token)).revokedReason).toBe("password_change");
-    }
+  it("enrolling revokes the member's password sessions, and the password stops working", { timeout: 30_000 }, async () => {
+    const f = await setup(undefined, { enrol: false });
+    const laptop = f.asBob;
+    const phone = request.agent(f.h.app.getHttpServer());
+    await phone.post("/api/auth/login").send({ username: "bob", password: "password-123" }).expect(200);
+    // Enrol on the laptop: both restricted password sessions end, a passkey session replaces the laptop's.
+    const begin = await laptop.post("/api/auth/passkeys/register/begin").set("Origin", ORIGIN).send({}).expect(200);
+    await laptop
+      .post("/api/auth/passkeys/register/finish")
+      .set("Origin", ORIGIN)
+      .send({ ceremony: begin.body.ceremony, response: new SoftAuthenticator().register(begin.body.options) })
+      .expect(200);
+    await laptop.get("/api/auth/sessions").expect(200);
+    await phone.get("/api/auth/me").expect(401);
+    const bobPassword = (await f.h.db.select().from(sessions)).filter(
+      (row) => row.memberId === f.bob.id && row.authMethod === "password",
+    );
+    expect(bobPassword.map((row) => row.revokedReason)).toEqual(["password_change", "password_change"]);
     await f.asCarol.get("/api/auth/me").expect(200);
-    await device(f.h, "bob", { password: "password-456" });
+    await request(f.h.app.getHttpServer())
+      .post("/api/auth/login")
+      .send({ username: "bob", password: "password-123" })
+      .expect(401);
   });
 });
 
 describe("sessions: device list", () => {
   it("lists the member's active sessions with the current one marked", async () => {
     const f = await setup();
-    const laptop = await device(f.h, "bob", { ip: "203.0.113.7", agent: CHROME_WIN });
-    const phone = await device(f.h, "bob", { ip: "198.51.100.23", agent: SAFARI_IOS });
+    const laptop = await device(f, "bob", { ip: "203.0.113.7", agent: CHROME_WIN });
+    const phone = await device(f, "bob", { ip: "198.51.100.23", agent: SAFARI_IOS });
     await f.asBob.post("/api/auth/logout").expect(204);
     const list = (await laptop.agent.get("/api/auth/sessions").expect(200)).body as {
       id: number;
@@ -251,7 +279,7 @@ describe("sessions: device list", () => {
     expect(list.filter((s) => s.current)).toHaveLength(1);
     const current = list.find((s) => s.current)!;
     expect(current.id).toBe((await sessionRow(f.h, laptop.token)).id);
-    expect(current).toMatchObject({ ip: "203.0.113.7", user_agent: CHROME_WIN, auth_method: "password" });
+    expect(current).toMatchObject({ ip: "203.0.113.7", user_agent: CHROME_WIN, auth_method: "passkey" });
     expect(list.find((s) => !s.current)).toMatchObject({ ip: "198.51.100.23", user_agent: SAFARI_IOS });
     expect(Number.isNaN(Date.parse(current.created_at))).toBe(false);
     expect(Number.isNaN(Date.parse(current.last_seen_at))).toBe(false);
@@ -260,8 +288,8 @@ describe("sessions: device list", () => {
 
   it("revokes another of the member's devices; the current one stays", async () => {
     const f = await setup();
-    const laptop = await device(f.h, "bob");
-    const phone = await device(f.h, "bob");
+    const laptop = await device(f, "bob");
+    const phone = await device(f, "bob");
     const phoneId = (await sessionRow(f.h, phone.token)).id;
     const response = await laptop.agent.delete(`/api/auth/sessions/${phoneId}`).expect(204);
     expect(response.headers["set-cookie"]).toBeUndefined();
@@ -272,7 +300,7 @@ describe("sessions: device list", () => {
 
   it("answers 404 for another member's session and leaves it active", async () => {
     const f = await setup();
-    const carol = await device(f.h, "carol");
+    const carol = await device(f, "carol");
     const carolId = (await sessionRow(f.h, carol.token)).id;
     await f.asBob.delete(`/api/auth/sessions/${carolId}`).expect(404);
     await f.asBob.delete("/api/auth/sessions/999999").expect(404);
@@ -283,7 +311,7 @@ describe("sessions: device list", () => {
 
   it("revoking the current session behaves like a logout", async () => {
     const f = await setup();
-    const laptop = await device(f.h, "bob");
+    const laptop = await device(f, "bob");
     const id = (await sessionRow(f.h, laptop.token)).id;
     const response = await laptop.agent.delete(`/api/auth/sessions/${id}`).expect(204);
     expect((response.headers["set-cookie"] as unknown as string[]).some((c) => c.startsWith("aktenraum_session=;"))).toBe(
@@ -298,8 +326,8 @@ describe("sessions: device list", () => {
 
   it("signs out all other devices and answers how many", async () => {
     const f = await setup();
-    const laptop = await device(f.h, "bob");
-    const phone = await device(f.h, "bob");
+    const laptop = await device(f, "bob");
+    const phone = await device(f, "bob");
     const response = await laptop.agent.post("/api/auth/sessions/revoke-others").expect(200);
     // asBob (fixture login) + phone.
     expect(response.body).toEqual({ revoked: 2 });
@@ -314,7 +342,7 @@ describe("sessions: device list", () => {
 describe("sessions: open live-counts streams", () => {
   it("ends with session_ended when the session is revoked from another device", { timeout: 20_000 }, async () => {
     const f = await setup();
-    const phone = await device(f.h, "bob");
+    const phone = await device(f, "bob");
     const phoneId = (await sessionRow(f.h, phone.token)).id;
     const stream = streamBody(phone.agent.get("/api/events/counts"));
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -327,7 +355,7 @@ describe("sessions: open live-counts streams", () => {
 
   it("ends with session_ended when the session expires", { timeout: 20_000 }, async () => {
     const f = await setup();
-    const phone = await device(f.h, "bob");
+    const phone = await device(f, "bob");
     const stream = streamBody(phone.agent.get("/api/events/counts"));
     await new Promise((resolve) => setTimeout(resolve, 500));
     await f.h.db
@@ -341,7 +369,7 @@ describe("sessions: open live-counts streams", () => {
 
 describe("login protection", () => {
   it("throttles a username after 10 failures, even with the right password", async () => {
-    const f = await setup();
+    const f = await setup(undefined, { enrol: false });
     const server = f.h.app.getHttpServer();
     for (let i = 0; i < 10; i += 1) {
       // Different addresses: only the username key reaches the limit.
@@ -368,7 +396,7 @@ describe("login protection", () => {
   });
 
   it("throttles one address spraying many usernames; another address with a clean username logs in", async () => {
-    const f = await setup();
+    const f = await setup(undefined, { enrol: false });
     const server = f.h.app.getHttpServer();
     for (let i = 0; i < 10; i += 1) {
       await request(server)
@@ -390,7 +418,7 @@ describe("login protection", () => {
   });
 
   it("a successful login resets the username's count but not the address's", async () => {
-    const f = await setup();
+    const f = await setup(undefined, { enrol: false });
     const server = f.h.app.getHttpServer();
     const attempt = (username: string, password: string) =>
       request(server).post("/api/auth/login").set("X-Forwarded-For", "203.0.113.80").send({ username, password });
@@ -402,7 +430,7 @@ describe("login protection", () => {
   });
 
   it("keeps counting across a restart of the api", async () => {
-    const f = await setup();
+    const f = await setup(undefined, { enrol: false });
     for (let i = 0; i < 10; i += 1) {
       await request(f.h.app.getHttpServer())
         .post("/api/auth/login")
@@ -444,8 +472,8 @@ describe("auth audit", () => {
       .set("User-Agent", CHROME_WIN)
       .send({ username: "Bob", password: "wrong-password" })
       .expect(401);
-    const laptop = await device(f.h, "bob", { ip: "203.0.113.7", agent: CHROME_WIN });
-    const phone = await device(f.h, "bob", { ip: "198.51.100.23", agent: SAFARI_IOS });
+    const laptop = await device(f, "bob", { ip: "203.0.113.7", agent: CHROME_WIN });
+    const phone = await device(f, "bob", { ip: "198.51.100.23", agent: SAFARI_IOS });
     tokens.push(laptop.token, phone.token);
     const laptopId = (await sessionRow(f.h, laptop.token)).id;
     const phoneId = (await sessionRow(f.h, phone.token)).id;
@@ -454,23 +482,10 @@ describe("auth audit", () => {
     await laptop.agent.delete(`/api/auth/sessions/${phoneId}`).expect(204);
     await laptop.agent.post("/api/auth/logout").expect(204);
 
-    // Invite redemption.
+    // Invite redemption with a passkey.
     const { token: invite } = (await f.asAlice.post("/api/household/invites").expect(201)).body as { token: string };
-    const redeemed = await request(server)
-      .post(`/api/invites/${invite}/redeem`)
-      .set("X-Forwarded-For", "192.0.2.10")
-      .send({ username: "dave", password: "password-789" })
-      .expect(200);
-    tokens.push(cookieValue(redeemed.headers["set-cookie"] as unknown as string[], "aktenraum_session")!);
-
-    // Password change (revokes the remaining bob sessions: the fixture's).
-    const again = await device(f.h, "bob", { ip: "203.0.113.7", agent: CHROME_WIN });
-    tokens.push(again.token);
-    const againId = (await sessionRow(f.h, again.token)).id;
-    await again.agent
-      .post("/api/auth/change-password")
-      .send({ current_password: "password-123", new_password: "password-456" })
-      .expect(204);
+    const redeemed = await joinWithInvite(f.h.app, invite, "dave", { ip: "192.0.2.10" });
+    tokens.push(cookieValue(redeemed.response.headers["set-cookie"] as unknown as string[], "aktenraum_session")!);
 
     const rows = await f.h.db.select().from(authAudit);
     const of = (event: string) => rows.filter((row) => row.event === event);
@@ -480,8 +495,8 @@ describe("auth audit", () => {
     ]);
     expect(of("login_succeeded")).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ memberId: f.bob.id, sessionId: laptopId, ip: "203.0.113.7", userAgent: CHROME_WIN }),
-        expect.objectContaining({ memberId: f.bob.id, sessionId: phoneId, ip: "198.51.100.23", userAgent: SAFARI_IOS }),
+        expect.objectContaining({ memberId: f.bob.id, sessionId: laptopId, reason: "passkey", ip: "203.0.113.7", userAgent: CHROME_WIN }),
+        expect.objectContaining({ memberId: f.bob.id, sessionId: phoneId, reason: "passkey", ip: "198.51.100.23", userAgent: SAFARI_IOS }),
       ]),
     );
     expect(of("session_revoked")).toEqual(
@@ -493,7 +508,8 @@ describe("auth audit", () => {
           reason: "other_device",
           ip: "203.0.113.7",
         }),
-        expect.objectContaining({ memberId: f.bob.id, actorMemberId: f.bob.id, sessionId: againId, reason: "password_change" }),
+        // The fixture's enrolment ended bob's password session.
+        expect.objectContaining({ memberId: f.bob.id, actorMemberId: f.bob.id, reason: "password_change" }),
       ]),
     );
     expect(of("logout")).toEqual([
@@ -502,9 +518,7 @@ describe("auth audit", () => {
     expect(of("invite_redeemed")).toEqual([expect.objectContaining({ ip: "192.0.2.10" })]);
     expect(of("invite_redeemed")[0]!.memberId).not.toBeNull();
     expect(of("invite_redeemed")[0]!.sessionId).not.toBeNull();
-    expect(of("password_changed")).toEqual([
-      expect.objectContaining({ memberId: f.bob.id, sessionId: againId, ip: "203.0.113.7" }),
-    ]);
+    expect(of("password_changed")).toEqual([]);
 
     // No column of any auth table row other than sessions.token_hash ever
     // holds a cookie token or its hash.
@@ -536,10 +550,10 @@ describe("auth sweep", () => {
     const sweep = f.h.app.get(AuthSweepService);
     const back = (interval: string) => sql.raw(`now() - interval '${interval}'`) as unknown as string;
 
-    const keep = await device(f.h, "bob");
-    const revokedLongAgo = await device(f.h, "bob");
-    const revokedRecently = await device(f.h, "bob");
-    const expiredLongAgo = await device(f.h, "bob");
+    const keep = await device(f, "bob");
+    const revokedLongAgo = await device(f, "bob");
+    const revokedRecently = await device(f, "bob");
+    const expiredLongAgo = await device(f, "bob");
     const byToken = (token: string) => eq(sessions.tokenHash, hashSessionToken(token));
     await f.h.db.update(sessions).set({ revokedAt: back("31 days"), revokedReason: "logout" }).where(byToken(revokedLongAgo.token));
     await f.h.db.update(sessions).set({ revokedAt: back("29 days"), revokedReason: "logout" }).where(byToken(revokedRecently.token));
@@ -559,7 +573,15 @@ describe("auth sweep", () => {
       { event: "logout", reason: "new", at: back("179 days") },
     ]);
 
-    expect(await sweep.sweep()).toEqual({ sessions: 2, rate_limit_events: 1, audit: 1 });
+    expect(await sweep.sweep()).toEqual({
+      sessions: 2,
+      rate_limit_events: 1,
+      audit: 1,
+      challenges: 0,
+      setup_tokens: 0,
+      recovery_codes: 0,
+      credential_audit: 0,
+    });
 
     const left = await f.h.db.select().from(sessions);
     const leftHashes = left.map((row) => row.tokenHash);

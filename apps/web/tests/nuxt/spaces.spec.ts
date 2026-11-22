@@ -238,6 +238,7 @@ describe("moving documents", () => {
     const wrapper = await mountSuspended(LibraryPage, { route: "/library" });
     await vi.waitFor(() => expect(wrapper.find('[data-testid="select-all"]').exists()).toBe(true));
     expect(wrapper.findAll('[data-testid="row-space"]').map((c) => c.text())).toEqual(["Meine persönliche Akte", "Bobs Akte"]);
+    await wrapper.find('[data-testid="more-filters"]').trigger("click");
     expect(wrapper.find('[data-testid="space-filter"]').findAll("option")).toHaveLength(5);
 
     await wrapper.find('[data-testid="select-all"]').trigger("change");
@@ -256,6 +257,8 @@ describe("moving documents", () => {
 
   it("the space filter goes to the URL", async () => {
     const wrapper = await mountSuspended(LibraryPage, { route: "/library" });
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="more-filters"]').exists()).toBe(true));
+    await wrapper.find('[data-testid="more-filters"]').trigger("click");
     await vi.waitFor(() => expect(wrapper.find('[data-testid="space-filter"]').exists()).toBe(true));
     await wrapper.find('[data-testid="space-filter"]').setValue("7");
     await vi.waitFor(() => expect(useRoute().query.space).toBe("7"));

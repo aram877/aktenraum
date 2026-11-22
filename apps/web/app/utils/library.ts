@@ -1,3 +1,7 @@
+import { classify } from "./badge";
+import { FAMILIES, familyByKey, familyOfType, type DocFamily } from "./doc-types";
+import { userFacingTags } from "./lifecycle-tags";
+
 export const DOC_TYPES = [
   "Rechnung",
   "Gehaltsabrechnung",
@@ -110,4 +114,90 @@ export function cleanLibraryQuery(merged: Record<string, unknown>): Record<strin
     out[key] = String(value);
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// ui-redesign-foundation helpers (pure, unit-tested in tests/unit/library.spec.ts)
+
+/** Native document types the API should filter by: an explicit type wins over its area. */
+export function libraryTypeFilter(family: string, documentType: string): string[] | null {
+  if (documentType) return [documentType];
+  const area = familyByKey(family);
+  return area ? [...area.types] : null;
+}
+
+export interface FamilyCount {
+  family: DocFamily;
+  count: number;
+  types: { name: string; count: number }[];
+}
+
+/** Area counts from the type facet; unknown type names count as Sonstiges. Areas without documents are kept. */
+export function familyCounts(facet: readonly { name: string; count: number }[]): FamilyCount[] {
+  const byKey = new Map<string, FamilyCount>(FAMILIES.map((f) => [f.key, { family: f, count: 0, types: [] }]));
+  for (const entry of facet) {
+    if (entry.count <= 0) continue;
+    const bucket = byKey.get(familyOfType(entry.name).key)!;
+    bucket.count += entry.count;
+    bucket.types.push({ name: entry.name, count: entry.count });
+  }
+  return [...byKey.values()];
+}
+
+const MONTH = new Intl.DateTimeFormat("de-DE", { month: "long", year: "numeric", timeZone: "UTC" });
+
+/** "2026-11-18" or an ISO timestamp → "18.11.2026"; null/garbage → "—". */
+export function formatDocDate(value: string | null | undefined): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value ?? "");
+  return match ? `${match[3]}.${match[2]}.${match[1]}` : "—";
+}
+
+export interface RowGroup<T> {
+  key: string;
+  /** "November 2026", "Ohne Datum", or null when the list is not grouped. */
+  label: string | null;
+  rows: T[];
+}
+
+/** Month groups when sorted by document date; one unlabelled group otherwise. Keeps the server order. */
+export function groupByMonth<T extends { created: string | null }>(rows: readonly T[], ordering: string): RowGroup<T>[] {
+  if (ordering !== "-created" && ordering !== "created") return [{ key: "all", label: null, rows: [...rows] }];
+  const groups: RowGroup<T>[] = [];
+  for (const row of rows) {
+    const match = /^(\d{4})-(\d{2})/.exec(row.created ?? "");
+    const key = match ? `${match[1]}-${match[2]}` : "none";
+    let group = groups.at(-1);
+    if (group?.key !== key) {
+      const label = match ? MONTH.format(new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, 1))) : "Ohne Datum";
+      group = { key, label, rows: [] };
+      groups.push(group);
+    }
+    group.rows.push(row);
+  }
+  return groups;
+}
+
+export interface RowStatus {
+  label: string;
+  title: string;
+  tone: "danger" | "warning" | "info";
+}
+
+/** The row's status label, only when it needs attention; finished / auto-approved / rejected rows show nothing. */
+export function rowStatus(tags: readonly string[], errorMessage: string | null, inFlight: boolean): RowStatus | null {
+  if (inFlight) return { label: "KI läuft", title: "Wird gerade vom Auto-Tagger bearbeitet.", tone: "info" };
+  const state = classify(tags, errorMessage);
+  if (state.variant === "danger") return { label: state.label, title: state.title, tone: "danger" };
+  if (state.variant === "warning") {
+    return { label: state.label === "Bereit zum Prüfen" ? "Prüfen" : state.label, title: state.title, tone: "warning" };
+  }
+  if (state.variant === "info") return { label: "Wird übertragen", title: state.title, tone: "info" };
+  if (state.label === "Wartet auf KI") return { label: state.label, title: state.title, tone: "info" };
+  return null;
+}
+
+/** ★ plus the remaining user-facing tags (for the "+N" chip and its tooltip). */
+export function tagSummary(tags: readonly string[]): { star: boolean; others: string[] } {
+  const visible = sortTagsImportantFirst(userFacingTags(tags));
+  return { star: visible.includes("wichtig"), others: visible.filter((t) => t !== "wichtig") };
 }

@@ -74,35 +74,42 @@ useShortcuts(
 
 <template>
   <div class="flex min-h-full flex-col">
-    <div class="border-b border-hairline bg-surface px-4 py-2 sm:px-6">
-      <div class="mx-auto flex max-w-7xl items-center gap-3">
+    <DocumentHeader
+      :type="detail.data.value?.ai_document_type"
+      :title="detail.data.value?.ai_title || detail.data.value?.title || '…'"
+      :correspondent="detail.data.value?.ai_correspondent"
+      :date="detail.data.value?.ai_issue_date ?? detail.data.value?.created"
+    >
+      <template #back>
         <button
           type="button"
-          class="rounded-lg border border-hairline px-3 py-1.5 text-xs font-medium text-ink hover:bg-canvas"
+          class="inline-flex items-center gap-1.5 text-[13px] font-medium text-ink-muted hover:text-ink"
           @click="backToList"
         >
-          ← Zur Liste
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>
+          Zur Liste
         </button>
-        <span class="truncate text-sm font-medium text-ink">{{ detail.data.value?.title ?? "…" }}</span>
-        <div class="ml-auto flex shrink-0 items-center gap-2">
-          <HomeSpaceBadge
-            v-if="detail.data.value && detail.data.value.home_space !== undefined"
-            :space="detail.data.value.home_space"
-            :shared-by="detail.data.value.shared_by"
-            class="hidden sm:inline-flex"
-          />
-          <SpacesMoveControl
-            v-if="id !== null && detail.data.value && mayChangeState"
-            :doc-id="id"
-            :space="detail.data.value.home_space"
-          />
-          <StarToggle v-if="id !== null && detail.data.value && mayChangeState" :doc-id="id" :starred="starred" />
-        </div>
-        <span class="hidden text-[11px] text-ink-subtle md:inline">
+      </template>
+      <template #hint>
+        <span class="ml-auto hidden text-[11px] text-ink-subtle md:inline">
           <kbd>a</kbd> genehmigen · <kbd>r</kbd> ablehnen · <kbd>j</kbd>/<kbd>k</kbd> blättern · <kbd>Esc</kbd> zurück
         </span>
-      </div>
-    </div>
+      </template>
+      <template #actions>
+        <HomeSpaceBadge
+          v-if="detail.data.value && detail.data.value.home_space !== undefined"
+          :space="detail.data.value.home_space"
+          :shared-by="detail.data.value.shared_by"
+          class="hidden sm:inline-flex"
+        />
+        <SpacesMoveControl
+          v-if="id !== null && detail.data.value && mayChangeState"
+          :doc-id="id"
+          :space="detail.data.value.home_space"
+        />
+        <StarToggle v-if="id !== null && detail.data.value && mayChangeState" :doc-id="id" :starred="starred" />
+      </template>
+    </DocumentHeader>
 
     <PaneToggle v-model="mobilePane" />
 
@@ -112,9 +119,9 @@ useShortcuts(
 
     <p v-if="detail.isPending.value" class="px-6 py-8 text-sm text-ink-subtle">Lade Dokument…</p>
     <p v-else-if="detail.isError.value" class="px-6 py-8 text-sm text-red-700">Dokument konnte nicht geladen werden.</p>
-    <div v-else-if="detail.data.value" class="mx-auto grid w-full max-w-7xl flex-1 gap-4 p-4 lg:grid-cols-2 lg:p-6">
+    <div v-else-if="detail.data.value" class="mx-auto grid w-full max-w-[1360px] flex-1 gap-6 p-4 lg:grid-cols-2 lg:p-8">
       <section
-        class="min-h-[60vh] rounded-lg border border-hairline bg-surface lg:block"
+        class="min-h-[60vh] overflow-hidden rounded-2xl bg-surface-sunken p-2 lg:block"
         :class="{ hidden: mobilePane !== 'pdf' }"
       >
         <iframe

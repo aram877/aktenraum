@@ -140,6 +140,38 @@ describe("library routes", () => {
     expect(response.body.total).toBe(0);
   });
 
+  it("filters by several document types (area filter)", async () => {
+    const propagated = [TAGS["ai-propagated"] as number];
+    const gateway = new FakeGateway({
+      docs: [
+        makeDoc({ id: 1, document_type: 80, tags: propagated }),
+        makeDoc({ id: 2, document_type: 81, tags: propagated }),
+        makeDoc({ id: 3, document_type: null, tags: propagated }),
+      ],
+    });
+    const calls: Record<string, unknown>[] = [];
+    const search = gateway.searchDocuments;
+    gateway.searchDocuments = async (params, options) => {
+      calls.push(params);
+      return search(params, options);
+    };
+    await boot({ gateway });
+    const both = await agent.get("/api/library/?document_type=Rechnung&document_type=Versicherung");
+    expect(both.body.results.map((r: { id: number }) => r.id).sort()).toEqual([1, 2]);
+    expect(calls.at(-1)).toMatchObject({ document_type__id__in: "80,81" });
+    const one = await agent.get("/api/library/?document_type=Rechnung&document_type=Unbekannt");
+    expect(one.body.results.map((r: { id: number }) => r.id)).toEqual([1]);
+    expect(calls.at(-1)).toMatchObject({ document_type__id: 80 });
+  });
+
+  it("returns an empty page when no requested document type exists", async () => {
+    await boot({
+      gateway: new FakeGateway({ docs: [makeDoc({ tags: [TAGS["ai-propagated"] as number] })] }),
+    });
+    const response = await agent.get("/api/library/?document_type=Gibtsnicht");
+    expect(response.body.total).toBe(0);
+  });
+
   it("filters by a real tag with AND semantics", async () => {
     await boot({
       gateway: new FakeGateway({

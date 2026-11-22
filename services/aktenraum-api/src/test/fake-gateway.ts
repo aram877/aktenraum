@@ -133,6 +133,10 @@ export class FakeGateway {
     if (docType !== undefined) {
       results = results.filter((d) => d.document_type === Number(docType));
     }
+    const docTypes = idList(params.document_type__id__in);
+    if (docTypes.length > 0) {
+      results = results.filter((d) => docTypes.includes(Number(d.document_type)));
+    }
     const only = params.tags__id;
     if (only !== undefined) {
       results = results.filter((d) => ((d.tags as number[]) ?? []).includes(Number(only)));

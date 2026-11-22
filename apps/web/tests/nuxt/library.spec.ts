@@ -1,6 +1,6 @@
 import { flushPromises } from "@vue/test-utils";
 import { mockNuxtImport, mountSuspended } from "@nuxt/test-utils/runtime";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import LibraryPage from "~/pages/library/index.vue";
 import ReviewTab from "~/components/library/ReviewTab.vue";
@@ -84,9 +84,9 @@ describe("library archive", () => {
   it("resets to page 1 when a filter changes", async () => {
     const wrapper = await mountSuspended(LibraryPage, { route: "/library?page=2" });
     await vi.waitFor(() => expect(wrapper.text()).toContain("Dokument 1"));
-    await wrapper.find('select[name="document_type"]').setValue("Vertrag");
+    await wrapper.find('select[name="status"]').setValue("error");
     await flushPromises();
-    await vi.waitFor(() => expect(useRoute().query).toEqual({ document_type: "Vertrag" }));
+    await vi.waitFor(() => expect(useRoute().query).toEqual({ status: "error" }));
   });
 
   it("debounces the full-text search into the URL", async () => {
@@ -101,17 +101,89 @@ describe("library archive", () => {
     await vi.waitFor(() => expect(useRoute().query).toEqual({ text: "strom" }));
   });
 
-  it("renders a table for desktop and cards for mobile", async () => {
+  it("renders compact rows: type tile, star + '+N' tags, no status for finished documents", async () => {
+    get.mockImplementation((path: string) => {
+      if (path === "/auth/me") return Promise.resolve({ username: "admin" });
+      if (path === "/library/tags") return Promise.resolve({ results: [] });
+      if (path.startsWith("/library/")) {
+        return Promise.resolve({
+          results: [
+            libraryItem(1, { tags: ["ai-propagated", "strom", "wichtig", "wohnung", "2026"] }),
+            libraryItem(2, {
+              document_type: "Bußgeldbescheid",
+              lifecycle_tags: ["ai-error"],
+              tags: ["ai-error"],
+              created: "2025-12-03",
+            }),
+          ],
+          total: 2,
+          page: 1,
+          page_size: 25,
+        });
+      }
+      return new Promise(() => undefined);
+    });
     const wrapper = await mountSuspended(LibraryPage, { route: "/library" });
-    await vi.waitFor(() => expect(wrapper.text()).toContain("Dokument 1"));
-    expect(wrapper.find("div.hidden.md\\:block table").exists()).toBe(true);
-    expect(wrapper.find("ul.md\\:hidden li").exists()).toBe(true);
+    await vi.waitFor(() => expect(wrapper.findAll('[data-testid="library-row"]')).toHaveLength(2));
+    const [first, second] = wrapper.findAll('[data-testid="library-row"]');
+    expect(first!.find('[data-testid="doc-type-tile"]').text()).toBe("RE");
+    expect(first!.find('[data-testid="row-tags-more"]').text()).toBe("+3");
+    expect(first!.text()).not.toContain("wohnung");
+    expect(first!.find('[data-testid="row-status"]').exists()).toBe(false);
+    expect(second!.find('[data-testid="doc-type-tile"]').attributes("data-family")).toBe("mobil");
+    expect(second!.find('[data-testid="row-status"]').text()).toBe("Fehler");
+    expect(wrapper.findAll('[data-testid="library-group"] h2').map((h) => h.text())).toEqual([
+      "Januar 2026",
+      "Dezember 2025",
+    ]);
   });
 
   it("shows the review tab when the URL asks for it", async () => {
     const wrapper = await mountSuspended(LibraryPage, { route: "/library?tab=review" });
     await vi.waitFor(() => expect(wrapper.text()).toContain("Zur Prüfung"));
     expect(wrapper.find('[data-testid="library-total"]').exists()).toBe(false);
+  });
+});
+
+describe("preview panel (wide screens)", () => {
+  const original = window.matchMedia;
+
+  beforeEach(() => {
+    window.matchMedia = ((query: string) => ({
+      matches: true,
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    })) as unknown as typeof window.matchMedia;
+    get.mockImplementation((path: string) => {
+      if (path === "/auth/me") return Promise.resolve({ username: "admin" });
+      if (path === "/library/tags" || path === "/library/types") return Promise.resolve({ results: [] });
+      if (path.startsWith("/library/")) {
+        return Promise.resolve({ results: [libraryItem(1), libraryItem(2)], total: 2, page: 1, page_size: 25 });
+      }
+      const detail = /^\/documents\/(\d+)\/detail$/.exec(path);
+      if (detail) {
+        return Promise.resolve({ id: Number(detail[1]), ai_summary_de: `Zusammenfassung ${detail[1]}`, type_fields: {}, tags: [] });
+      }
+      return new Promise(() => undefined);
+    });
+  });
+
+  afterEach(() => {
+    window.matchMedia = original;
+  });
+
+  it("a click previews the row without leaving the list; double-click opens it", async () => {
+    const wrapper = await mountSuspended(LibraryPage, { route: "/library" });
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="library-preview"]').text()).toContain("Dokument 1"));
+
+    await wrapper.findAll('[data-testid="library-row"] a')[1]!.trigger("click", { button: 0 });
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="library-preview"]').text()).toContain("Dokument 2"));
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="library-preview"]').text()).toContain("Zusammenfassung 2"));
+    expect(useRoute().path).toBe("/library");
+
+    await wrapper.findAll('[data-testid="library-row"] a')[1]!.trigger("dblclick");
+    await vi.waitFor(() => expect(useRoute().path).toBe("/library/2"));
   });
 });
 
@@ -230,19 +302,28 @@ describe("document type chips", () => {
     });
   });
 
-  it("shows each type with its count and filters by it on click", async () => {
+  it("shows one chip per area with its count and filters by the area's types", async () => {
     const wrapper = await mountSuspended(LibraryPage, { route: "/library?page=2" });
-    await vi.waitFor(() => expect(wrapper.find('[data-testid="type-facet"]').exists()).toBe(true));
-    const chip = wrapper.findAll('[data-testid="type-facet"] button')[0]!;
-    expect(chip.text()).toBe("Gehaltsabrechnung (83)");
-    await chip.trigger("click");
-    await vi.waitFor(() => expect(useRoute().query).toEqual({ document_type: "Gehaltsabrechnung" }));
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="family-arbeit"]').exists()).toBe(true));
+    expect(wrapper.find('[data-testid="family-arbeit"]').text()).toContain("83");
+    expect(wrapper.find('[data-testid="family-geld"]').text()).toContain("48");
+    await wrapper.find('[data-testid="family-arbeit"]').trigger("click");
+    await vi.waitFor(() => expect(useRoute().query).toEqual({ family: "arbeit" }));
+    await vi.waitFor(() =>
+      expect(libraryCalls().at(-1)).toContain("document_type=Gehaltsabrechnung&document_type=Lohnsteuerbescheinigung"),
+    );
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="type-facet"]').text()).toContain("Gehaltsabrechnung"));
   });
 
-  it("clears the type filter when the active chip is clicked again", async () => {
-    const wrapper = await mountSuspended(LibraryPage, { route: "/library?document_type=Rechnung" });
+  it("narrows to one type and clears it again", async () => {
+    const wrapper = await mountSuspended(LibraryPage, { route: "/library?family=geld" });
     await vi.waitFor(() => expect(wrapper.find('[data-testid="type-facet"]').exists()).toBe(true));
-    await wrapper.findAll('[data-testid="type-facet"] button')[1]!.trigger("click");
+    await wrapper.find('[data-testid="type-facet"] button').trigger("click");
+    await vi.waitFor(() => expect(useRoute().query).toEqual({ family: "geld", document_type: "Rechnung" }));
+    await vi.waitFor(() => expect(libraryCalls().at(-1)).toMatch(/document_type=Rechnung(&|$)/));
+    await wrapper.find('[data-testid="type-facet"] button').trigger("click");
+    await vi.waitFor(() => expect(useRoute().query).toEqual({ family: "geld" }));
+    await wrapper.find('[data-testid="family-geld"]').trigger("click");
     await vi.waitFor(() => expect(useRoute().query).toEqual({}));
   });
 });

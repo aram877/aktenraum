@@ -59,26 +59,26 @@ async function onLogout(): Promise<void> {
 </script>
 
 <template>
-  <nav v-if="authenticated" class="border-b border-hairline bg-surface px-4 py-2.5 sm:px-6">
-    <div class="mx-auto flex max-w-6xl items-center gap-4 text-sm">
-      <NuxtLink to="/" class="font-semibold tracking-tight text-ink" @click="closeMenu">
+  <nav v-if="authenticated" class="border-b border-hairline bg-canvas px-4 sm:px-8">
+    <div class="mx-auto flex h-16 max-w-[1360px] items-center gap-6 text-sm lg:gap-8">
+      <NuxtLink to="/" class="font-serif text-2xl font-medium tracking-[-0.01em] text-ink" @click="closeMenu">
         aktenraum
       </NuxtLink>
 
-      <div class="hidden items-center gap-4 md:flex">
+      <div class="hidden h-full items-center gap-5 text-[13px] font-medium md:flex lg:gap-6">
         <NuxtLink
           v-for="link in links"
           :key="link.to"
           :to="link.to"
-          class="text-ink-muted hover:text-ink"
-          :class="{ 'font-medium text-ink': isActive(link) }"
+          class="flex h-full items-center border-b-2 pt-0.5 text-ink-subtle hover:text-ink"
+          :class="isActive(link) ? 'border-ink text-ink' : 'border-transparent'"
         >
           {{ link.label }}
           <span
             v-if="link.to === '/library' && inboxCount > 0"
             data-testid="review-badge"
             title="Dokumente zur Prüfung"
-            class="ml-1 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-600"
+            class="ml-1.5 rounded-full bg-[#a14b06] px-1.5 py-px text-[10px] font-semibold text-white"
           >
             {{ inboxCount }}
           </span>
@@ -120,8 +120,9 @@ async function onLogout(): Promise<void> {
         <span
           v-if="inFlightCount > 0"
           data-testid="in-flight-pill"
-          class="rounded-full bg-accent/10 px-2.5 py-0.5 text-[11px] font-medium text-accent"
+          class="hidden items-center gap-1.5 text-xs text-ink-muted sm:inline-flex"
         >
+          <span class="h-[7px] w-[7px] animate-pulse rounded-full bg-[#3f3f9a]" />
           {{ inFlightCount }} in Bearbeitung
         </span>
         <button

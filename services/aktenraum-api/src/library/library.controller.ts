@@ -55,7 +55,7 @@ export class LibraryController {
   @RequireScope("documents:read")
   listLibrary(
     @CurrentPrincipal() principal: Principal,
-    @Query("document_type") documentType?: string,
+    @Query("document_type") documentType?: string | string[],
     @Query("correspondent") correspondent?: string,
     @Query("date_from") dateFrom?: string,
     @Query("date_to") dateTo?: string,
@@ -89,7 +89,7 @@ export class LibraryController {
       );
     }
     return this.libraryService.listLibrary(principal, {
-      documentType,
+      documentTypes: toArray(documentType),
       correspondent,
       dateFrom: optionalDate(dateFrom),
       dateTo: optionalDate(dateTo),

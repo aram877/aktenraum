@@ -49,12 +49,12 @@ function loadMore(): void {
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-5xl flex-1 px-4 py-4 md:px-6 md:py-6">
-    <div class="flex items-baseline justify-between gap-3">
+  <div class="mt-8 w-full">
+    <div class="flex items-baseline justify-between gap-3 border-b border-hairline px-1 pb-2.5">
       <div class="min-w-0">
-        <h1 class="text-lg font-semibold tracking-tight text-ink">Zur Prüfung</h1>
-        <p class="mt-0.5 text-xs text-ink-muted sm:text-sm">
-          Dokumente warten auf Ihre Prüfung. Zuletzt geänderte zuerst.
+        <h2 class="font-serif text-xl font-medium text-ink">Zur Prüfung</h2>
+        <p class="mt-0.5 text-xs text-ink-subtle">
+          Die KI hat diese Dokumente eingeordnet – bitte kurz prüfen.
         </p>
       </div>
       <span class="shrink-0 text-sm text-ink-subtle" data-testid="review-total">
@@ -111,78 +111,55 @@ function loadMore(): void {
         {{ lastResult.succeeded }} genehmigt{{ lastResult.failed ? ` · ${lastResult.failed} fehlgeschlagen` : "" }}.
       </p>
 
-      <div class="mt-4 hidden rounded-lg border border-hairline bg-surface md:block">
-        <table class="w-full text-left text-sm">
-          <thead class="border-b border-hairline text-xs uppercase tracking-wide text-ink-subtle">
-            <tr>
-              <th class="w-8 px-3 py-2.5">
-                <input
-                  type="checkbox"
-                  aria-label="Alle auswählen"
-                  data-testid="select-all"
-                  :checked="allSelected"
-                  class="h-4 w-4 cursor-pointer accent-ink"
-                  @change="toggleAll"
-                >
-              </th>
-              <th class="px-3 py-2.5">Titel</th>
-              <th class="px-3 py-2.5">Typ</th>
-              <th class="px-3 py-2.5">Korrespondent</th>
-              <th class="px-3 py-2.5">Daten</th>
-              <th class="px-3 py-2.5 text-right">Konfidenz</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-hairline-soft">
-            <tr
-              v-for="row in rows"
-              :key="row.id"
-              class="hover:bg-canvas"
-              :class="row.low_confidence ? 'border-l-2 border-amber-400' : ''"
-            >
-              <td class="w-8 px-3 py-2.5">
-                <input
-                  type="checkbox"
-                  :aria-label="`${row.title} auswählen`"
-                  :checked="effectiveSelected.has(row.id)"
-                  class="h-4 w-4 cursor-pointer accent-ink"
-                  @change="toggleOne(row.id)"
-                >
-              </td>
-              <td class="px-3 py-2.5">
-                <NuxtLink :to="`/inbox/${row.id}`" class="text-ink hover:text-accent">{{ row.ai_title || row.title }}</NuxtLink>
-              </td>
-              <td class="px-3 py-2.5 text-ink-muted">{{ row.ai_document_type ?? "—" }}</td>
-              <td class="px-3 py-2.5 text-ink-muted">{{ row.ai_correspondent ?? "—" }}</td>
-              <td class="px-3 py-2.5 text-ink-muted">{{ row.ai_issue_date ?? row.created ?? "—" }}</td>
-              <td class="px-3 py-2.5 text-right text-ink-muted">{{ formatConfidence(row.ai_confidence) }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <label class="mt-4 inline-flex items-center gap-2 px-2 text-xs text-ink-subtle">
+        <input
+          type="checkbox"
+          aria-label="Alle auswählen"
+          data-testid="select-all"
+          :checked="allSelected"
+          class="h-4 w-4 cursor-pointer accent-ink"
+          @change="toggleAll"
+        >
+        Alle geladenen auswählen
+      </label>
 
-      <ul class="mt-4 space-y-2 md:hidden">
+      <ul class="mt-1 divide-y divide-hairline-soft">
         <li
           v-for="row in rows"
           :key="row.id"
-          class="rounded-lg border border-hairline bg-surface p-3"
-          :class="row.low_confidence ? 'border-l-2 border-l-amber-400' : ''"
+          data-testid="review-row"
+          class="flex items-center gap-3 rounded-[10px] transition-colors hover:bg-surface/70"
         >
-          <div class="flex items-start gap-2">
-            <input
-              type="checkbox"
-              :aria-label="`${row.title} auswählen`"
-              :checked="effectiveSelected.has(row.id)"
-              class="mt-0.5 h-4 w-4 cursor-pointer accent-ink"
-              @change="toggleOne(row.id)"
+          <input
+            type="checkbox"
+            :aria-label="`${row.title} auswählen`"
+            :checked="effectiveSelected.has(row.id)"
+            class="ml-2 h-4 w-4 flex-none cursor-pointer accent-ink"
+            @change="toggleOne(row.id)"
+          >
+          <NuxtLink :to="`/inbox/${row.id}`" class="flex min-w-0 flex-1 items-center gap-4 px-2 py-2.5">
+            <DocTypeTile :type="row.ai_document_type" />
+            <span class="min-w-0 flex-1">
+              <span class="block truncate font-medium text-ink">{{ row.ai_title || row.title }}</span>
+              <span class="mt-0.5 block truncate text-xs text-ink-subtle">
+                <span class="font-medium" :style="{ color: docTypeStyle(row.ai_document_type).family.ink }">
+                  {{ docTypeStyle(row.ai_document_type).name }}
+                </span>
+                <template v-if="row.ai_correspondent"> · {{ row.ai_correspondent }}</template>
+              </span>
+            </span>
+            <span class="tabular hidden w-[78px] flex-none text-right text-xs text-ink-subtle sm:block">
+              {{ formatDocDate(row.ai_issue_date ?? row.created) }}
+            </span>
+            <span
+              class="tabular w-[72px] flex-none text-right text-xs font-medium"
+              :class="row.low_confidence ? 'text-[#a14b06]' : 'text-ink-muted'"
+              :title="row.low_confidence ? 'Die KI ist sich unsicher.' : 'KI-Sicherheit'"
             >
-            <div class="min-w-0 flex-1">
-              <NuxtLink :to="`/inbox/${row.id}`" class="text-sm font-medium text-ink">{{ row.ai_title || row.title }}</NuxtLink>
-              <p class="mt-1 text-xs text-ink-muted">{{ row.ai_document_type ?? "—" }} · {{ row.ai_correspondent ?? "—" }}</p>
-              <p class="mt-0.5 text-xs text-ink-subtle">
-                {{ row.ai_issue_date ?? row.created ?? "—" }} · {{ formatConfidence(row.ai_confidence) }}
-              </p>
-            </div>
-          </div>
+              <span v-if="row.low_confidence" class="mr-1 inline-block h-[7px] w-[7px] rounded-full bg-[#a14b06]" />
+              {{ formatConfidence(row.ai_confidence) }}
+            </span>
+          </NuxtLink>
         </li>
       </ul>
 

@@ -32,7 +32,8 @@ const FACET_SAMPLE_SIZE = 500;
 const FACET_MIN_COUNT = 2;
 
 export interface LibraryQuery {
-  documentType?: string;
+  /** One or more native document type names (area filter = several). */
+  documentTypes?: string[];
   correspondent?: string;
   dateFrom?: string;
   dateTo?: string;
@@ -156,9 +157,13 @@ export class LibraryService {
     let text = query.text;
     const params: QueryParams = { ordering: query.ordering, page: query.page };
 
-    if (query.documentType) {
-      const dtId = documentTypes[query.documentType];
-      if (dtId !== undefined) params.document_type__id = dtId;
+    const wantedTypes = (query.documentTypes ?? []).map((t) => t.trim()).filter((t) => t !== "");
+    let noKnownType = false;
+    if (wantedTypes.length > 0) {
+      const ids = [...new Set(wantedTypes.map((t) => documentTypes[t]).filter((id): id is number => id !== undefined))];
+      if (ids.length === 0) noKnownType = true;
+      else if (ids.length === 1) params.document_type__id = ids[0];
+      else params.document_type__id__in = ids.join(",");
     }
     if (query.correspondent) {
       const cId = correspondents[query.correspondent];
@@ -173,6 +178,7 @@ export class LibraryService {
     if (text) params.query = text;
 
     const empty: LibraryList = { results: [], total: 0, page: query.page, page_size: query.pageSize };
+    if (noKnownType) return empty;
     const noneIds = new Set<number>(pendingId !== undefined ? [pendingId] : []);
     const allIds: number[] = [];
     if (query.status !== undefined) {

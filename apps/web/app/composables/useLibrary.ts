@@ -28,7 +28,8 @@ export interface LibraryList {
 }
 
 export interface LibraryQuery {
-  document_type?: string | null;
+  /** One type, or all types of an area (repeated `document_type`). */
+  document_type?: string | string[] | null;
   correspondent?: string | null;
   date_from?: string | null;
   date_to?: string | null;

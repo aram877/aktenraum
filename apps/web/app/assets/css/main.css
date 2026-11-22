@@ -1,26 +1,36 @@
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/newsreader";
 @import "tailwindcss";
 
+/*
+ * Warm editorial theme (ui-redesign-foundation, approved 2026-11-22).
+ * Token names are unchanged so every page picks the look up; values are
+ * chosen so 12 px `ink-subtle` text keeps 4.5:1 on `canvas` and `surface`.
+ * Document-type colours live in `app/utils/doc-types.ts`, not here.
+ */
 @theme {
-  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-sans: "Inter Variable", "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-serif: "Newsreader Variable", "Newsreader", Georgia, "Times New Roman", serif;
 
-  --color-canvas: #f1f4fb;
-  --color-surface: #ffffff;
-  --color-surface-raised: #e3ecf3;
+  --color-canvas: #f6f2ea;
+  --color-surface: #fffdf9;
+  --color-surface-raised: #f1ebe0;
+  --color-surface-sunken: #ede7dc;
 
-  --color-hairline: #c1d5e8;
-  --color-hairline-soft: #d5e4f1;
+  --color-hairline: #e0d8ca;
+  --color-hairline-soft: #ece5d9;
 
-  --color-ink: #1b2d42;
-  --color-ink-muted: #3d5570;
-  --color-ink-subtle: #5e7a96;
-  --color-ink-faint: #8aafc8;
+  --color-ink: #1c1917;
+  --color-ink-muted: #44403c;
+  --color-ink-subtle: #6b655e;
+  --color-ink-faint: #8c857c;
 
-  --color-accent: #769edb;
-  --color-accent-dark: #5b87d0;
-  --color-on-accent: #ffffff;
+  --color-accent: #8a3324;
+  --color-accent-dark: #6f281c;
+  --color-on-accent: #fffdf9;
 
-  --color-inverse: #1b2d42;
-  --color-on-inverse: #ffffff;
+  --color-inverse: #1c1917;
+  --color-on-inverse: #f6f2ea;
 }
 
 html,
@@ -33,6 +43,16 @@ body {
   font-family: var(--font-sans);
   background-color: var(--color-canvas);
   color: var(--color-ink);
+  font-feature-settings: "cv11", "ss01";
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
 }

@@ -323,7 +323,7 @@ gotcha and is handled by `mergeCustomFields`.
 
 | Param | Type | Notes |
 |---|---|---|
-| `document_type` | enum | One of the 27 `DocumentType` values. |
+| `document_type` | enum, repeatable | One of the 27 `DocumentType` values. Repeat it for "any of these types" (the SPA's area filter, sent to Paperless as `document_type__id__in`); unknown names are ignored, and if none is known the page is empty. |
 | `correspondent` | string | Exact match against Paperless. |
 | `date_from` / `date_to` | date | ISO YYYY-MM-DD. |
 | `text` | string | Full-text content search. |

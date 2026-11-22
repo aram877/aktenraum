@@ -276,9 +276,9 @@ function valueOf(event: Event): string {
 }
 
 const STATUS_TONE: Record<string, string> = {
-  danger: "#b42318",
-  warning: "#a14b06",
-  info: "#3f3f9a",
+  danger: "var(--color-tone-danger)",
+  warning: "var(--color-tone-warning)",
+  info: "var(--color-tone-info)",
 };
 
 const fieldClass =
@@ -315,7 +315,7 @@ const fieldClass =
           {{ t === "archive" ? "Archiv" : "Zur Prüfung" }}
           <span
             v-if="t === 'review' && (reviewCount.data.value?.total ?? 0) > 0"
-            class="ml-1 rounded-full bg-[#a14b06] px-1.5 py-px text-[11px] text-white"
+            class="ml-1 rounded-full bg-tone-warning px-1.5 py-px text-[11px] text-canvas"
           >{{ reviewCount.data.value?.total }}</span>
         </button>
       </div>
@@ -606,10 +606,10 @@ const fieldClass =
                   :key="row.id"
                   data-testid="library-row"
                   class="group relative flex cursor-pointer items-center gap-3 rounded-[10px] transition-colors hover:bg-surface/70"
-                  @click.capture="onRowClick($event, row.id)"
-                  @dblclick="onRowDoubleClick($event, row.id)"
                   :class="wide && previewId === row.id ? 'bg-surface' : ''"
                   :style="wide && previewId === row.id ? { boxShadow: `inset 3px 0 0 ${docTypeStyle(row.document_type).family.fill}` } : {}"
+                  @click.capture="onRowClick($event, row.id)"
+                  @dblclick="onRowDoubleClick($event, row.id)"
                 >
                   <input
                     v-if="spacesVisible"
@@ -639,7 +639,7 @@ const fieldClass =
                       </span>
                     </span>
                     <span class="hidden w-[92px] flex-none items-center justify-end gap-1 sm:flex">
-                      <span v-if="tagSummary(row.tags).star" title="wichtig" class="text-[13px] text-[#9a6408]">★<span class="sr-only"> wichtig</span></span>
+                      <span v-if="tagSummary(row.tags).star" title="wichtig" class="text-[13px] text-[var(--fam-geld-ink)]">★<span class="sr-only"> wichtig</span></span>
                       <span
                         v-if="tagSummary(row.tags).others.length > 0"
                         :title="tagSummary(row.tags).others.join(', ')"
@@ -736,7 +736,7 @@ const fieldClass =
               </dl>
             </template>
             <div v-if="tagSummary(previewRow.tags).star || tagSummary(previewRow.tags).others.length" class="mt-5 flex flex-wrap gap-1.5">
-              <span v-if="tagSummary(previewRow.tags).star" class="rounded-full bg-[#f4e8cc] px-2.5 py-0.5 text-xs text-[#6b4504]">★ wichtig</span>
+              <span v-if="tagSummary(previewRow.tags).star" class="rounded-full bg-[var(--fam-geld-tint)] px-2.5 py-0.5 text-xs text-[var(--fam-geld-ink)]">★ wichtig</span>
               <span
                 v-for="t in tagSummary(previewRow.tags).others"
                 :key="t"

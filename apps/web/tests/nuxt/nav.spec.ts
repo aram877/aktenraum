@@ -59,6 +59,24 @@ describe("AppNav", () => {
     }
   });
 
+  it("cycles the colour mode System → Hell → Dunkel and remembers it", async () => {
+    useColorMode().set("system");
+    const wrapper = await renderAuthenticated();
+    const toggle = wrapper.find('[data-testid="color-mode-toggle"]');
+    expect(toggle.attributes("title")).toBe("Darstellung: System");
+
+    await toggle.trigger("click");
+    expect(wrapper.find('[data-testid="color-mode-toggle"]').attributes("title")).toBe("Darstellung: Hell");
+    expect(document.documentElement.classList.contains("light")).toBe(true);
+
+    await toggle.trigger("click");
+    expect(wrapper.find('[data-testid="color-mode-toggle"]').attributes("title")).toBe("Darstellung: Dunkel");
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(localStorage.getItem("aktenraum-color-mode")).toBe("dark");
+
+    useColorMode().set("system");
+  });
+
   describe("review badge", () => {
     it("shows the pending count from the live stream", async () => {
       useNuxtApp().$queryClient.setQueryData(LIVE_COUNTS_KEY, { inbox: 7, in_flight: 9, trash: 0 });

@@ -195,7 +195,7 @@ async function onRevoke(id: number): Promise<void> {
           :value="setupLink.url"
           readonly
           data-testid="setup-link-url"
-          class="flex-1 rounded border border-amber-200 bg-white px-2 py-1 font-mono text-[11px] text-ink"
+          class="flex-1 rounded border border-amber-200 bg-surface px-2 py-1 font-mono text-[11px] text-ink"
         >
         <button type="button" class="rounded border border-amber-300 px-2 py-1 font-medium" @click="copySetupLink">
           {{ setupCopied ? "Kopiert ✓" : "Kopieren" }}
@@ -224,7 +224,7 @@ async function onRevoke(id: number): Promise<void> {
         <select
           v-model="successorId"
           data-testid="remove-successor"
-          class="mt-1 block w-full rounded border border-red-200 bg-white px-2 py-1 text-ink"
+          class="mt-1 block w-full rounded border border-red-200 bg-surface px-2 py-1 text-ink"
         >
           <option v-for="option in successorOptions" :key="option.id" :value="option.id">
             {{ option.username }}{{ option.role === "admin" ? " (ich)" : "" }}
@@ -244,7 +244,7 @@ async function onRevoke(id: number): Promise<void> {
           v-model="confirmText"
           data-testid="remove-confirm"
           autocomplete="off"
-          class="mt-1 block w-full rounded border border-red-200 bg-white px-2 py-1 text-ink"
+          class="mt-1 block w-full rounded border border-red-200 bg-surface px-2 py-1 text-ink"
         >
       </label>
       <div class="mt-3 flex flex-wrap items-center gap-2">
@@ -292,7 +292,7 @@ async function onRevoke(id: number): Promise<void> {
           :value="createdUrl"
           readonly
           data-testid="invite-url"
-          class="min-w-0 flex-1 rounded border border-amber-200 bg-white px-2 py-1 font-mono text-[11px] text-ink"
+          class="min-w-0 flex-1 rounded border border-amber-200 bg-surface px-2 py-1 font-mono text-[11px] text-ink"
           @focus="($event.target as HTMLInputElement).select()"
         >
         <button

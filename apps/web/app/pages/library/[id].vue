@@ -116,7 +116,7 @@ async function onDelete(): Promise<void> {
         <a
           v-if="id !== null"
           :href="`/api/documents/${id}/download`"
-          class="inline-flex h-10 items-center rounded-[10px] border border-black/10 bg-surface px-4 text-sm font-medium text-ink hover:border-black/20"
+          class="inline-flex h-10 items-center rounded-[10px] border border-hairline bg-surface px-4 text-sm font-medium text-ink hover:border-ink-faint"
         >
           Herunterladen
         </a>

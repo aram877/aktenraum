@@ -9,6 +9,15 @@ const inbox = useInboxList({ pageSize: 1 }, authenticated);
 const errorList = useErrorCount(authenticated);
 const live = useLiveCounts();
 const logout = useLogout();
+const colorMode = useColorMode();
+
+// Sun = Hell, moon = Dunkel, half-filled circle = System (follows the device).
+const COLOR_MODE_ICON: Record<ColorMode, string> = {
+  light:
+    "M12 4V2M12 22v-2M4 12H2M22 12h-2M5.6 5.6 4.2 4.2M19.8 19.8l-1.4-1.4M5.6 18.4l-1.4 1.4M19.8 4.2l-1.4 1.4M12 7a5 5 0 100 10 5 5 0 000-10z",
+  dark: "M20 14.5A8 8 0 019.5 4a8 8 0 1010.5 10.5z",
+  system: "M12 3a9 9 0 100 18V3zM12 3a9 9 0 010 18",
+};
 
 const inboxCount = computed(() => live.data.value?.inbox ?? inbox.data.value?.total ?? 0);
 const trashCount = computed(() => live.data.value?.trash ?? trash.data.value?.total ?? 0);
@@ -78,7 +87,7 @@ async function onLogout(): Promise<void> {
             v-if="link.to === '/library' && inboxCount > 0"
             data-testid="review-badge"
             title="Dokumente zur Prüfung"
-            class="ml-1.5 rounded-full bg-[#a14b06] px-1.5 py-px text-[10px] font-semibold text-white"
+            class="ml-1.5 rounded-full bg-tone-warning px-1.5 py-px text-[10px] font-semibold text-canvas"
           >
             {{ inboxCount }}
           </span>
@@ -122,9 +131,21 @@ async function onLogout(): Promise<void> {
           data-testid="in-flight-pill"
           class="hidden items-center gap-1.5 text-xs text-ink-muted sm:inline-flex"
         >
-          <span class="h-[7px] w-[7px] animate-pulse rounded-full bg-[#3f3f9a]" />
+          <span class="h-[7px] w-[7px] animate-pulse rounded-full bg-tone-info" />
           {{ inFlightCount }} in Bearbeitung
         </span>
+        <button
+          type="button"
+          data-testid="color-mode-toggle"
+          :aria-label="`Darstellung: ${colorMode.label.value} – umschalten`"
+          :title="`Darstellung: ${colorMode.label.value}`"
+          class="hidden h-9 w-9 items-center justify-center rounded-[9px] text-ink-muted hover:bg-surface-raised hover:text-ink md:flex"
+          @click="colorMode.cycle"
+        >
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path :d="COLOR_MODE_ICON[colorMode.mode.value]" />
+          </svg>
+        </button>
         <button
           type="button"
           class="hidden text-xs text-ink-muted hover:text-ink md:inline"
@@ -176,6 +197,17 @@ async function onLogout(): Promise<void> {
           {{ trashCount }}
         </span>
       </NuxtLink>
+      <button
+        type="button"
+        data-testid="color-mode-toggle-drawer"
+        class="flex min-h-11 items-center gap-2 rounded-lg px-3 text-left text-sm text-ink-muted hover:bg-surface-raised"
+        @click="colorMode.cycle"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path :d="COLOR_MODE_ICON[colorMode.mode.value]" />
+        </svg>
+        Darstellung: {{ colorMode.label.value }}
+      </button>
       <button
         type="button"
         class="flex min-h-11 items-center rounded-lg px-3 text-left text-sm text-ink-muted hover:bg-canvas"

@@ -2,6 +2,9 @@
 @import "@fontsource-variable/newsreader";
 @import "tailwindcss";
 
+/* `dark:` follows the class the colour-mode plugin puts on <html> (dark-mode change). */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /*
  * Warm editorial theme (ui-redesign-foundation, approved 2026-11-22).
  * Token names are unchanged so every page picks the look up; values are
@@ -31,6 +34,83 @@
 
   --color-inverse: #1c1917;
   --color-on-inverse: #f6f2ea;
+
+  /* Status colours for row labels and dots. */
+  --color-tone-danger: #b42318;
+  --color-tone-warning: #a14b06;
+  --color-tone-info: #3f3f9a;
+}
+
+/*
+ * Dark theme (dark-mode change): warm near-black paper. Unlayered, so it beats
+ * the theme layer's :root values. The Tailwind shades the app uses for alert
+ * boxes (red / amber / emerald / sky) are remapped to dark tints with light
+ * text, so existing `bg-red-50 text-red-700` boxes read correctly in dark.
+ * `ink-subtle` keeps >= 4.5:1 on `surface` (pinned in tests/unit/color-mode.spec.ts).
+ */
+:root.dark {
+  --color-canvas: #171412;
+  --color-surface: #211d1a;
+  --color-surface-raised: #2b2622;
+  --color-surface-sunken: #120f0d;
+
+  --color-hairline: #3a332d;
+  --color-hairline-soft: #2c2723;
+
+  --color-ink: #ede6da;
+  --color-ink-muted: #cfc6b8;
+  --color-ink-subtle: #a59c90;
+  --color-ink-faint: #7d746a;
+
+  --color-accent: #e5927a;
+  --color-accent-dark: #f0ac97;
+  --color-on-accent: #171412;
+
+  --color-inverse: #ede6da;
+  --color-on-inverse: #171412;
+
+  --color-tone-danger: #f28b82;
+  --color-tone-warning: #f0b060;
+  --color-tone-info: #a9acf6;
+
+  --color-red-50: #3a1714;
+  --color-red-100: #4a1c18;
+  --color-red-200: #6b2a24;
+  --color-red-300: #8a3a32;
+  --color-red-400: #a84a40;
+  --color-red-600: #f28b82;
+  --color-red-700: #f28b82;
+  --color-red-800: #f5a59e;
+  --color-red-950: #fde2df;
+
+  --color-amber-50: #33240f;
+  --color-amber-100: #3f2c12;
+  --color-amber-200: #5c4219;
+  --color-amber-300: #7a5820;
+  --color-amber-400: #9a6d26;
+  --color-amber-600: #f0b060;
+  --color-amber-700: #f0b060;
+  --color-amber-800: #f3c27e;
+  --color-amber-900: #f7d39e;
+  --color-amber-950: #fbe5c3;
+
+  --color-emerald-50: #10291f;
+  --color-emerald-200: #1f4a37;
+  --color-emerald-700: #7fd4ac;
+  --color-emerald-800: #9fe0c0;
+
+  --color-sky-50: #0f2533;
+  --color-sky-100: #133042;
+  --color-sky-200: #1f4660;
+  --color-sky-700: #8cc8ee;
+  --color-sky-800: #a8d6f2;
+}
+
+/* Before the JS bundle has set a class: don't flash a light page on a dark device. */
+@media (prefers-color-scheme: dark) {
+  html:not(.light):not(.dark) {
+    background-color: #171412;
+  }
 }
 
 html,

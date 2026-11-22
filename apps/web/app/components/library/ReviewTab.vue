@@ -153,10 +153,10 @@ function loadMore(): void {
             </span>
             <span
               class="tabular w-[72px] flex-none text-right text-xs font-medium"
-              :class="row.low_confidence ? 'text-[#a14b06]' : 'text-ink-muted'"
+              :class="row.low_confidence ? 'text-tone-warning' : 'text-ink-muted'"
               :title="row.low_confidence ? 'Die KI ist sich unsicher.' : 'KI-Sicherheit'"
             >
-              <span v-if="row.low_confidence" class="mr-1 inline-block h-[7px] w-[7px] rounded-full bg-[#a14b06]" />
+              <span v-if="row.low_confidence" class="mr-1 inline-block h-[7px] w-[7px] rounded-full bg-tone-warning" />
               {{ formatConfidence(row.ai_confidence) }}
             </span>
           </NuxtLink>

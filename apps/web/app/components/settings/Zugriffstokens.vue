@@ -116,14 +116,14 @@ const STATE_CLASS: Record<TokenEntry["state"], string> = {
       class="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm"
     >
       <p class="font-medium text-amber-900">Wird nur jetzt angezeigt — kopiere das Token jetzt.</p>
-      <code data-testid="token-value" class="mt-2 block break-all rounded bg-white px-2 py-1.5 font-mono text-xs text-ink">{{
+      <code data-testid="token-value" class="mt-2 block break-all rounded bg-surface px-2 py-1.5 font-mono text-xs text-ink">{{
         createdValue
       }}</code>
       <div class="mt-2 flex flex-wrap items-center gap-2">
         <button
           type="button"
           data-testid="token-copy"
-          class="rounded-lg border border-hairline bg-white px-3 py-1.5 text-xs font-medium text-ink hover:bg-canvas"
+          class="rounded-lg border border-hairline bg-surface px-3 py-1.5 text-xs font-medium text-ink hover:bg-canvas"
           @click="onCopy"
         >
           {{ copied ? "Kopiert" : "Kopieren" }}

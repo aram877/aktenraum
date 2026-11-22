@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ALL_DOC_TYPES, FAMILIES, docTypeStyle, familyByKey, familyOfType } from "~/utils/doc-types";
+import { ALL_DOC_TYPES, FAMILIES, docTypeStyle, familyByKey, familyColorCss, familyOfType } from "~/utils/doc-types";
 
 // Mirror of DOCUMENT_TYPES in @aktenraum/core (the web package does not depend on core).
 const CORE_TYPES = [
@@ -53,10 +53,22 @@ describe("doc-types", () => {
     expect(familyByKey("nope")).toBeNull();
   });
 
-  it("keeps the area colours readable", () => {
+  it("keeps the area colours readable in both themes", () => {
     for (const f of FAMILIES) {
       expect(contrast("#ffffff", f.fill), `${f.name} fill`).toBeGreaterThanOrEqual(4.5);
-      expect(contrast(f.ink, f.tint), `${f.name} ink on tint`).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(f.light.ink, f.light.tint), `${f.name} light ink on tint`).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(f.dark.ink, f.dark.tint), `${f.name} dark ink on tint`).toBeGreaterThanOrEqual(4.5);
+      // The type name in list rows sits on the page / card background.
+      expect(contrast(f.light.ink, "#fffdf9"), `${f.name} light ink on surface`).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(f.dark.ink, "#211d1a"), `${f.name} dark ink on surface`).toBeGreaterThanOrEqual(4.5);
     }
+  });
+
+  it("exposes tint and ink as theme variables generated from one source", () => {
+    const geld = familyByKey("geld")!;
+    expect(geld.tint).toBe("var(--fam-geld-tint)");
+    const css = familyColorCss();
+    expect(css).toContain(`:root{--fam-geld-tint:${geld.light.tint};`);
+    expect(css).toContain(`:root.dark{--fam-geld-tint:${geld.dark.tint};--fam-geld-ink:${geld.dark.ink};`);
   });
 });

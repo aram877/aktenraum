@@ -2,20 +2,24 @@
 // into 9 areas. The area gives the colour ("where in life"), the icon and the
 // 2-letter code say "what exactly". Unknown or missing types are Sonstiges.
 //
-// Contrast (checked when the palette was chosen): white text on every `fill`
-// is >= 4.8:1, every `ink` on its `tint` is >= 4.5:1.
+// Contrast (pinned by tests/unit/doc-types.spec.ts): white text on every
+// `fill` is >= 4.5:1, and every ink on its tint is >= 4.5:1 in both themes.
+// `tint` / `ink` are CSS variables (`var(--fam-<key>-tint)`) so they follow
+// the colour mode; the plugin injects `familyColorCss()` once.
 
 export type FamilyKey = "geld" | "arbeit" | "amt" | "wohnen" | "vertrag" | "gesund" | "mobil" | "person" | "sonst";
 
 export interface DocFamily {
   key: FamilyKey;
   name: string;
-  /** Tile background; white text on it. */
+  /** Tile background; white text on it. Same in both themes. */
   fill: string;
-  /** Light background for headers and selected chips. */
+  /** Header / selected-chip background — a CSS variable that follows the theme. */
   tint: string;
-  /** Text colour on `tint` and the type name in lists. */
+  /** Text colour on `tint` and the type name in lists — a CSS variable. */
   ink: string;
+  light: { tint: string; ink: string };
+  dark: { tint: string; ink: string };
   types: readonly string[];
 }
 
@@ -66,6 +70,8 @@ interface FamilySpec {
   fill: string;
   tint: string;
   ink: string;
+  darkTint: string;
+  darkInk: string;
   types: readonly (readonly [name: string, code: string, icon: IconKey])[];
 }
 
@@ -76,6 +82,8 @@ const SPEC: readonly FamilySpec[] = [
     fill: "#9a6408",
     tint: "#f4e8cc",
     ink: "#6b4504",
+    darkTint: "#3a2a10",
+    darkInk: "#f0c674",
     types: [
       ["Rechnung", "RE", "receipt"],
       ["Mahnung", "MA", "alert"],
@@ -89,6 +97,8 @@ const SPEC: readonly FamilySpec[] = [
     fill: "#3f3f9a",
     tint: "#e4e4f4",
     ink: "#2e2e78",
+    darkTint: "#26264d",
+    darkInk: "#c0c0f4",
     types: [
       ["Gehaltsabrechnung", "GA", "banknote"],
       ["Lohnsteuerbescheinigung", "LS", "taxdoc"],
@@ -102,6 +112,8 @@ const SPEC: readonly FamilySpec[] = [
     fill: "#2f4a66",
     tint: "#dfe6ee",
     ink: "#22374d",
+    darkTint: "#1d2a39",
+    darkInk: "#a9c4e0",
     types: [
       ["Steuer", "ST", "percent"],
       ["Bescheid", "BS", "stamp"],
@@ -115,6 +127,8 @@ const SPEC: readonly FamilySpec[] = [
     fill: "#a1442a",
     tint: "#f4e0d8",
     ink: "#7a301c",
+    darkTint: "#3d2018",
+    darkInk: "#f2ac94",
     types: [
       ["Nebenkostenabrechnung", "NK", "flame"],
       ["Hausgeldabrechnung", "HG", "house"],
@@ -126,6 +140,8 @@ const SPEC: readonly FamilySpec[] = [
     fill: "#6d3a6b",
     tint: "#eee0ed",
     ink: "#532a51",
+    darkTint: "#35203a",
+    darkInk: "#e6b8e4",
     types: [
       ["Vertrag", "VT", "pen"],
       ["Kündigung", "KÜ", "exit"],
@@ -140,6 +156,8 @@ const SPEC: readonly FamilySpec[] = [
     fill: "#1f6b5c",
     tint: "#d9ece7",
     ink: "#155246",
+    darkTint: "#13322a",
+    darkInk: "#8fd9c5",
     types: [
       ["Arztbrief", "AB", "steth"],
       ["Krankschreibung", "KS", "thermo"],
@@ -151,6 +169,8 @@ const SPEC: readonly FamilySpec[] = [
     fill: "#9f1d3f",
     tint: "#f4dbe1",
     ink: "#7a142f",
+    darkTint: "#3d1421",
+    darkInk: "#f4a8ba",
     types: [
       ["Kfz", "KF", "car"],
       ["Bußgeldbescheid", "BG", "gauge"],
@@ -162,6 +182,8 @@ const SPEC: readonly FamilySpec[] = [
     fill: "#5f6326",
     tint: "#e8e9d4",
     ink: "#46491a",
+    darkTint: "#2c2d14",
+    darkInk: "#d7da8f",
     types: [
       ["Urkunde", "UR", "scroll"],
       ["Ausweis", "AW", "idcard"],
@@ -174,6 +196,8 @@ const SPEC: readonly FamilySpec[] = [
     fill: "#78716c",
     tint: "#ece9e5",
     ink: "#57534e",
+    darkTint: "#2c2926",
+    darkInk: "#d2cbc3",
     types: [["Sonstiges", "SO", "file"]],
   },
 ];
@@ -182,10 +206,19 @@ export const FAMILIES: readonly DocFamily[] = SPEC.map((f) => ({
   key: f.key,
   name: f.name,
   fill: f.fill,
-  tint: f.tint,
-  ink: f.ink,
+  tint: `var(--fam-${f.key}-tint)`,
+  ink: `var(--fam-${f.key}-ink)`,
+  light: { tint: f.tint, ink: f.ink },
+  dark: { tint: f.darkTint, ink: f.darkInk },
   types: f.types.map(([name]) => name),
 }));
+
+/** The `--fam-*` variables for both themes; injected once by plugins/color-mode.client.ts. */
+export function familyColorCss(): string {
+  const vars = (theme: "light" | "dark"): string =>
+    FAMILIES.map((f) => `--fam-${f.key}-tint:${f[theme].tint};--fam-${f.key}-ink:${f[theme].ink};`).join("");
+  return `:root{${vars("light")}}:root.dark{${vars("dark")}}`;
+}
 
 const STYLES = new Map<string, DocTypeStyle>();
 for (const [index, spec] of SPEC.entries()) {

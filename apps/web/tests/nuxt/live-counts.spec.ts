@@ -122,6 +122,38 @@ describe("createLiveCountsStream: session ended", () => {
     stream.start();
     expect(open()).toHaveLength(1);
   });
+
+  // Regression (2026-11-22): the server ended a session that /auth/me still
+  // accepted, the plugin restarted the stream at once → ~140 reconnects/s.
+  it("backs off when session_ended repeats while me still says signed in", () => {
+    const queryClient = new QueryClient();
+    const stream = createLiveCountsStream(queryClient);
+    const endAndRestart = (): void => {
+      open()[0]?.emit("session_ended");
+      stream.start(); // what the plugin does when `me` resolves again
+    };
+
+    stream.start();
+    endAndRestart();
+    expect(FakeEventSource.instances).toHaveLength(1); // no instant reconnect
+    vi.advanceTimersByTime(SESSION_ENDED_BACKOFF_MS - 1);
+    expect(FakeEventSource.instances).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(FakeEventSource.instances).toHaveLength(2);
+
+    endAndRestart(); // second in a row: twice the wait
+    vi.advanceTimersByTime(SESSION_ENDED_BACKOFF_MS * 2 - 1);
+    expect(FakeEventSource.instances).toHaveLength(2);
+    vi.advanceTimersByTime(1);
+    expect(FakeEventSource.instances).toHaveLength(3);
+
+    // A counts frame means the stream works again: the streak resets.
+    open()[0]?.onmessage?.(new MessageEvent("message", { data: '{"inbox":0,"in_flight":0,"trash":0}' }));
+    endAndRestart();
+    vi.advanceTimersByTime(SESSION_ENDED_BACKOFF_MS);
+    expect(FakeEventSource.instances).toHaveLength(4);
+    stream.stop();
+  });
 });
 
 describe("live-counts plugin", () => {

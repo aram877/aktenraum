@@ -508,6 +508,34 @@ describe("member removal: open live-counts stream", () => {
     // Reconnecting is refused by the guard.
     await f.asBob.get("/api/events/counts").expect(401);
   });
+
+  // Regression (2026-11-22): the per-tick session check compared
+  // member_removals.member_id with itself (unqualified column inside the
+  // subquery), so ONE removal anywhere made every session look revoked — the
+  // stream ended at once and the SPA reconnected ~140×/s.
+  it("keeps another member's stream open after someone else was removed", { timeout: 20_000 }, async () => {
+    const f = await setup();
+    await markRemoved(f, f.bob.id);
+    const stream = f.asCarol
+      .get("/api/events/counts")
+      .buffer(true)
+      .parse((res, done) => {
+        let body = "";
+        res.on("data", (chunk: Buffer) => {
+          body += chunk.toString();
+          // One counts frame is enough; end the request so the test finishes.
+          // In Node the parser gets the IncomingMessage, typed as superagent's Response.
+          if (body.includes("data: {")) (res as unknown as { destroy(): void }).destroy();
+        });
+        res.on("close", () => done(null, body));
+        res.on("end", () => done(null, body));
+      })
+      .then((res) => res.body as string)
+      .catch((error: { response?: { body?: string } }) => error.response?.body ?? "");
+    const body = await stream;
+    expect(body).not.toContain("session_ended");
+    expect(body).toMatch(/^data: \{/m);
+  });
 });
 
 describe("member removal: sessions", () => {

@@ -8,7 +8,6 @@ import type { CookieOptions, Request, Response } from "express";
 import { SETTINGS, type Settings } from "../config/settings.js";
 import { DB, type Database } from "../db/db.module.js";
 import {
-  memberRemovals,
   members,
   passkeys,
   sessions,
@@ -261,7 +260,12 @@ export class SessionService {
   async state(sessionId: number): Promise<SessionState> {
     const rows = await this.db
       .select({
-        revoked: sql<boolean>`(${sessions.revokedAt} IS NOT NULL OR EXISTS (SELECT 1 FROM ${memberRemovals} WHERE ${memberRemovals.memberId} = ${sessions.memberId}))`,
+        // Uncorrelated IN, like tenancy/removed.ts: in a single-table select
+        // drizzle renders `sessions.member_id` unqualified, so a correlated
+        // `WHERE member_removals.member_id = member_id` compared the removal
+        // row with itself — one removal made every session "revoked"
+        // (2026-11-22 live-counts reconnect storm).
+        revoked: sql<boolean>`(${sessions.revokedAt} IS NOT NULL OR ${sessions.memberId} IN (SELECT "member_id" FROM "member_removals"))`,
         isActive: sql<boolean>`${active}`,
       })
       .from(sessions)

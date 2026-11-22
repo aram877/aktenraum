@@ -103,8 +103,8 @@ const STATE_CLASS: Record<TokenEntry["state"], string> = {
 
 <template>
   <div data-testid="zugriffstokens">
-    <h3 class="text-sm font-semibold text-ink">Zugriffstokens</h3>
-    <p class="mt-0.5 text-xs text-ink-muted">
+    <h3 class="font-serif text-lg font-medium text-ink">Zugriffstokens</h3>
+    <p class="mt-1 text-sm text-ink-subtle">
       Für Skripte und Integrationen (z. B. Scanner, Backups). Ein Token kann nur, was du ihm erlaubst, läuft spätestens
       nach einem Jahr ab und kann keine Anmeldungen oder Passkeys verwalten.
     </p>
@@ -248,7 +248,7 @@ const STATE_CLASS: Record<TokenEntry["state"], string> = {
           type="submit"
           data-testid="token-submit"
           :disabled="!canSubmit || create.isPending.value"
-          class="rounded-lg bg-ink px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+          class="btn btn-primary btn-sm"
         >
           Token erstellen
         </button>

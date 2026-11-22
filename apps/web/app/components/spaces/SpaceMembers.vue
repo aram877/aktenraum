@@ -111,7 +111,7 @@ function onRemove(memberId: number): Promise<void> {
       <button
         type="submit"
         :disabled="newMember === null || add.isPending.value"
-        class="rounded-lg bg-ink px-3 py-1.5 text-xs font-semibold text-surface disabled:cursor-not-allowed disabled:opacity-50"
+        class="btn btn-primary btn-sm"
       >
         Hinzufügen
       </button>

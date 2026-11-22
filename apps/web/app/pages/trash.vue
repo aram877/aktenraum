@@ -48,19 +48,15 @@ async function onEmpty(): Promise<void> {
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6">
-    <div class="flex items-baseline justify-between gap-3">
-      <div>
-        <h1 class="text-lg font-semibold tracking-tight text-ink">Papierkorb</h1>
-        <p class="mt-0.5 text-xs text-ink-muted">Gelöschte Dokumente bleiben 30 Tage wiederherstellbar.</p>
-      </div>
+  <div class="page-narrow max-w-4xl">
+    <PageHeader eyebrow="Archiv" title="Papierkorb" subtitle="Gelöschte Dokumente bleiben 30 Tage wiederherstellbar.">
+      <template v-if="rows.length > 0" #actions>
       <button
-        v-if="rows.length > 0"
         type="button"
         :disabled="emptyTrash.isPending.value"
         data-testid="empty-trash"
-        class="rounded-lg border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
-        :class="confirmingEmpty ? 'border-red-300 text-red-700' : 'border-hairline text-ink'"
+        class="btn"
+        :class="confirmingEmpty ? 'btn-danger border-red-300' : 'btn-secondary'"
         @click="onEmpty"
       >
         {{
@@ -71,29 +67,34 @@ async function onEmpty(): Promise<void> {
               : "Papierkorb leeren"
         }}
       </button>
-    </div>
+      </template>
+    </PageHeader>
 
-    <p v-if="errorText" class="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+    <p v-if="errorText" class="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
       {{ errorText }}
     </p>
 
-    <p v-if="list.isPending.value" class="mt-6 text-xs text-ink-subtle">Lade Papierkorb…</p>
+    <p v-if="list.isPending.value" class="mt-10 text-center text-sm text-ink-subtle">Lade Papierkorb…</p>
     <p
       v-else-if="rows.length === 0"
-      class="mt-6 rounded-lg border border-dashed border-hairline bg-surface p-8 text-center text-sm text-ink-subtle"
+      class="mt-10 py-10 text-center font-serif text-xl text-ink-subtle"
     >
       Der Papierkorb ist leer.
     </p>
     <template v-else>
-      <p class="mt-4 text-xs text-ink-subtle">{{ total }} Dokument(e)</p>
-      <ul class="mt-2 flex flex-col gap-2">
+      <div class="mt-8 flex items-baseline gap-3 border-b border-hairline px-1 pb-2.5">
+        <h2 class="font-serif text-xl font-medium text-ink">Gelöscht</h2>
+        <span class="text-xs text-ink-subtle">{{ total }} Dokument(e)</span>
+      </div>
+      <ul class="divide-y divide-hairline-soft">
         <li
           v-for="row in rows"
           :key="row.id"
-          class="flex flex-wrap items-center gap-3 rounded-lg border border-hairline bg-surface p-3"
+          class="flex flex-wrap items-center gap-3 px-2 py-3"
         >
+          <DocTypeTile :type="row.document_type ?? row.ai_document_type" class="opacity-70" />
           <div class="min-w-0 flex-1">
-            <p class="truncate text-sm font-medium text-ink">{{ row.title }}</p>
+            <p class="truncate font-medium text-ink">{{ row.title }}</p>
             <p class="mt-0.5 text-xs text-ink-muted">
               {{ row.document_type ?? row.ai_document_type ?? "—" }} ·
               {{ row.correspondent ?? row.ai_correspondent ?? "—" }} · {{ remaining(row) }}
@@ -103,7 +104,7 @@ async function onEmpty(): Promise<void> {
             type="button"
             :disabled="restore.isPending.value"
             :data-testid="`restore-${row.id}`"
-            class="rounded-lg border border-hairline px-3 py-1.5 text-xs font-medium text-ink hover:bg-canvas disabled:opacity-50"
+            class="btn btn-secondary btn-sm"
             @click="onRestore(row.id)"
           >
             Wiederherstellen
@@ -112,8 +113,8 @@ async function onEmpty(): Promise<void> {
             type="button"
             :disabled="deleteForever.isPending.value"
             :data-testid="`delete-${row.id}`"
-            class="rounded-lg border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
-            :class="confirmingDelete === row.id ? 'border-red-300 text-red-700' : 'border-hairline text-ink'"
+            class="btn btn-sm"
+            :class="confirmingDelete === row.id ? 'btn-danger border-red-300' : 'btn-ghost text-red-700'"
             @click="onDelete(row.id)"
           >
             {{ confirmingDelete === row.id ? "Wirklich?" : "Endgültig löschen" }}

@@ -149,3 +149,44 @@ body {
 .tabular {
   font-variant-numeric: tabular-nums;
 }
+
+/*
+ * Shared building blocks (ui-redesign-pages). Components layer, so a utility
+ * class on the same element still wins. All colours come from the tokens and
+ * follow the colour mode.
+ */
+@layer components {
+  .page {
+    @apply mx-auto w-full max-w-[1360px] px-4 pb-16 pt-8 sm:px-8 sm:pt-10;
+  }
+  .page-narrow {
+    @apply mx-auto w-full max-w-3xl px-4 pb-16 pt-8 sm:px-8 sm:pt-10;
+  }
+  .card {
+    @apply rounded-2xl border border-hairline bg-surface;
+  }
+  .label-caps {
+    @apply text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-subtle;
+  }
+  .field {
+    @apply h-10 w-full rounded-[10px] border border-hairline bg-surface px-3 text-sm text-ink placeholder:text-ink-faint focus:border-ink-faint focus:outline-none disabled:opacity-60;
+  }
+  .btn {
+    @apply inline-flex h-10 items-center justify-center gap-2 rounded-[10px] px-4 text-sm font-medium whitespace-nowrap transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-sm {
+    @apply h-8 rounded-[8px] px-3 text-xs;
+  }
+  .btn-primary {
+    @apply bg-ink text-canvas hover:bg-ink-muted;
+  }
+  .btn-secondary {
+    @apply border border-hairline bg-surface text-ink hover:border-ink-faint;
+  }
+  .btn-danger {
+    @apply border border-red-200 bg-surface text-red-700 hover:bg-red-50;
+  }
+  .btn-ghost {
+    @apply text-ink-muted hover:bg-surface-raised hover:text-ink;
+  }
+}

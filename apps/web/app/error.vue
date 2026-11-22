@@ -19,7 +19,7 @@ function home(): void {
       <p class="text-xs font-medium uppercase tracking-wide text-ink-subtle" data-testid="error-status">
         Fehler {{ error.statusCode ?? "" }}
       </p>
-      <h1 class="mt-2 text-lg font-semibold tracking-tight text-ink">
+      <h1 class="mt-2 font-serif text-2xl font-medium text-ink">
         {{ unreachable ? "Server nicht erreichbar." : "Etwas ist schiefgelaufen." }}
       </h1>
       <p class="mt-3 text-sm text-ink-muted">
@@ -27,7 +27,7 @@ function home(): void {
       </p>
       <button
         type="button"
-        class="mt-6 inline-block rounded-lg bg-ink px-4 py-2 text-sm font-medium text-on-inverse hover:opacity-80"
+        class="btn btn-primary mt-6"
         @click="home"
       >
         Zurück zur Startseite

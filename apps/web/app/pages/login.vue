@@ -57,7 +57,7 @@ async function onRecovery(): Promise<void> {
 const inputClass =
   "mt-1.5 block w-full rounded-lg border border-hairline bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none";
 const primaryClass =
-  "mt-6 block w-full rounded-lg bg-ink px-4 py-2.5 text-sm font-medium text-on-inverse hover:opacity-80 disabled:opacity-60";
+  "btn btn-primary mt-6 h-11 w-full";
 const linkClass = "text-xs text-ink-muted underline hover:text-ink";
 </script>
 

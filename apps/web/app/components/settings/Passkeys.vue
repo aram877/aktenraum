@@ -62,7 +62,7 @@ async function onAdd(): Promise<void> {
 
 <template>
   <div>
-    <h3 class="text-xs font-semibold uppercase tracking-wide text-ink-muted">Passkeys</h3>
+    <h3 class="font-serif text-lg font-medium text-ink">Passkeys</h3>
     <p
       v-if="onlyOne"
       data-testid="only-one-passkey"

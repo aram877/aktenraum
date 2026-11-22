@@ -113,7 +113,7 @@ useShortcuts(
 
     <PaneToggle v-model="mobilePane" />
 
-    <p v-if="errorText" role="alert" class="mx-4 mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+    <p v-if="errorText" role="alert" class="mx-auto mt-4 w-[calc(100%-2rem)] max-w-[1328px] rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
       {{ errorText }}
     </p>
 
@@ -145,7 +145,7 @@ useShortcuts(
             type="button"
             :disabled="anyPending"
             data-testid="approve"
-            class="rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-surface disabled:opacity-50"
+            class="btn btn-primary"
             @click="onApprove"
           >
             {{ approve.isPending.value ? "genehmige…" : "Genehmigen" }}
@@ -154,7 +154,7 @@ useShortcuts(
             type="button"
             :disabled="anyPending"
             data-testid="reject"
-            class="rounded-lg border border-hairline px-4 py-2 text-sm font-medium text-ink hover:bg-canvas disabled:opacity-50"
+            class="btn btn-secondary"
             @click="onReject"
           >
             {{ reject.isPending.value ? "lehne ab…" : "Ablehnen" }}

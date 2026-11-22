@@ -19,8 +19,8 @@ const toneClass = computed(() => {
 
 <template>
   <div id="backup">
-    <h2 class="text-sm font-semibold text-ink">Backup</h2>
-    <p class="mt-0.5 text-xs text-ink-muted">
+    <h2 class="font-serif text-2xl font-medium tracking-[-0.01em] text-ink">Backup</h2>
+    <p class="mt-1 text-sm text-ink-subtle">
       Backups laufen automatisch: Sobald der Rechner an ist, wird stündlich geprüft und ein
       Backup erstellt, wenn das letzte älter als 20 Stunden ist.
     </p>

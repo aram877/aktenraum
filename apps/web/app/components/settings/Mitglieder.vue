@@ -140,8 +140,8 @@ async function onRevoke(id: number): Promise<void> {
 
 <template>
   <div data-testid="mitglieder">
-    <h2 class="text-sm font-semibold text-ink">Mitglieder</h2>
-    <p class="mt-0.5 text-xs text-ink-muted">
+    <h2 class="font-serif text-2xl font-medium tracking-[-0.01em] text-ink">Mitglieder</h2>
+    <p class="mt-1 text-sm text-ink-subtle">
       Wer zum Haushalt gehört. Neue Mitglieder kommen über einen Einladungslink dazu und haben
       ihre eigene, private Akte.
     </p>
@@ -252,7 +252,7 @@ async function onRevoke(id: number): Promise<void> {
           type="button"
           data-testid="remove-submit"
           :disabled="!confirmMatches || removeMember.isPending.value"
-          class="rounded-lg bg-red-700 px-3 py-1.5 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+          class="rounded-lg bg-tone-danger px-3 py-1.5 font-semibold text-canvas disabled:cursor-not-allowed disabled:opacity-50"
           @click="onConfirmRemove"
         >
           {{ removeMember.isPending.value ? "Entferne…" : "Endgültig entfernen" }}
@@ -271,7 +271,7 @@ async function onRevoke(id: number): Promise<void> {
         type="button"
         data-testid="create-invite"
         :disabled="create.isPending.value"
-        class="rounded-lg bg-ink px-4 py-1.5 text-xs font-semibold text-surface disabled:cursor-not-allowed disabled:opacity-50"
+        class="btn btn-primary btn-sm"
         @click="onCreate"
       >
         {{ create.isPending.value ? "Erstelle…" : "Einladungslink erstellen" }}
@@ -307,7 +307,7 @@ async function onRevoke(id: number): Promise<void> {
     </div>
 
     <div v-if="(invitesQuery.data.value ?? []).length > 0" class="mt-5">
-      <h3 class="text-xs font-semibold text-ink-muted">Offene Einladungen</h3>
+      <h3 class="font-serif text-lg font-medium text-ink">Offene Einladungen</h3>
       <ul class="mt-2 divide-y divide-hairline rounded-lg border border-hairline">
         <li
           v-for="invite in invitesQuery.data.value"
@@ -330,7 +330,7 @@ async function onRevoke(id: number): Promise<void> {
     </div>
 
     <div v-if="(removalsQuery.data.value ?? []).length > 0" class="mt-5" data-testid="removals">
-      <h3 class="text-xs font-semibold text-ink-muted">Entfernte Mitglieder</h3>
+      <h3 class="font-serif text-lg font-medium text-ink">Entfernte Mitglieder</h3>
       <ul class="mt-2 divide-y divide-hairline rounded-lg border border-hairline">
         <li
           v-for="removal in removalsQuery.data.value"

@@ -31,24 +31,24 @@ function onRevoke(entry: SharedByMeEntry): void {
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
-    <h1 class="text-lg font-semibold tracking-tight text-ink">Geteilt</h1>
+  <div class="page-narrow">
+    <PageHeader eyebrow="Haushalt" title="Geteilt" subtitle="Einzelne Dokumente, die du mit anderen Mitgliedern teilst – oder die mit dir geteilt wurden." />
 
-    <p v-if="spaces.isPending.value" class="mt-4 text-xs text-ink-subtle">Lädt…</p>
+    <p v-if="spaces.isPending.value" class="mt-8 text-sm text-ink-subtle">Lädt…</p>
 
-    <p v-else-if="!visible" data-testid="geteilt-single" class="mt-2 text-sm text-ink-muted">
+    <p v-else-if="!visible" data-testid="geteilt-single" class="mt-8 font-serif text-lg text-ink-subtle">
       Teilen gibt es, sobald ein zweites Mitglied zum Haushalt gehört.
     </p>
 
     <template v-else>
-      <div class="mt-4 flex gap-2 text-sm" role="tablist">
+      <div class="mt-8 inline-flex rounded-xl bg-surface-sunken p-1 text-sm" role="tablist">
         <button
           type="button"
           role="tab"
           data-testid="tab-with-me"
           :aria-selected="tab === 'with-me'"
-          class="rounded-lg px-3 py-1.5"
-          :class="tab === 'with-me' ? 'bg-ink font-semibold text-surface' : 'border border-hairline text-ink'"
+          class="h-9 rounded-[9px] px-4 font-medium"
+          :class="tab === 'with-me' ? 'bg-surface text-ink shadow-[0_1px_2px_rgba(28,25,23,0.08)]' : 'text-ink-muted hover:text-ink'"
           @click="selectTab('with-me')"
         >
           Mit mir geteilt
@@ -58,8 +58,8 @@ function onRevoke(entry: SharedByMeEntry): void {
           role="tab"
           data-testid="tab-by-me"
           :aria-selected="tab === 'by-me'"
-          class="rounded-lg px-3 py-1.5"
-          :class="tab === 'by-me' ? 'bg-ink font-semibold text-surface' : 'border border-hairline text-ink'"
+          class="h-9 rounded-[9px] px-4 font-medium"
+          :class="tab === 'by-me' ? 'bg-surface text-ink shadow-[0_1px_2px_rgba(28,25,23,0.08)]' : 'text-ink-muted hover:text-ink'"
           @click="selectTab('by-me')"
         >
           Von mir geteilt
@@ -79,7 +79,7 @@ function onRevoke(entry: SharedByMeEntry): void {
             v-for="entry in withMe.data.value"
             :key="entry.doc_id"
             :data-testid="`with-me-${entry.doc_id}`"
-            class="rounded-xl border border-hairline bg-surface p-3"
+            class="card px-4 py-3"
           >
             <NuxtLink :to="`/library/${entry.doc_id}`" class="text-sm font-medium text-ink">{{ entry.title }}</NuxtLink>
             <p class="mt-1 text-xs text-ink-muted">
@@ -102,7 +102,7 @@ function onRevoke(entry: SharedByMeEntry): void {
             v-for="entry in byMe.data.value"
             :key="`${entry.doc_id}-${entry.member.id}`"
             :data-testid="`by-me-${entry.doc_id}-${entry.member.id}`"
-            class="rounded-xl border border-hairline bg-surface p-3"
+            class="card px-4 py-3"
           >
             <div class="flex flex-wrap items-center gap-2">
               <NuxtLink :to="`/library/${entry.doc_id}`" class="min-w-0 flex-1 truncate text-sm font-medium text-ink">
@@ -119,7 +119,7 @@ function onRevoke(entry: SharedByMeEntry): void {
               <button
                 type="button"
                 :data-testid="`revoke-${entry.doc_id}-${entry.member.id}`"
-                class="rounded-lg border border-hairline px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
+                class="btn btn-danger btn-sm"
                 @click="onRevoke(entry)"
               >
                 Entziehen

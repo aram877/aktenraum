@@ -61,7 +61,7 @@ async function onMove(): Promise<void> {
         type="button"
         data-testid="move-confirm"
         :disabled="target === null || move.isPending.value"
-        class="rounded-lg bg-ink px-3 py-1.5 text-xs font-semibold text-surface disabled:opacity-50"
+        class="btn btn-primary btn-sm"
         @click="onMove"
       >
         {{ move.isPending.value ? "Verschiebe…" : "Verschieben" }}

@@ -4,8 +4,8 @@
 
 <template>
   <div>
-    <h2 class="text-sm font-semibold text-ink">Konto</h2>
-    <p class="mt-0.5 text-xs text-ink-muted">
+    <h2 class="font-serif text-2xl font-medium tracking-[-0.01em] text-ink">Konto</h2>
+    <p class="mt-1 text-sm text-ink-subtle">
       Du meldest dich mit Passkeys an. Einstellungen hier werden mit einem Passkey bestätigt.
     </p>
     <SettingsPasskeys class="mt-5" />

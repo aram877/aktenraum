@@ -60,8 +60,8 @@ function onManualSubmit(): void {
 
 <template>
   <div>
-    <h2 class="text-sm font-semibold text-ink">{{ title }}</h2>
-    <p class="mt-0.5 text-xs text-ink-muted">{{ description }}</p>
+    <h2 class="font-serif text-2xl font-medium tracking-[-0.01em] text-ink">{{ title }}</h2>
+    <p class="mt-1 text-sm text-ink-subtle">{{ description }}</p>
     <div class="mt-3">
       <select
         v-if="hasLiveList"

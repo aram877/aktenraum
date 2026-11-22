@@ -31,6 +31,12 @@ function onPick(event: Event): void {
   if (picked.length > 0) void send(picked, spaceIdToSend.value);
 }
 
+function phaseDot(phase: UploadPhase): string {
+  if (phase === "error") return "bg-tone-danger";
+  if (phase === "inbox" || phase === "library") return "bg-emerald-700";
+  return "animate-pulse bg-tone-info";
+}
+
 function phaseClass(phase: UploadPhase): string {
   if (phase === "error") return "text-red-700";
   if (phase === "inbox" || phase === "library") return "text-emerald-700";
@@ -39,16 +45,15 @@ function phaseClass(phase: UploadPhase): string {
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
-    <h1 class="text-lg font-semibold tracking-tight text-ink">Hochladen</h1>
-    <p class="mt-0.5 text-xs text-ink-muted">PDF oder Bild hochladen — die KI klassifiziert automatisch.</p>
+  <div class="page-narrow">
+    <PageHeader eyebrow="Eingang" title="Hochladen" subtitle="PDF oder Bild hochladen — die KI klassifiziert automatisch." />
 
-    <label v-if="spacesVisible && targets.length > 1" class="mt-4 flex items-center gap-2 text-xs text-ink-muted">
-      Ablegen in
+    <label v-if="spacesVisible && targets.length > 1" class="mt-8 flex flex-wrap items-center gap-3">
+      <span class="label-caps">Ablegen in</span>
       <select
         :value="targetId"
         data-testid="upload-space"
-        class="rounded-lg border border-hairline bg-surface px-2 py-1.5 text-sm text-ink"
+        class="field w-auto min-w-56"
         @change="target = Number(($event.target as HTMLSelectElement).value)"
       >
         <option v-for="space in targets" :key="space.id" :value="space.id">{{ spaceLabel(space) }}</option>
@@ -56,37 +61,38 @@ function phaseClass(phase: UploadPhase): string {
     </label>
 
     <div
-      class="mt-5 rounded-xl border-2 border-dashed p-10 text-center"
-      :class="dragging ? 'border-accent bg-accent/5' : 'border-hairline'"
+      class="mt-6 flex flex-col items-center rounded-2xl border-2 border-dashed px-6 py-14 text-center transition-colors"
+      :class="dragging ? 'border-accent bg-surface' : 'border-hairline bg-surface/60'"
       data-testid="dropzone"
       @dragover.prevent="dragging = true"
       @dragleave="dragging = false"
       @drop.prevent="onDrop"
     >
-      <p class="text-sm text-ink-muted">Dateien hierher ziehen</p>
-      <p class="mt-1 text-xs text-ink-subtle">oder</p>
-      <label
-        class="mt-3 inline-block cursor-pointer rounded-lg bg-ink px-4 py-2 text-sm font-medium text-on-inverse hover:opacity-80"
-      >
+      <AppLogo :size="56" />
+      <p class="mt-5 font-serif text-2xl font-medium text-ink">Dateien hierher ziehen</p>
+      <p class="mt-1 text-sm text-ink-subtle">oder</p>
+      <label class="btn btn-primary mt-4 cursor-pointer">
         Dateien auswählen
         <input type="file" multiple class="hidden" data-testid="file-input" @change="onPick">
       </label>
+      <p class="mt-4 text-xs text-ink-faint">PDF, PNG, JPG, TIFF · bis 25 MB pro Datei · bis zu 20 Dateien</p>
     </div>
 
-    <ul v-if="files.length > 0" class="mt-5 flex flex-col gap-2">
+    <ul v-if="files.length > 0" class="card mt-6 divide-y divide-hairline-soft">
       <template v-for="file in files" :key="file.name">
-        <li class="flex items-center gap-3 rounded-lg border border-hairline bg-surface p-3" :data-testid="`file-${file.name}`">
+        <li class="flex items-center gap-3 px-4 py-3" :data-testid="`file-${file.name}`">
+          <span class="h-2 w-2 flex-none rounded-full" :class="phaseDot(file.phase)" />
           <span class="min-w-0 flex-1 truncate text-sm text-ink">{{ file.name }}</span>
           <span class="shrink-0 text-xs" :class="phaseClass(file.phase)">{{ PHASE_LABEL[file.phase] }}</span>
           <NuxtLink
             v-if="file.docId"
             :to="`/library/${file.docId}`"
-            class="shrink-0 text-xs font-medium text-accent hover:underline"
+            class="shrink-0 text-xs font-medium text-accent hover:text-accent-dark"
           >
             öffnen
           </NuxtLink>
         </li>
-        <li v-if="file.detail" class="-mt-1 px-3 text-[11px] text-red-700">{{ file.detail }}</li>
+        <li v-if="file.detail" class="px-4 pb-3 text-[11px] text-red-700">{{ file.detail }}</li>
       </template>
     </ul>
   </div>

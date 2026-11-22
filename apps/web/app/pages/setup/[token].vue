@@ -76,7 +76,7 @@ async function onCreate(): Promise<void> {
           type="button"
           data-testid="setup-create"
           :disabled="enrol.isPending.value"
-          class="block w-full rounded-lg bg-ink px-4 py-2.5 text-sm font-medium text-on-inverse hover:opacity-80 disabled:opacity-60"
+          class="btn btn-primary h-11 w-full"
           @click="onCreate"
         >
           {{ enrol.isPending.value ? "Warte auf Passkey…" : "Passkey erstellen" }}

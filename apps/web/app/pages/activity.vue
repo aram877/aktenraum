@@ -48,38 +48,38 @@ function setDays(next: number): void {
 </script>
 
 <template>
-  <div class="flex min-h-full flex-col">
-    <div class="flex-1 px-4 py-8 sm:px-6">
-      <div class="mx-auto max-w-6xl">
-        <div class="flex flex-wrap items-baseline justify-between gap-3">
-          <div>
-            <h1 class="text-lg font-semibold tracking-tight text-ink">Aktivität</h1>
-            <p class="mt-1 text-xs text-ink-subtle">
-              Was Paperless importiert hat – per E-Mail, Upload oder Ordner – und was daraus wurde.
-            </p>
-          </div>
-          <div class="flex gap-1" role="group" aria-label="Zeitraum">
-            <button
-              v-for="range in RANGES"
-              :key="range.days"
-              type="button"
-              :data-testid="`range-${range.days}`"
-              class="rounded-lg border px-3 py-1.5 text-xs font-medium"
-              :class="days === range.days ? 'border-ink text-ink' : 'border-hairline text-ink-muted'"
-              @click="setDays(range.days)"
-            >
-              {{ range.label }}
-            </button>
-          </div>
-        </div>
+  <div class="page">
+    <div>
+      <div>
+        <PageHeader
+          eyebrow="Eingang"
+          title="Aktivität"
+          subtitle="Was Paperless importiert hat – per E-Mail, Upload oder Ordner – und was daraus wurde."
+        >
+          <template #actions>
+            <div class="inline-flex rounded-xl bg-surface-sunken p-1" role="group" aria-label="Zeitraum">
+              <button
+                v-for="range in RANGES"
+                :key="range.days"
+                type="button"
+                :data-testid="`range-${range.days}`"
+                class="h-9 rounded-[9px] px-4 text-sm font-medium"
+                :class="days === range.days ? 'bg-surface text-ink shadow-[0_1px_2px_rgba(28,25,23,0.08)]' : 'text-ink-muted hover:text-ink'"
+                @click="setDays(range.days)"
+              >
+                {{ range.label }}
+              </button>
+            </div>
+          </template>
+        </PageHeader>
 
-        <p v-if="errorText" class="mt-6 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p v-if="errorText" class="mt-8 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {{ errorText }}
         </p>
         <p v-else-if="activity.isPending.value" class="mt-6 text-xs text-ink-subtle">Lade Aktivität…</p>
 
         <template v-else-if="data">
-          <div class="mt-6 flex flex-wrap items-center gap-2 text-xs" data-testid="activity-summary">
+          <div class="mt-8 flex flex-wrap items-center gap-2 text-xs" data-testid="activity-summary">
             <span class="rounded-full bg-emerald-500/10 px-2.5 py-1 font-medium text-emerald-700">{{ data.summary.new }} neu</span>
             <span class="rounded-full bg-surface-raised px-2.5 py-1 font-medium text-ink-muted">{{ data.summary.duplicate }} Duplikate</span>
             <span
@@ -96,13 +96,13 @@ function setDays(next: number): void {
             Nur die neuesten {{ data.items.length }} Importe werden angezeigt.
           </p>
 
-          <section v-if="data.mails.length" class="mt-8">
-            <h2 class="text-sm font-semibold text-ink">E-Mails</h2>
-            <ul class="mt-2 flex flex-col gap-2">
+          <section v-if="data.mails.length" class="mt-10">
+            <h2 class="border-b border-hairline px-1 pb-2.5 font-serif text-xl font-medium text-ink">E-Mails</h2>
+            <ul class="mt-3 flex flex-col gap-2">
               <li
                 v-for="mail in data.mails"
                 :key="mail.id"
-                class="rounded-lg border border-hairline bg-surface px-3 py-2"
+                class="card px-4 py-3"
                 data-testid="activity-mail"
               >
                 <div class="flex flex-wrap items-baseline justify-between gap-2">
@@ -124,9 +124,9 @@ function setDays(next: number): void {
             </ul>
           </section>
 
-          <section class="mt-8">
-            <div class="flex flex-wrap items-center justify-between gap-2">
-              <h2 class="text-sm font-semibold text-ink">Importierte Dateien</h2>
+          <section class="mt-10">
+            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-hairline px-1 pb-2.5">
+              <h2 class="font-serif text-xl font-medium text-ink">Importierte Dateien</h2>
               <div class="flex flex-wrap gap-1">
                 <button
                   v-for="f in OUTCOME_FILTERS"
@@ -144,16 +144,16 @@ function setDays(next: number): void {
 
             <p
               v-if="items.length === 0"
-              class="mt-3 rounded-lg border border-hairline bg-surface px-4 py-8 text-center text-sm text-ink-muted"
+              class="py-12 text-center font-serif text-lg text-ink-subtle"
               data-testid="activity-empty"
             >
               Keine Importe im gewählten Zeitraum.
             </p>
-            <ul v-else class="mt-3 flex flex-col divide-y divide-hairline rounded-lg border border-hairline bg-surface">
+            <ul v-else class="flex flex-col divide-y divide-hairline-soft">
               <li
                 v-for="item in items"
                 :key="item.task_id"
-                class="flex flex-col gap-1 px-3 py-2.5 md:flex-row md:items-center md:gap-4"
+                class="flex flex-col gap-1 rounded-[10px] px-2 py-3 transition-colors hover:bg-surface/70 md:flex-row md:items-center md:gap-4"
                 data-testid="activity-item"
               >
                 <div class="flex shrink-0 items-center gap-2 md:w-48">

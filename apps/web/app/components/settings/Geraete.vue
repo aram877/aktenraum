@@ -30,8 +30,8 @@ async function onRevokeOthers(): Promise<void> {
 
 <template>
   <div data-testid="geraete">
-    <h3 class="text-sm font-semibold text-ink">Geräte</h3>
-    <p class="mt-0.5 text-xs text-ink-muted">
+    <h3 class="font-serif text-lg font-medium text-ink">Geräte</h3>
+    <p class="mt-1 text-sm text-ink-subtle">
       Wo du angemeldet bist. Eine Anmeldung läuft nach 7 Tagen ohne Nutzung ab, spätestens nach 30 Tagen.
     </p>
 

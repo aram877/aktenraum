@@ -70,34 +70,34 @@ async function onLeave(space: SpaceSummary): Promise<void> {
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
-    <h1 class="text-lg font-semibold tracking-tight text-ink">Akten</h1>
+  <div class="page-narrow">
+    <PageHeader eyebrow="Haushalt" title="Akten" />
 
-    <p v-if="spaces.isPending.value" class="mt-4 text-xs text-ink-subtle">Lädt…</p>
+    <p v-if="spaces.isPending.value" class="mt-8 text-sm text-ink-subtle">Lädt…</p>
 
-    <p v-else-if="!visible" data-testid="akten-single" class="mt-2 text-sm text-ink-muted">
+    <p v-else-if="!visible" data-testid="akten-single" class="mt-8 font-serif text-lg text-ink-subtle">
       Gemeinsame Akten gibt es, sobald ein zweites Mitglied zum Haushalt gehört. Bis dahin liegen
       alle Dokumente in deiner persönlichen Akte.
     </p>
 
     <template v-else>
-      <p class="mt-0.5 text-xs text-ink-muted">
+      <p class="mt-3 max-w-2xl text-sm text-ink-subtle">
         Was ihr gemeinsam verwaltet, kommt in eine gemeinsame Akte. Der Eigentümer entscheidet, wer
         mitliest oder mitbearbeitet.
       </p>
 
-      <form class="mt-5 flex gap-2" data-testid="akte-create" @submit.prevent="onCreate">
+      <form class="mt-8 flex gap-2" data-testid="akte-create" @submit.prevent="onCreate">
         <input
           v-model="newName"
           maxlength="128"
           placeholder="Neue Akte, z. B. Haushalt"
           data-testid="akte-name"
-          class="min-w-0 flex-1 rounded-lg border border-hairline bg-surface px-3 py-1.5 text-sm"
+          class="field min-w-0 flex-1"
         >
         <button
           type="submit"
           :disabled="newName.trim() === '' || create.isPending.value"
-          class="rounded-lg bg-ink px-4 py-1.5 text-xs font-semibold text-surface disabled:cursor-not-allowed disabled:opacity-50"
+          class="btn btn-primary"
         >
           Anlegen
         </button>
@@ -109,7 +109,7 @@ async function onLeave(space: SpaceSummary): Promise<void> {
           v-for="space in list"
           :key="space.id"
           :data-testid="`akte-${space.id}`"
-          class="rounded-xl border border-hairline bg-surface p-4"
+          class="card p-5"
         >
           <div class="flex flex-wrap items-center gap-2">
             <template v-if="renaming === space.id">
@@ -117,20 +117,23 @@ async function onLeave(space: SpaceSummary): Promise<void> {
                 v-model="renameValue"
                 maxlength="128"
                 data-testid="akte-rename-input"
-                class="min-w-0 flex-1 rounded border border-hairline px-2 py-1 text-sm"
+                class="field h-9 min-w-0 flex-1"
                 @keydown.enter.prevent="onRename(space)"
                 @keydown.escape="renaming = null"
               >
               <button type="button" class="text-xs font-medium text-accent" @click="onRename(space)">Speichern</button>
             </template>
-            <h2 v-else class="min-w-0 flex-1 truncate text-sm font-semibold text-ink">
-              📁 {{ spaceLabel(space) }}
+            <h2 v-else class="flex min-w-0 flex-1 items-center gap-3 truncate font-serif text-xl font-medium text-ink">
+              <span class="flex h-9 w-9 flex-none items-center justify-center rounded-[10px] bg-surface-raised text-ink-muted" aria-hidden="true">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" /></svg>
+              </span>
+              <span class="truncate">{{ spaceLabel(space) }}</span>
             </h2>
-            <span class="rounded-full bg-canvas px-2 py-0.5 text-[11px] text-ink-muted" data-testid="akte-role">
+            <span class="rounded-full bg-surface-raised px-2.5 py-0.5 text-[11px] font-medium text-ink-muted" data-testid="akte-role">
               {{ ROLE_LABEL[space.role] }}
             </span>
           </div>
-          <p class="mt-1 text-xs text-ink-subtle">
+          <p class="mt-2 text-xs text-ink-subtle">
             <template v-if="space.kind === 'shared'">Eigentümer {{ space.owner }} · {{ space.member_count }} Mitglieder · </template>
             <NuxtLink :to="`/library?space=${space.id}`" class="text-accent hover:underline">
               {{ space.document_count }} Dokumente

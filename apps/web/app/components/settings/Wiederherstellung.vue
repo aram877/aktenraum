@@ -21,7 +21,7 @@ async function onRegenerate(): Promise<void> {
 
 <template>
   <div>
-    <h3 class="text-xs font-semibold uppercase tracking-wide text-ink-muted">Wiederherstellungscodes</h3>
+    <h3 class="font-serif text-lg font-medium text-ink">Wiederherstellungscodes</h3>
     <RecoveryCodes
       v-if="fresh"
       class="mt-3"

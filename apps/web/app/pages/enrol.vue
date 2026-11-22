@@ -33,8 +33,9 @@ async function onLogout(): Promise<void> {
 
 <template>
   <div class="flex min-h-screen items-center justify-center px-4">
-    <div class="w-full max-w-md rounded-xl border border-hairline bg-surface p-8">
-      <h1 class="mb-1 text-xl font-semibold tracking-tight text-ink">Passkey anlegen</h1>
+    <div class="w-full max-w-md rounded-2xl border border-hairline bg-surface p-8">
+      <AppLogo :size="52" class="mb-5" />
+      <h1 class="mb-1 font-serif text-3xl font-medium tracking-[-0.02em] text-ink">Passkey anlegen</h1>
 
       <RecoveryCodes
         v-if="codes"
@@ -54,7 +55,7 @@ async function onLogout(): Promise<void> {
           type="button"
           data-testid="enrol-create"
           :disabled="register.isPending.value"
-          class="block w-full rounded-lg bg-ink px-4 py-2.5 text-sm font-medium text-on-inverse hover:opacity-80 disabled:opacity-60"
+          class="btn btn-primary h-11 w-full"
           @click="onCreate"
         >
           {{ register.isPending.value ? "Warte auf Passkey…" : "Passkey erstellen" }}

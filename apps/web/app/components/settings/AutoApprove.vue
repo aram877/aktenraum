@@ -70,8 +70,8 @@ async function onSave(): Promise<void> {
 
 <template>
   <div>
-    <h2 class="text-sm font-semibold text-ink">Auto-Genehmigung</h2>
-    <p class="mt-0.5 text-xs text-ink-muted">
+    <h2 class="font-serif text-2xl font-medium tracking-[-0.01em] text-ink">Auto-Genehmigung</h2>
+    <p class="mt-1 text-sm text-ink-subtle">
       Welche Dokumenttypen dürfen ohne manuelle Prüfung automatisch genehmigt werden? Pro Typ legst
       du Mindest-Konfidenz fest. Änderungen wirken im Auto-Tagger innerhalb von 60&nbsp;Sekunden.
     </p>
@@ -122,7 +122,7 @@ async function onSave(): Promise<void> {
             type="button"
             data-testid="auto-approve-save"
             :disabled="!dirty || update.isPending.value"
-            class="rounded-lg bg-ink px-4 py-1.5 text-xs font-semibold text-surface disabled:cursor-not-allowed disabled:opacity-50"
+            class="btn btn-primary btn-sm"
             @click="onSave"
           >
             {{ update.isPending.value ? "speichere…" : "Speichern" }}

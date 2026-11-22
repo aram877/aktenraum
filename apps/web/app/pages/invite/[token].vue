@@ -85,7 +85,7 @@ async function onSubmit(): Promise<void> {
           type="submit"
           data-testid="redeem"
           :disabled="!canSubmit"
-          class="mt-6 block w-full rounded-lg bg-ink px-4 py-2.5 text-sm font-medium text-on-inverse hover:opacity-80 disabled:opacity-60"
+          class="btn btn-primary mt-6 h-11 w-full"
         >
           {{ redeem.isPending.value ? "Warte auf Passkey…" : "Passkey erstellen und beitreten" }}
         </button>

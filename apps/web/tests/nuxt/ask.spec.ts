@@ -71,6 +71,10 @@ describe("ask page", () => {
     stream.close();
     await vi.waitFor(() => expect(wrapper.text()).toContain("Stromrechnung"));
     expect(wrapper.find('a[href="/library/7"]').exists()).toBe(true);
+    // Citations carry the document type tile (ui-redesign-pages).
+    const tile = wrapper.find('[data-testid="ask-citation"] [data-testid="doc-type-tile"]');
+    expect(tile.text()).toBe("RE");
+    expect(tile.attributes("data-family")).toBe("geld");
     expect(wrapper.find('[data-testid="ask-submit"]').exists()).toBe(true);
   });
 

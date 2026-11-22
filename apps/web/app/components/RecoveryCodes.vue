@@ -54,7 +54,7 @@ function download(): void {
     <button
       type="button"
       data-testid="codes-continue"
-      class="mt-5 block w-full rounded-lg bg-ink px-4 py-2.5 text-sm font-medium text-on-inverse hover:opacity-80"
+      class="btn btn-primary mt-5 h-11 w-full"
       @click="emit('continue')"
     >
       {{ continueLabel ?? "Ich habe die Codes gesichert — weiter" }}

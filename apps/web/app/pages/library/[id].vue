@@ -125,13 +125,13 @@ async function onDelete(): Promise<void> {
 
     <PaneToggle v-model="mobilePane" />
 
-    <p v-if="errorText" role="alert" class="mx-4 mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+    <p v-if="errorText" role="alert" class="mx-auto mt-4 w-[calc(100%-2rem)] max-w-[1328px] rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
       {{ errorText }}
     </p>
     <p
       v-if="savedAt"
       data-testid="saved"
-      class="mx-4 mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800"
+      class="mx-auto mt-4 w-[calc(100%-2rem)] max-w-[1328px] rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
     >
       Gespeichert.
     </p>
@@ -166,7 +166,7 @@ async function onDelete(): Promise<void> {
             type="button"
             :disabled="!dirty || fieldsPatch.isPending.value"
             data-testid="save"
-            class="rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-surface disabled:opacity-50"
+            class="btn btn-primary"
             @click="onSave"
           >
             {{ fieldsPatch.isPending.value ? "speichere…" : "Speichern" }}
@@ -176,7 +176,7 @@ async function onDelete(): Promise<void> {
             type="button"
             :disabled="!dirty || fieldsPatch.isPending.value"
             data-testid="reset"
-            class="rounded-lg border border-hairline px-4 py-2 text-sm font-medium text-ink hover:bg-canvas disabled:opacity-50"
+            class="btn btn-secondary"
             @click="reset"
           >
             Zurücksetzen
@@ -186,7 +186,7 @@ async function onDelete(): Promise<void> {
             type="button"
             :disabled="reprocess.isPending.value"
             data-testid="reprocess"
-            class="rounded-lg border px-4 py-2 text-sm font-medium disabled:opacity-50"
+            class="btn border"
             :class="confirmingReprocess ? 'border-amber-400 text-amber-800' : 'border-hairline text-ink'"
             @click="onReprocess"
           >
@@ -197,7 +197,7 @@ async function onDelete(): Promise<void> {
             type="button"
             :disabled="deleteDoc.isPending.value"
             data-testid="delete"
-            class="rounded-lg border px-4 py-2 text-sm font-medium disabled:opacity-50"
+            class="btn border"
             :class="confirmingDelete ? 'border-red-400 bg-red-50 text-red-700' : 'border-hairline text-red-700 hover:bg-red-50'"
             @click="onDelete"
           >

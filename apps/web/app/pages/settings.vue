@@ -12,6 +12,18 @@ const updateTagger = useUpdateLLMSettings();
 const updateAnswer = useUpdateAnswerLLMSettings();
 
 const pendingTagger = ref<string | null>(null);
+
+const sections = computed(() => [
+  ...(isAdmin.value
+    ? [
+        { id: "modelle", label: "KI-Modelle" },
+        { id: "auto-genehmigung", label: "Auto-Genehmigung" },
+        { id: "backup", label: "Backup" },
+        { id: "mitglieder", label: "Mitglieder" },
+      ]
+    : []),
+  { id: "konto", label: "Konto" },
+]);
 const pendingAnswer = ref<string | null>(null);
 
 async function onPickTagger(model: string): Promise<void> {
@@ -34,44 +46,69 @@ async function onPickAnswer(model: string): Promise<void> {
 </script>
 
 <template>
-  <div class="flex min-h-full flex-col">
-    <div class="flex-1 px-6 py-10">
-      <div class="mx-auto flex max-w-2xl flex-col gap-10">
-        <h1 class="text-lg font-semibold tracking-tight text-ink">Einstellungen</h1>
+  <div class="page">
+    <PageHeader eyebrow="System" title="Einstellungen" />
 
+    <div class="mt-8 flex flex-wrap items-start gap-8">
+      <nav
+        class="sticky top-6 hidden w-52 flex-none flex-col gap-0.5 text-sm lg:flex"
+        aria-label="Abschnitte"
+        data-testid="settings-index"
+      >
+        <a
+          v-for="s in sections"
+          :key="s.id"
+          :href="`#${s.id}`"
+          class="rounded-[9px] px-3 py-2 text-ink-muted hover:bg-surface-raised hover:text-ink"
+        >
+          {{ s.label }}
+        </a>
+      </nav>
+
+      <div class="flex min-w-0 flex-[999_1_560px] flex-col gap-6">
         <template v-if="isAdmin">
-        <SettingsModelPicker
-          title="Modell für Klassifizierung"
-          description="Wird für die Extraktion der ai_* Felder beim Hochladen verwendet."
-          field-name="tagger-model"
-          :active-model="tagger.data.value?.model ?? null"
-          :available-models="models.data.value ?? []"
-          :is-models-loading="models.isPending.value"
-          :is-pending="updateTagger.isPending.value"
-          :pending="pendingTagger"
-          @pick="onPickTagger"
-        />
+          <section id="modelle" class="card scroll-mt-6 p-6 sm:p-8">
+            <SettingsModelPicker
+              title="Modell für Klassifizierung"
+              description="Wird für die Extraktion der ai_* Felder beim Hochladen verwendet."
+              field-name="tagger-model"
+              :active-model="tagger.data.value?.model ?? null"
+              :available-models="models.data.value ?? []"
+              :is-models-loading="models.isPending.value"
+              :is-pending="updateTagger.isPending.value"
+              :pending="pendingTagger"
+              @pick="onPickTagger"
+            />
+            <SettingsModelPicker
+              class="mt-8 border-t border-hairline pt-8"
+              title="Modell für Antworten"
+              description="Wird für die Prosa-Antworten auf der Ask-Seite verwendet."
+              field-name="answer-model"
+              :active-model="answer.data.value?.model ?? null"
+              :available-models="models.data.value ?? []"
+              :is-models-loading="models.isPending.value"
+              :is-pending="updateAnswer.isPending.value"
+              :pending="pendingAnswer"
+              @pick="onPickAnswer"
+            />
+          </section>
 
-        <SettingsModelPicker
-          title="Modell für Antworten"
-          description="Wird für die Prosa-Antworten auf der Ask-Seite verwendet."
-          field-name="answer-model"
-          :active-model="answer.data.value?.model ?? null"
-          :available-models="models.data.value ?? []"
-          :is-models-loading="models.isPending.value"
-          :is-pending="updateAnswer.isPending.value"
-          :pending="pendingAnswer"
-          @pick="onPickAnswer"
-        />
+          <section id="auto-genehmigung" class="card scroll-mt-6 p-6 sm:p-8">
+            <SettingsAutoApprove />
+          </section>
 
-        <SettingsAutoApprove />
+          <section class="card scroll-mt-6 p-6 sm:p-8">
+            <SettingsBackup />
+          </section>
 
-        <SettingsBackup />
-
-        <SettingsMitglieder />
+          <section id="mitglieder" class="card scroll-mt-6 p-6 sm:p-8">
+            <SettingsMitglieder />
+          </section>
         </template>
 
-        <SettingsKonto id="konto" />
+        <section class="card scroll-mt-6 p-6 sm:p-8">
+          <SettingsKonto id="konto" />
+        </section>
       </div>
     </div>
   </div>

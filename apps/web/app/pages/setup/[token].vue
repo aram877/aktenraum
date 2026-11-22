@@ -34,8 +34,9 @@ async function onCreate(): Promise<void> {
 
 <template>
   <div class="flex min-h-screen items-center justify-center px-4">
-    <div class="w-full max-w-md rounded-xl border border-hairline bg-surface p-8">
-      <h1 class="mb-1 text-xl font-semibold tracking-tight text-ink">aktenraum einrichten</h1>
+    <div class="w-full max-w-md rounded-2xl border border-hairline bg-surface p-8">
+      <AppLogo :size="52" class="mb-5" />
+      <h1 class="mb-1 font-serif text-3xl font-medium tracking-[-0.02em] text-ink">aktenraum einrichten</h1>
 
       <template v-if="done">
         <RecoveryCodes

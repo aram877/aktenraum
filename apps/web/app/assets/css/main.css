@@ -39,6 +39,13 @@
   --color-tone-danger: #b42318;
   --color-tone-warning: #a14b06;
   --color-tone-info: #3f3f9a;
+
+  /* "Stapel" logo (components/AppLogo.vue; same values in scripts/brand/make-icons.py). */
+  --color-logo-back: #3f3f9a;
+  --color-logo-mid: #9a6408;
+  --color-logo-front: #fffdf9;
+  --color-logo-ink: #1c1917;
+  --color-logo-tab: #1f6b5c;
 }
 
 /*
@@ -72,6 +79,12 @@
   --color-tone-danger: #f28b82;
   --color-tone-warning: #f0b060;
   --color-tone-info: #a9acf6;
+
+  --color-logo-back: #5b5bc4;
+  --color-logo-mid: #c08425;
+  --color-logo-front: #211d1a;
+  --color-logo-ink: #ede6da;
+  --color-logo-tab: #5fbfa6;
 
   --color-red-50: #3a1714;
   --color-red-100: #4a1c18;

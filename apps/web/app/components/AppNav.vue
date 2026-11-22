@@ -70,8 +70,8 @@ async function onLogout(): Promise<void> {
 <template>
   <nav v-if="authenticated" class="border-b border-hairline bg-canvas px-4 sm:px-8">
     <div class="mx-auto flex h-16 max-w-[1360px] items-center gap-6 text-sm lg:gap-8">
-      <NuxtLink to="/" class="font-serif text-2xl font-medium tracking-[-0.01em] text-ink" @click="closeMenu">
-        aktenraum
+      <NuxtLink to="/" class="text-2xl" aria-label="aktenraum – Start" @click="closeMenu">
+        <AppLogo :size="30" wordmark />
       </NuxtLink>
 
       <div class="hidden h-full items-center gap-5 text-[13px] font-medium md:flex lg:gap-6">

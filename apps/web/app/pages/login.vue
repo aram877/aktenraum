@@ -63,8 +63,9 @@ const linkClass = "text-xs text-ink-muted underline hover:text-ink";
 
 <template>
   <div class="flex min-h-screen items-center justify-center px-4">
-    <div class="w-full max-w-sm rounded-xl border border-hairline bg-surface p-8">
-      <h1 class="mb-1 text-xl font-semibold tracking-tight text-ink">aktenraum</h1>
+    <div class="w-full max-w-sm rounded-2xl border border-hairline bg-surface p-8">
+      <AppLogo :size="52" class="mb-5" />
+      <h1 class="mb-1 font-serif text-3xl font-medium tracking-[-0.02em] text-ink">aktenraum</h1>
       <p class="mb-5 text-sm text-ink-subtle">Melde dich an, um fortzufahren.</p>
 
       <PasskeyAddressHint class="mb-4" />

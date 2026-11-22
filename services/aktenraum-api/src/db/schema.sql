@@ -401,6 +401,32 @@ CREATE TABLE IF NOT EXISTS "credential_audit" (
 
 CREATE INDEX IF NOT EXISTS "credential_audit_at_idx" ON "credential_audit" ("at");
 
+-- Personal access tokens (personal-access-tokens, ADR-010 step 6): a
+-- member's bearer tokens for scripts. sha256 hex of the value, never the
+-- value; display_prefix = its first 12 characters. scopes = comma list.
+-- Active = revoked_at IS NULL AND expires_at > now(). revoked_reason: user |
+-- member_removed (no CHECK, so the list can grow).
+CREATE TABLE IF NOT EXISTS "personal_access_tokens" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"member_id" integer NOT NULL REFERENCES "members"("id"),
+	"household_id" integer NOT NULL REFERENCES "households"("id"),
+	"name" varchar(64) NOT NULL,
+	"token_hash" varchar(64) NOT NULL,
+	"display_prefix" varchar(16) NOT NULL,
+	"scopes" varchar(256) NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"expires_at" timestamp with time zone NOT NULL,
+	"last_used_at" timestamp with time zone,
+	"last_used_ip" varchar(64),
+	"expired_audit_at" timestamp with time zone,
+	"revoked_at" timestamp with time zone,
+	"revoked_reason" varchar(32),
+	"revoked_by_member_id" integer,
+	CONSTRAINT "personal_access_tokens_token_hash_key" UNIQUE("token_hash")
+);
+
+CREATE INDEX IF NOT EXISTS "personal_access_tokens_member_id_idx" ON "personal_access_tokens" ("member_id");
+
 INSERT INTO "alembic_version" ("version_num")
 SELECT '0006'
 WHERE NOT EXISTS (SELECT 1 FROM "alembic_version");

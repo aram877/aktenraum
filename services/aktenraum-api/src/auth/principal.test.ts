@@ -6,8 +6,13 @@ import { describe, expect, it } from "vitest";
 import { PolicyService } from "../policy/policy.service.js";
 import type { DocumentSpaceAccess, TenancyLookup } from "../tenancy/tenancy.service.js";
 import {
+  ALLOW_TOKEN,
   DOCUMENT_ACCESS,
   MEMBER_SCOPES,
+  REQUIRE_STEP_UP,
+  SESSION_ONLY,
+  TOKEN_SCOPES,
+  assertStepUp,
   REQUIRED_SCOPES,
   type MemberPrincipal,
   type Principal,
@@ -35,9 +40,17 @@ function member(scopes: Iterable<Scope> = memberScopes("admin")): MemberPrincipa
   };
 }
 
+function tokenMember(scopes: Iterable<Scope> = TOKEN_SCOPES): MemberPrincipal {
+  return { ...member(scopes), clientId: "pat", authMethod: "token", stepUpFresh: false, token: { id: 1, name: "t" } };
+}
+
 /** A fake route: handler metadata + request params, as Nest would provide them. */
-function route(meta: { scopes?: Scope[]; action?: string }, params: Record<string, string> = {}) {
+function route(
+  meta: { scopes?: Scope[]; action?: string; flags?: string[] },
+  params: Record<string, string> = {},
+) {
   const handler = () => undefined;
+  for (const flag of meta.flags ?? []) Reflect.defineMetadata(flag, true, handler);
   if (meta.scopes !== undefined) Reflect.defineMetadata(REQUIRED_SCOPES, meta.scopes, handler);
   if (meta.action !== undefined) Reflect.defineMetadata(DOCUMENT_ACCESS, meta.action, handler);
   class Ctrl {}
@@ -123,5 +136,27 @@ describe("authorize", () => {
   it("lets the household admin act on a document without a home space", async () => {
     const context = route({ scopes: ["documents:delete"], action: "delete" }, { doc_id: "7" });
     await expect(run(member(), context)).resolves.toBeUndefined();
+  });
+
+  it("excludes household administration and settings changes from token scopes", () => {
+    expect([...TOKEN_SCOPES].sort()).toEqual(
+      MEMBER_SCOPES.filter((scope) => scope !== "household:admin" && scope !== "settings:write").sort(),
+    );
+  });
+
+  it("refuses a token with session_required on credential, step-up and session-only routes", async () => {
+    const refused = new ForbiddenException("session_required");
+    await expect(run(tokenMember(), route({ scopes: [] }))).rejects.toThrow(refused);
+    await expect(run(tokenMember(), route({ scopes: ["documents:delete"], flags: [REQUIRE_STEP_UP] }))).rejects.toThrow(refused);
+    await expect(run(tokenMember(), route({ scopes: ["documents:read"], flags: [SESSION_ONLY] }))).rejects.toThrow(refused);
+    await expect(run(tokenMember(), route({ scopes: [], flags: [ALLOW_TOKEN] }))).resolves.toBeUndefined();
+    await expect(run(tokenMember(), route({ scopes: ["documents:read"] }))).resolves.toBeUndefined();
+    await expect(run(tokenMember(["upload"]), route({ scopes: ["documents:read"] }))).rejects.toThrow(
+      new ForbiddenException("Insufficient scope"),
+    );
+    // A session is unaffected by the token markers.
+    await expect(run(member(), route({ scopes: ["documents:read"], flags: [SESSION_ONLY] }))).resolves.toBeUndefined();
+    expect(() => assertStepUp(tokenMember())).toThrow(refused);
+    expect(() => assertStepUp(member())).not.toThrow();
   });
 });

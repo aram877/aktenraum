@@ -3,7 +3,7 @@ import { Controller, Get, Res, UnauthorizedException, UseGuards } from "@nestjs/
 import type { Response } from "express";
 
 import { AuthGuard } from "../auth/auth.guard.js";
-import { RequireScope, CurrentPrincipal, type Principal } from "../auth/principal.js";
+import { RequireScope, CurrentPrincipal, SessionOnly, type Principal } from "../auth/principal.js";
 import { SessionService } from "../auth/session.service.js";
 import { PaperlessAuthError } from "../paperless/errors.js";
 import { EventsService, type LiveCounts } from "./events.service.js";
@@ -44,6 +44,8 @@ export class EventsController {
    */
   @Get("counts")
   @RequireScope("documents:read")
+  // Its per-tick session check has no token equivalent (personal-access-tokens D4).
+  @SessionOnly()
   @UseGuards(AuthGuard)
   async streamCounts(@CurrentPrincipal() principal: Principal, @Res() response: Response): Promise<void> {
     response.setHeader("Content-Type", "text/event-stream");

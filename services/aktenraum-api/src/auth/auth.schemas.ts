@@ -13,4 +13,6 @@ export interface UserResponse {
   /** On `/auth/me`: the session may only enrol a passkey (auth-passkeys §4). */
   enrolment_required?: boolean;
   auth_method?: string;
+  /** On `/auth/me` with a personal access token (`auth_method: "token"`). */
+  token_name?: string;
 }

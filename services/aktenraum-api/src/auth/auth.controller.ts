@@ -23,7 +23,7 @@ import { AuthAuditService } from "./auth-audit.service.js";
 import { AuthGuard } from "./auth.guard.js";
 import { loginRequestSchema, type LoginRequest, type UserResponse } from "./auth.schemas.js";
 import { AuthService } from "./auth.service.js";
-import { AllowRestricted, CurrentPrincipal, RequireScope, type MemberPrincipal, type Principal } from "./principal.js";
+import { AllowRestricted, AllowToken, CurrentPrincipal, RequireScope, type MemberPrincipal, type Principal } from "./principal.js";
 import { AuthRateLimiter, loginIpKey, loginUserKey } from "./rate-limiter.js";
 import { SessionService, clientIp, type SessionListEntry } from "./session.service.js";
 
@@ -81,11 +81,15 @@ export class AuthController {
     this.sessions.clearCookies(response);
   }
 
-  /** Allowed for restricted sessions: the SPA learns from it that enrolment is due. */
+  /**
+   * Allowed for restricted sessions (the SPA learns from it that enrolment is
+   * due) and for personal access tokens (a script checks who it is).
+   */
   @Get("me")
   @UseGuards(AuthGuard)
   @RequireScope()
   @AllowRestricted()
+  @AllowToken()
   me(@CurrentPrincipal() principal: Principal): UserResponse {
     const member = memberOf(principal);
     return {
@@ -93,6 +97,7 @@ export class AuthController {
       household_role: member.householdRole,
       enrolment_required: member.restricted,
       auth_method: member.authMethod,
+      ...(member.token ? { token_name: member.token.name } : {}),
     };
   }
 

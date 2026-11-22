@@ -388,7 +388,10 @@ export type CredentialAuditEvent =
 	| "setup_link_used"
 	| "password_retired"
 	| "step_up_succeeded"
-	| "step_up_failed";
+	| "step_up_failed"
+	| "token_created"
+	| "token_revoked"
+	| "token_rejected_expired";
 
 /** Credential events, kept 180 days. No CHECK on event, no foreign keys. */
 export const credentialAudit = pgTable("credential_audit", {
@@ -404,4 +407,38 @@ export const credentialAudit = pgTable("credential_audit", {
 	userAgent: varchar("user_agent", { length: 512 }),
 }, (table) => [
 	index("credential_audit_at_idx").on(table.at),
+]);
+
+// ---------------------------------------------------------------------------
+// Personal access tokens (personal-access-tokens, ADR-010 step 6).
+// ---------------------------------------------------------------------------
+
+export type TokenRevokedReason = "user" | "member_removed";
+
+/**
+ * A member's bearer tokens for scripts. Only the sha256 hex of the value is
+ * stored; `display_prefix` (first 12 characters) lets the member recognise it.
+ * `scopes` is a comma list, validated against TOKEN_SCOPES on write and read.
+ * Active = `revoked_at IS NULL AND expires_at > now()`.
+ */
+export const personalAccessTokens = pgTable("personal_access_tokens", {
+	id: serial().primaryKey().notNull(),
+	memberId: integer("member_id").notNull().references(() => members.id),
+	householdId: integer("household_id").notNull().references(() => households.id),
+	name: varchar({ length: 64 }).notNull(),
+	tokenHash: varchar("token_hash", { length: 64 }).notNull(),
+	displayPrefix: varchar("display_prefix", { length: 16 }).notNull(),
+	scopes: varchar({ length: 256 }).notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true, mode: 'string' }).defaultNow().notNull(),
+	expiresAt: timestamp("expires_at", { withTimezone: true, mode: 'string' }).notNull(),
+	lastUsedAt: timestamp("last_used_at", { withTimezone: true, mode: 'string' }),
+	lastUsedIp: varchar("last_used_ip", { length: 64 }),
+	/** Last `token_rejected_expired` audit write (at most hourly). */
+	expiredAuditAt: timestamp("expired_audit_at", { withTimezone: true, mode: 'string' }),
+	revokedAt: timestamp("revoked_at", { withTimezone: true, mode: 'string' }),
+	revokedReason: varchar("revoked_reason", { length: 32 }).$type<TokenRevokedReason>(),
+	revokedByMemberId: integer("revoked_by_member_id"),
+}, (table) => [
+	unique("personal_access_tokens_token_hash_key").on(table.tokenHash),
+	index("personal_access_tokens_member_id_idx").on(table.memberId),
 ]);

@@ -71,6 +71,12 @@ Rules:
   unguarded routes are `/api/health`, `/api/auth/*`, and the internal
   routes behind `InternalGuard` (worker credential: `/api/settings/active-*`,
   `/api/tenancy/*`).
+- **Bearer tokens come for free.** `AuthGuard` accepts `Authorization: Bearer akt_pat_…`
+  (a member's personal access token, judged alone — never the cookie) and builds the
+  same `MemberPrincipal` (`clientId: "pat"`, `authMethod: "token"`, `sessionId: null`,
+  `token: {id, name}`, scopes = token ∩ role). Don't read `principal.sessionId` on a
+  route a token can reach; if the route needs a session, mark it `@SessionOnly()`.
+  All header parsing lives in `auth/bearer.ts` (`BearerAuthenticator`).
 - **Validate with zod through `ZodValidationPipe`**, never by hand. A failed
   parse becomes a 422 with the same body shape FastAPI produced, so the SPA's
   error handling did not have to change during the migration.
@@ -201,6 +207,7 @@ no excuse for an untested endpoint.
 
 1. ☐ Controller method with `@UseGuards(AuthGuard)` unless deliberately public (then add it to `PUBLIC_ROUTES` in `test/route-inventory.test.ts`)
 1a. ☐ `@RequireScope(...)` from `auth/principal.ts` (see the scope map in `openspec/changes/principal-and-policy/design.md`); without it the route answers 403 and the inventory test fails
+1a'. ☐ Sensitive? `@RequireStepUp()` (and add it to `STEP_UP_ROUTES`). Personal access tokens (ADR-010 step 6) are denied by default on step-up routes and on empty-scope (`@RequireScope()`) credential routes — 403 `session_required`; `@AllowToken()` opens an empty-scope route to tokens (only `GET /auth/me`), `@SessionOnly()` closes a scoped route to them (live stream, `/auth/tokens*`). Changing either list means updating `TOKEN_ROUTES_ALLOWED_EMPTY_SCOPE` / `SESSION_ONLY_ROUTES` in `test/route-inventory.test.ts`; its walk calls every denied route with an all-scope token.
 1b. ☐ `:doc_id` route? Add `@DocumentAccess("read" | "write" | "delete")` so `PolicyService` decides; need the caller? `@CurrentPrincipal()`, never `request.cookies`
 2. ☐ zod schema for params/query/body, wired through `ZodValidationPipe`
 3. ☐ Logic in the service, not the controller

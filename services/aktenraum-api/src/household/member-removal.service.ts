@@ -12,7 +12,9 @@ import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 
 import { AuthAuditService } from "../auth/auth-audit.service.js";
 import type { MemberPrincipal } from "../auth/principal.js";
+import { CredentialAuditService } from "../auth/credential-audit.service.js";
 import { SessionService } from "../auth/session.service.js";
+import { TokenService } from "../auth/tokens.service.js";
 import { DB, type Database } from "../db/db.module.js";
 import {
   documentShares,
@@ -106,6 +108,8 @@ export class MemberRemovalService implements OnApplicationBootstrap, OnModuleDes
     private readonly sessions: SessionService,
     private readonly authAudit: AuthAuditService,
     private readonly trashFlags: TrashFlagsService,
+    private readonly tokens: TokenService,
+    private readonly credentialAudit: CredentialAuditService,
   ) {}
 
   onApplicationBootstrap(): void {
@@ -212,6 +216,16 @@ export class MemberRemovalService implements OnApplicationBootstrap, OnModuleDes
       actorMemberId: admin.memberId,
       reason: "member_removed",
     });
+    // …and every personal access token (the removed-member filter already
+    // refuses them; revoking keeps the list honest — personal-access-tokens D9).
+    const revokedTokens = await this.tokens.revokeAllOfMember(member.id, "member_removed", admin.memberId);
+    for (const token of revokedTokens) {
+      await this.credentialAudit.record("token_revoked", {
+        memberId: member.id,
+        actorMemberId: admin.memberId,
+        detail: `${token.displayPrefix} ${token.name} (member_removed)`,
+      });
+    }
     logger.info("member_removed", { member_id: member.id, successor_id: successor.id, by_member: admin.memberId });
 
     const status = await this.complete(member.id);

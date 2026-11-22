@@ -269,6 +269,23 @@ CREATE TABLE credential_audit (
   ip varchar(64),
   user_agent varchar(512)
 );
+CREATE TABLE personal_access_tokens (
+  id serial PRIMARY KEY,
+  member_id integer NOT NULL REFERENCES members(id),
+  household_id integer NOT NULL REFERENCES households(id),
+  name varchar(64) NOT NULL,
+  token_hash varchar(64) NOT NULL UNIQUE,
+  display_prefix varchar(16) NOT NULL,
+  scopes varchar(256) NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  expires_at timestamp with time zone NOT NULL,
+  last_used_at timestamp with time zone,
+  last_used_ip varchar(64),
+  expired_audit_at timestamp with time zone,
+  revoked_at timestamp with time zone,
+  revoked_reason varchar(32),
+  revoked_by_member_id integer
+);
 INSERT INTO app_settings (id) VALUES (1);
 `;
 

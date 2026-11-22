@@ -90,8 +90,9 @@ describe("PATCH /api/documents/:id/type-fields (UserOrInternalGuard)", () => {
 describe("worker principal on member routes", () => {
   it("does not open a member-only route with the worker credential", async () => {
     const library = await asWorker(request(server).get("/api/library/"));
+    // A bearer header is judged alone (personal-access-tokens): not a token → 401.
     expect(library.status).toBe(401);
-    expect(library.body).toEqual({ detail: "Not authenticated" });
+    expect(library.body).toEqual({ detail: "Invalid token" });
   });
 });
 

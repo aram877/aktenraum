@@ -5,9 +5,11 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
+import type { Response } from "express";
 
 import { PolicyService } from "../policy/policy.service.js";
 import { TenancyService } from "../tenancy/tenancy.service.js";
+import { BearerAuthenticator } from "./bearer.js";
 import {
   RESTRICTED_SCOPES,
   type MemberPrincipal,
@@ -18,8 +20,10 @@ import {
 import { SessionService, isRestricted } from "./session.service.js";
 
 /**
- * Browser requests: the session cookie is read here and nowhere else. Builds
- * the member principal, then runs the route's scope + document-policy check.
+ * Member requests. With an `Authorization` header: a personal access token,
+ * judged alone (never the cookie). Without: the session cookie, read here and
+ * nowhere else. Builds the member principal, then runs the route's scope +
+ * document-policy check.
  */
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -28,10 +32,20 @@ export class AuthGuard implements CanActivate {
     private readonly reflector: Reflector,
     private readonly policy: PolicyService,
     private readonly tenancy: TenancyService,
+    private readonly bearer: BearerAuthenticator,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<PrincipalRequest>();
+    if (request.headers.authorization !== undefined) {
+      const principal = await this.bearer.authenticate(request, context.switchToHttp().getResponse<Response>(), {
+        worker: false,
+        token: true,
+      });
+      request.principal = principal;
+      await authorize(context, principal, this.reflector, this.policy);
+      return true;
+    }
     const token = this.sessions.readToken(request);
     if (token === null) {
       throw new UnauthorizedException("Not authenticated");

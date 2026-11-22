@@ -67,6 +67,23 @@ During the recreate a post-consume hook or trigger may hit a mismatched pair and
 
 ---
 
+## Revoke a leaked personal access token
+
+Personal access tokens (`akt_pat_…`, ADR-010 step 6) belong to one member and are never stored in readable form, so there is nothing to rotate — revoke the token and create a new one.
+
+1. The member opens `/settings → Konto → Zugriffstokens`, finds the token by its name and prefix (`akt_pat_` + 4 characters) and clicks **Widerrufen** twice. The next request with it gets 401. The list shows when and from which address the token was last used (updated at most once a minute) — compare it with where the script runs.
+2. Create a replacement with the same or narrower scopes and put the new value into the script.
+3. If the member can't sign in, revoke all of their tokens from the host:
+   ```bash
+   $DC exec postgres psql -U paperless -d aktenraum -c \
+     "UPDATE personal_access_tokens SET revoked_at = now(), revoked_reason = 'user' WHERE revoked_at IS NULL AND member_id = (SELECT m.id FROM members m JOIN users u ON u.id = m.user_id WHERE u.username = '<name>');"
+   ```
+4. What it did: `credential_audit` has `token_created` / `token_revoked` / `token_rejected_expired`; repeated bad tokens from one address show up as `pat_rejected` / `pat_throttled` in `$DC logs aktenraum-api`.
+
+A token can't change credentials, create tokens or run step-up actions (empty the trash, remove members, change models), so a leak never becomes an account takeover; it grants its scopes until revoked or expired.
+
+---
+
 ## Sign everyone out
 
 There is no signing key any more (auth-server-sessions, 2026-11-20): sessions live in the `sessions` table and the cookie holds only a random token. `JWT_SECRET` is unused. To end every SPA session at once, revoke them in the database:

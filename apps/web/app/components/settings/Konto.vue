@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** Konto: passkeys, recovery codes and devices (auth-passkeys — no password any more). */
+/** Konto: passkeys, recovery codes, devices and access tokens (auth-passkeys, personal-access-tokens). */
 </script>
 
 <template>
@@ -11,5 +11,6 @@
     <SettingsPasskeys class="mt-5" />
     <SettingsWiederherstellung class="mt-6 border-t border-hairline pt-5" />
     <SettingsGeraete class="mt-6 border-t border-hairline pt-5" />
+    <SettingsZugriffstokens class="mt-6 border-t border-hairline pt-5" />
   </div>
 </template>

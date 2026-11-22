@@ -5,6 +5,7 @@ import { AuthController } from "./auth.controller.js";
 import { AuthAuditService } from "./auth-audit.service.js";
 import { AuthGuard } from "./auth.guard.js";
 import { AuthService } from "./auth.service.js";
+import { BearerAuthenticator } from "./bearer.js";
 import { AuthSweepService } from "./auth-sweep.service.js";
 import { CredentialAuditService } from "./credential-audit.service.js";
 import { EnrolmentService } from "./enrolment.service.js";
@@ -14,11 +15,13 @@ import { AuthRateLimiter } from "./rate-limiter.js";
 import { RecoveryCodesService } from "./recovery-codes.service.js";
 import { SessionService } from "./session.service.js";
 import { SetupController, SetupLinkService } from "./setup.controller.js";
+import { TokensController } from "./tokens.controller.js";
+import { TokenService } from "./tokens.service.js";
 import { WebauthnService } from "./webauthn.service.js";
 
 @Module({
   imports: [PolicyModule],
-  controllers: [AuthController, PasskeysController, SetupController],
+  controllers: [AuthController, PasskeysController, SetupController, TokensController],
   providers: [
     AuthService,
     AuthGuard,
@@ -33,6 +36,8 @@ import { WebauthnService } from "./webauthn.service.js";
     EnrolmentService,
     RecoveryCodesService,
     SetupLinkService,
+    TokenService,
+    BearerAuthenticator,
   ],
   exports: [
     AuthService,
@@ -47,6 +52,8 @@ import { WebauthnService } from "./webauthn.service.js";
     WebauthnService,
     EnrolmentService,
     SetupLinkService,
+    TokenService,
+    BearerAuthenticator,
   ],
 })
 export class AuthModule {}

@@ -581,6 +581,7 @@ describe("auth sweep", () => {
       setup_tokens: 0,
       recovery_codes: 0,
       credential_audit: 0,
+      personal_access_tokens: 0,
     });
 
     const left = await f.h.db.select().from(sessions);

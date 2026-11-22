@@ -12,7 +12,7 @@ random token travels in an httpOnly `SameSite=Lax` cookie set by
 server stores only the token's SHA-256 hash. The SPA never sees the
 token; the cookie travels automatically. Sessions expire after 7 days
 without use or 30 days after login, and are revocable. Endpoints marked **🔒** require a valid
-cookie; unauthenticated calls return 401.
+cookie or a personal access token (see "Personal access tokens" below); unauthenticated calls return 401.
 
 There is no OpenAPI/Swagger endpoint. The SPA has no codegen step: its
 TypeScript interfaces live in `apps/web/app/{composables,utils}/*.ts` and
@@ -54,6 +54,9 @@ schema files listed under "Shape references" are the source of truth.**
 | GET  | `/api/auth/sessions` | 🔒 | The caller's active sessions, most recently used first: `[{id, created_at, last_seen_at, auth_method, ip, user_agent, current}]`. `ip` / `user_agent` are those of the login. |
 | DELETE | `/api/auth/sessions/:id` | 🔒 | Revokes one of the caller's own sessions (204). Another member's, unknown or already ended → 404. Revoking the current one behaves like logout (cookie cleared). |
 | POST | `/api/auth/sessions/revoke-others` | 🔒 | Revokes every active session of the caller except the current one. Returns `{revoked: n}`. |
+| GET | `/api/auth/tokens` | 🔒 session only | The caller's personal access tokens, newest first: `[{id, name, scopes, display_prefix, created_at, expires_at, last_used_at, last_used_ip, revoked_at, state}]`, `state` = `active` / `expired` / `revoked`; ended tokens stay listed 30 days. Never the value. |
+| POST | `/api/auth/tokens` | 🔒 session only, step-up | Body `{name (1–64), scopes (≥ 1 of the token scopes), expires_in_days (1–365)}` → 201 `{token, value}`; `value` (`akt_pat_` + 43 base64url chars) is in this response only. 422 bad input (incl. `household:admin`, `settings:write`, unknown or duplicate scopes); 409 when 25 tokens are already active. |
+| DELETE | `/api/auth/tokens/:id` | 🔒 session only | Revokes one of the caller's own tokens (204, idempotent, no step-up). Another member's or unknown → 404. The next request with it is 401. |
 
 `POST /api/auth/change-password` is gone (auth-passkeys) — there is no password to change.
 
@@ -63,7 +66,33 @@ schema files listed under "Shape references" are the source of truth.**
 
 The client address is the browser's: the api trusts exactly one proxy hop (nginx, `trust proxy` = 1). Authentication events (login succeeded/failed/throttled — `reason` = `passkey` / `recovery` for those methods —, logout, session revoked with actor + reason, invite redeemed) are written to `auth_audit`; credential events (passkey added/renamed/removed, recovery codes generated/used, setup link created/used, password retired, step-up succeeded/failed) to `credential_audit`; both 180 days, no route yet.
 
-`UserResponse`: `{username, household_role?, enrolment_required?, auth_method?}` (the last three on `/me`).
+`UserResponse`: `{username, household_role?, enrolment_required?, auth_method?, token_name?}` (all but `username` on `/me`; `auth_method: "token"` + `token_name` when called with a personal access token).
+
+### Personal access tokens (`personal-access-tokens`, ADR-010 step 6)
+
+Scripts and integrations sign in with a token a member creates in `/settings → Konto → Zugriffstokens` (or `POST /api/auth/tokens` from a stepped-up session):
+
+```bash
+TOKEN=akt_pat_…   # shown once at creation
+BASE=http://localhost:8080
+
+# Who am I?
+curl -s -H "Authorization: Bearer $TOKEN" "$BASE/api/auth/me"
+
+# Upload scanner output (token scope: upload)
+curl -s -H "Authorization: Bearer $TOKEN" -F "files=@scan.pdf" "$BASE/api/documents/upload"
+
+# Newest documents (token scope: documents:read)
+curl -s -H "Authorization: Bearer $TOKEN" "$BASE/api/library/?page_size=10&ordering=-created"
+```
+
+- **Scopes** a token can carry: `documents:read`, `documents:write`, `documents:delete`, `upload`, `ai:ask`, `settings:read`, `shares:manage`, `spaces:manage`. Never `household:admin` or `settings:write`. On every request the effective scopes are the token's scopes ∩ what the member's household role grants. Document access is decided by the member's spaces and shares exactly as for a browser session (denied → 404); share reads are audited as for a session.
+- **Expiry** 1–365 days, mandatory. **Revoke** any time from the token list; removing a member revokes all of their tokens.
+- **A bearer header is judged alone.** With `Authorization` present the cookie is ignored: an unknown, expired, revoked or malformed token is **401 `Invalid token`** even next to a valid cookie. `akt_svc_…` values are the internal service credentials and are not accepted on member routes.
+- **Session only — 403 `{"detail": "session_required"}`** for a token whatever its scopes: every route with an empty scope list except `GET /auth/me` (sessions, passkeys, step-up, recovery codes), every step-up route (list above — e.g. `POST /trash/empty`), `/api/auth/tokens*` and `/api/events/counts`. Pinned in `test/route-inventory.test.ts` (`TOKEN_ROUTES_ALLOWED_EMPTY_SCOPE`, `SESSION_ONLY_ROUTES`, plus a walk over every such route).
+- **Throttling**: 10 invalid token attempts in 15 min from one client address → **429** + `Retry-After` for every token request from that address (key `token:ip:<address>` in `auth_rate_limit_events`; a valid use doesn't reset it). Behind `tailscale serve` all tailnet devices share one address.
+- **Audit** (`credential_audit`): `token_created`, `token_revoked` (actor = the member, or the admin for a removal), `token_rejected_expired` (at most once an hour per token). `detail` holds the display prefix (`akt_pat_` + 4 characters) and the name — never the value.
+- Error codes: 401 `Invalid token`, 403 `Insufficient scope`, 403 `session_required`, 404 (document outside the member's reach), 429.
 
 ---
 
@@ -356,7 +385,7 @@ a session cookie.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| GET | `/api/events/counts` | 🔒 | Server-Sent Events stream of `{inbox, in_flight, trash, errors}` counts (`errors` = docs carrying any error tag) (unnamed `data:` events). Polls Paperless every 3s server-side; emits on connect, on every change, and at least every 25s as a heartbeat so nginx does not reap the connection. Emits `event: error` / `data: paperless_auth` when the Paperless token is rejected. Re-checks the session every tick and ends with `event: session_ended` / `data: revoked` or `data: expired` when it was revoked (logout, other device, password change, member removal) or expired; the SPA stops reconnecting on it. Drives every Nav badge. |
+| GET | `/api/events/counts` | 🔒 session only | Server-Sent Events stream of `{inbox, in_flight, trash, errors}` counts (`errors` = docs carrying any error tag) (unnamed `data:` events). Polls Paperless every 3s server-side; emits on connect, on every change, and at least every 25s as a heartbeat so nginx does not reap the connection. Emits `event: error` / `data: paperless_auth` when the Paperless token is rejected. Re-checks the session every tick and ends with `event: session_ended` / `data: revoked` or `data: expired` when it was revoked (logout, other device, password change, member removal) or expired; the SPA stops reconnecting on it. Drives every Nav badge. |
 
 ---
 

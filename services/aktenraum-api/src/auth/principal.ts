@@ -46,6 +46,26 @@ export type Scope = MemberScope | InternalScope | typeof ENROL_SCOPE;
 
 export type HouseholdRole = "admin" | "member";
 
+/**
+ * What a personal access token may carry (personal-access-tokens D5): every
+ * member scope except household administration and settings changes.
+ */
+export const TOKEN_SCOPES = [
+  "documents:read",
+  "documents:write",
+  "documents:delete",
+  "upload",
+  "ai:ask",
+  "settings:read",
+  "shares:manage",
+  "spaces:manage",
+] as const satisfies readonly MemberScope[];
+export type TokenScope = (typeof TOKEN_SCOPES)[number];
+
+export function isTokenScope(value: string): value is TokenScope {
+  return (TOKEN_SCOPES as readonly string[]).includes(value);
+}
+
 const ADMIN_ONLY: ReadonlySet<Scope> = new Set<Scope>(["settings:write", "household:admin"]);
 
 export function memberScopes(role: HouseholdRole): ReadonlySet<Scope> {
@@ -73,8 +93,8 @@ export interface MemberPrincipal {
   readonly sessionId: string | null;
   /** When the session was created (login / invite redemption). */
   readonly authTime: Date | null;
-  /** How the session was started. */
-  readonly authMethod: SessionAuthMethod;
+  /** How the session was started; `token` for a personal access token. */
+  readonly authMethod: SessionAuthMethod | "token";
   /**
    * May only enrol a passkey: password or recovery-code session, or no
    * active passkey. Such a principal holds only `auth:enrol`.
@@ -82,7 +102,10 @@ export interface MemberPrincipal {
   readonly restricted: boolean;
   /** A passkey confirmation within the last 5 minutes (step-up). */
   readonly stepUpFresh: boolean;
-  readonly clientId: "spa";
+  /** `spa` = browser session, `pat` = personal access token. */
+  readonly clientId: "spa" | "pat";
+  /** Set for a personal access token (`clientId: "pat"`); `sessionId` is then null. */
+  readonly token?: { readonly id: number; readonly name: string };
 }
 
 export interface ServicePrincipal {
@@ -110,9 +133,12 @@ export const DOCUMENT_ACCESS = "aktenraum:document-access";
 export const SHARE_ACCESS_KIND = "aktenraum:share-access-kind";
 export const ALLOW_RESTRICTED = "aktenraum:allow-restricted";
 export const REQUIRE_STEP_UP = "aktenraum:require-step-up";
+export const ALLOW_TOKEN = "aktenraum:allow-token";
+export const SESSION_ONLY = "aktenraum:session-only";
 
 export const ENROLMENT_REQUIRED = "enrolment_required";
 export const STEP_UP_REQUIRED = "step_up_required";
+export const SESSION_REQUIRED = "session_required";
 
 /**
  * Scopes a route accepts — the principal needs ANY of them. No arguments means
@@ -139,8 +165,29 @@ export const AllowRestricted = () => SetMetadata(ALLOW_RESTRICTED, true);
 /** A sensitive route: needs a passkey confirmation within 5 minutes (403 `step_up_required`). */
 export const RequireStepUp = () => SetMetadata(REQUIRE_STEP_UP, true);
 
+/**
+ * An empty-scope (credential) route a personal access token may still call.
+ * Only `GET /auth/me`; every other empty-scope route answers a token with 403
+ * `session_required` (deny by default, personal-access-tokens D4).
+ */
+export const AllowToken = () => SetMetadata(ALLOW_TOKEN, true);
+
+/**
+ * A route only a browser session may call, whatever its scopes: the live
+ * stream (its per-tick session check has no token equivalent) and token
+ * management. A token gets 403 `session_required`.
+ */
+export const SessionOnly = () => SetMetadata(SESSION_ONLY, true);
+
+/** Whether the principal authenticated with a personal access token. */
+export function isTokenPrincipal(principal: Principal): principal is MemberPrincipal {
+  return principal.kind === "member" && principal.clientId === "pat";
+}
+
 /** The same refusal `authorize` gives, for routes that need step-up only in some cases. */
 export function assertStepUp(principal: MemberPrincipal): void {
+  // A token never has a step-up; tell its client to use a browser session.
+  if (principal.clientId === "pat") throw new ForbiddenException(SESSION_REQUIRED);
   if (!principal.stepUpFresh) throw new ForbiddenException(STEP_UP_REQUIRED);
 }
 
@@ -174,6 +221,15 @@ export async function authorize(
   if (principal.kind === "member" && principal.restricted
       && reflector.getAllAndOverride<boolean | undefined>(ALLOW_RESTRICTED, targets) !== true) {
     throw new ForbiddenException(ENROLMENT_REQUIRED);
+  }
+  // Tokens: deny by default on credential routes (empty scope), step-up
+  // routes and session-only routes — before scopes, so a broad token never
+  // learns more than "use a browser session".
+  if (isTokenPrincipal(principal)) {
+    const flag = (key: string): boolean => reflector.getAllAndOverride<boolean | undefined>(key, targets) === true;
+    if (flag(SESSION_ONLY) || flag(REQUIRE_STEP_UP) || (required.length === 0 && !flag(ALLOW_TOKEN))) {
+      throw new ForbiddenException(SESSION_REQUIRED);
+    }
   }
   if (required.length > 0 && !required.some((scope) => principal.scopes.has(scope))) {
     throw new ForbiddenException("Insufficient scope");

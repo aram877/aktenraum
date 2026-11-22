@@ -3,7 +3,16 @@ import { Inject, Injectable, type OnApplicationBootstrap, type OnModuleDestroy }
 import { or, sql } from "drizzle-orm";
 
 import { DB, type Database } from "../db/db.module.js";
-import { authAudit, authRateLimitEvents, credentialAudit, recoveryCodes, sessions, setupTokens, webauthnChallenges } from "../db/schema.js";
+import {
+  authAudit,
+  authRateLimitEvents,
+  credentialAudit,
+  personalAccessTokens,
+  recoveryCodes,
+  sessions,
+  setupTokens,
+  webauthnChallenges,
+} from "../db/schema.js";
 
 const SWEEP_INTERVAL_MS = 60 * 60 * 1000;
 
@@ -15,6 +24,7 @@ export interface AuthSweepResult {
   setup_tokens: number;
   recovery_codes: number;
   credential_audit: number;
+  personal_access_tokens: number;
 }
 
 /**
@@ -24,7 +34,9 @@ export interface AuthSweepResult {
  * audit rows older than 180 days. auth-passkeys adds: WebAuthn challenges
  * expired more than a day ago, setup links expired / used / revoked more than
  * 30 days ago, used or invalidated recovery codes and credential audit rows
- * older than 180 days. At startup and hourly.
+ * older than 180 days. personal-access-tokens adds: tokens revoked or expired
+ * more than 30 days ago (the list shows 30 days of history). At startup and
+ * hourly.
  */
 @Injectable()
 export class AuthSweepService implements OnApplicationBootstrap, OnModuleDestroy {
@@ -95,6 +107,10 @@ export class AuthSweepService implements OnApplicationBootstrap, OnModuleDestroy
       .delete(credentialAudit)
       .where(sql`${credentialAudit.at} < ${halfYear}`)
       .returning({ id: credentialAudit.id });
+    const prunedTokens = await this.db
+      .delete(personalAccessTokens)
+      .where(or(sql`${personalAccessTokens.revokedAt} < ${old}`, sql`${personalAccessTokens.expiresAt} < ${old}`))
+      .returning({ id: personalAccessTokens.id });
     return {
       sessions: prunedSessions.length,
       rate_limit_events: prunedEvents.length,
@@ -103,6 +119,7 @@ export class AuthSweepService implements OnApplicationBootstrap, OnModuleDestroy
       setup_tokens: prunedSetup.length,
       recovery_codes: prunedCodes.length,
       credential_audit: prunedCredentialAudit.length,
+      personal_access_tokens: prunedTokens.length,
     };
   }
 }

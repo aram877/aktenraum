@@ -277,6 +277,7 @@ Passkeys (auth-passkeys, 2026-11-21) need no secret of their own: challenges are
 | Var | Template | Code default | Purpose |
 |---|---|---|---|
 | `RERANKER_MODEL` | not in template | `onnx-community/bge-reranker-v2-m3-ONNX` | Cross-encoder loaded by transformers.js and pre-warmed at startup. |
+| `RERANKER_ENABLED` | not in template | `true` | Test / low-memory switch. `false` = the reranker model is never downloaded, loaded or pre-warmed; retrieval keeps Qdrant's dense order (top `RAG_RERANK_TOP_K`), logs `reranker_disabled` once, and `rag_retrieve_complete` shows `reranker_used: false`. Set by the throwaway e2e stack so its 1 GB api can write to Qdrant. Leave unset in production — answers get worse. |
 | `RAG_RETRIEVAL_TOP_K` | not in template | `50` (1–200) | Dense candidates fetched from Qdrant per question. |
 | `RAG_RERANK_TOP_K` | not in template | `5` (1–50) | Chunks kept after reranking. |
 

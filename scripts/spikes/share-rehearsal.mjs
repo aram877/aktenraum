@@ -1,10 +1,12 @@
 // Share rehearsal against the THROWAWAY e2e stack (project aktenraum-e2e).
-// Run after `bash scripts/e2e-worker.sh` (needs its documents). The e2e api has
-// QDRANT_URL empty, so the shared_with check fails there by design — verify
-// it on a stack whose api has Qdrant.
+// Run after `bash scripts/e2e-worker.sh` (needs its documents). The e2e api
+// writes to the e2e Qdrant (RERANKER_ENABLED=false), so shared_with is checked
+// directly.
 // Ports 8100 (Paperless), 8102 (api), 6433 (Qdrant) — never the live stack.
 import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+
+import { adminMember, joinWithPasskey } from "./rehearsal-auth.mjs";
 
 const API = "http://127.0.0.1:8102";
 const PAPERLESS = "http://127.0.0.1:8100";
@@ -22,29 +24,6 @@ function check(label, ok, detail = "") {
     fail += 1;
     console.log(`  FAIL ${label} ${detail}`);
   }
-}
-
-function agent() {
-  const jar = new Map();
-  async function call(method, path, body) {
-    const headers = { "content-type": "application/json" };
-    if (jar.size > 0) headers.cookie = [...jar].map(([k, v]) => `${k}=${v}`).join("; ");
-    const res = await fetch(API + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
-    for (const c of res.headers.getSetCookie?.() ?? []) {
-      const [pair] = c.split(";");
-      const i = pair.indexOf("=");
-      jar.set(pair.slice(0, i), pair.slice(i + 1));
-    }
-    const text = await res.text();
-    let json = null;
-    try {
-      json = JSON.parse(text);
-    } catch {
-      json = text;
-    }
-    return { status: res.status, body: json };
-  }
-  return { call };
 }
 
 async function paperless(method, path, body) {
@@ -83,17 +62,16 @@ async function ask(a, question) {
   return { ids: data.citations.map((c) => c.id), raw: "" };
 }
 
-const admin = agent();
-const bob = agent();
+const RUN = Date.now().toString(36);
+const bobName = `bob${RUN}`;
 
 console.log("\n==> setup");
-check("admin login", (await admin.call("POST", "/api/auth/login", { username: "admin", password: "e2epassword" })).status === 200);
-const invite = await admin.call("POST", "/api/household/invites");
-check("invite created", invite.status === 201, JSON.stringify(invite.body));
-const redeem = await bob.call("POST", `/api/invites/${invite.body.token}/redeem`, { username: "bob", password: "bob-password-123" });
-check("bob redeemed the invite", redeem.status === 200, JSON.stringify(redeem.body));
+const admin = await adminMember(API, COMPOSE);
+check("admin signed in with a passkey (setup link)", Boolean(admin.cookie()));
+const bob = await joinWithPasskey(API, admin, bobName);
+check("bob joined with a passkey invite", Boolean(bob.cookie()));
 const directory = (await admin.call("GET", "/api/household/directory")).body;
-const bobId = directory.find((m) => m.username === "bob").id;
+const bobId = directory.find((m) => m.username === bobName).id;
 const library = (await admin.call("GET", "/api/library/")).body.results;
 const docIds = library.map((r) => r.id).sort((x, y) => x - y);
 check("admin has documents", docIds.length >= 1, JSON.stringify(docIds));

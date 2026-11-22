@@ -9,10 +9,13 @@
 // Part 2: Dave is removed while Paperless is stopped → "completing", then the
 // periodic sync finishes it once Paperless is back.
 //
-// The e2e api runs without QDRANT_URL, so it can't rewrite chunk payloads; the
-// worker's startup chunk-space reconcile is checked instead (auto-tagger restart).
+// The e2e api writes to the e2e Qdrant (RERANKER_ENABLED=false): the removal's
+// own chunk-space rewrite is checked first, then the worker's startup
+// chunk-space reconcile as a second line (auto-tagger restart).
 import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+
+import { adminMember, anonymous, joinWithPasskey } from "./rehearsal-auth.mjs";
 
 const API = "http://127.0.0.1:8102";
 const PAPERLESS = "http://127.0.0.1:8100";
@@ -33,42 +36,6 @@ function check(label, ok, detail = "") {
   }
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-function agent() {
-  const jar = new Map();
-  const headers = () => (jar.size > 0 ? { cookie: [...jar].map(([k, v]) => `${k}=${v}`).join("; ") } : {});
-  const remember = (res) => {
-    for (const c of res.headers.getSetCookie?.() ?? []) {
-      const [pair] = c.split(";");
-      const i = pair.indexOf("=");
-      jar.set(pair.slice(0, i), pair.slice(i + 1));
-    }
-  };
-  async function parse(res) {
-    const text = await res.text();
-    try {
-      return { status: res.status, body: JSON.parse(text) };
-    } catch {
-      return { status: res.status, body: text };
-    }
-  }
-  async function call(method, path, body) {
-    const res = await fetch(API + path, {
-      method,
-      headers: { "content-type": "application/json", ...headers() },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    remember(res);
-    return parse(res);
-  }
-  async function upload(filename, text) {
-    const form = new FormData();
-    form.append("files", new Blob([text], { type: "text/plain" }), filename);
-    const res = await fetch(API + "/api/documents/upload", { method: "POST", headers: headers(), body: form });
-    return parse(res);
-  }
-  return { call, upload };
-}
 
 async function paperless(method, path, body, auth = PL_AUTH) {
   const res = await fetch(PAPERLESS + path, {
@@ -141,10 +108,7 @@ async function uploadAndPlace(who, memberId, filename, text) {
 }
 
 async function joinHousehold(admin, username) {
-  const invite = await admin.call("POST", "/api/household/invites");
-  const who = agent();
-  const redeem = await who.call("POST", `/api/invites/${invite.body.token}/redeem`, { username, password: `${username}-password-123` });
-  if (redeem.status !== 200) throw new Error(`redeem ${username}: ${JSON.stringify(redeem.body)}`);
+  const who = await joinWithPasskey(API, admin, username);
   const id = (await admin.call("GET", "/api/household/members")).body.find((m) => m.username === username).id;
   return { who, id };
 }
@@ -152,9 +116,9 @@ async function joinHousehold(admin, username) {
 const pid = (memberId) => Number(psql(`SELECT paperless_user_id FROM members WHERE id = ${memberId}`));
 
 // ====================================================================== part 1
-const admin = agent();
 console.log("\n==> setup");
-check("admin login", (await admin.call("POST", "/api/auth/login", { username: "admin", password: "e2epassword" })).status === 200);
+const admin = await adminMember(API, COMPOSE);
+check("admin signed in with a passkey (setup link)", Boolean(admin.cookie()));
 const adminId = (await admin.call("GET", "/api/household/members")).body.find((m) => m.username === "admin").id;
 const bobName = `bob${RUN}`;
 const carolName = `carol${RUN}`;
@@ -222,8 +186,8 @@ check("removal → 200 done", removed.status === 200 && removed.body.status === 
 
 console.log("\n==> lockout");
 check("bob's session → 401", (await bob.call("GET", "/api/auth/me")).status === 401);
-const bobLogin = await agent().call("POST", "/api/auth/login", { username: bobName, password: `${bobName}-password-123` });
-const badLogin = await agent().call("POST", "/api/auth/login", { username: carolName, password: "wrong-password-1" });
+const bobLogin = await anonymous(API).call("POST", "/api/auth/login", { username: bobName, password: `${bobName}-password-123` });
+const badLogin = await anonymous(API).call("POST", "/api/auth/login", { username: carolName, password: "wrong-password-1" });
 check("bob's login answers like a wrong password", bobLogin.status === 401 && JSON.stringify(bobLogin.body) === JSON.stringify(badLogin.body));
 check("bob's Paperless token → 401", (await paperless("GET", "/api/documents/?page_size=1", undefined, `Token ${bobToken}`)).status === 401);
 const bobUser = (await paperless("GET", `/api/users/${bobPl}/`)).body;
@@ -264,6 +228,8 @@ console.log("\n==> Ask + Qdrant");
 // No run suffix: the extraction drops it from the correspondent, and the filter LLM would search for it.
 const answer = await ask(admin, "Wie hoch ist die Rechnung der Wasserwerke Removalstadt?");
 check("Ask cites former bob document d1 for admin", answer.ids.includes(d1), JSON.stringify(answer));
+const byApi = await until("api chunk space rewrite", async () => String(await chunkSpace(d1)) === adminPersonal, 30_000, 2_000).catch(() => false);
+check("removal itself sets d1's chunk space to admin personal (api → Qdrant)", byApi === true, `space=${await chunkSpace(d1)}`);
 execSync(`${COMPOSE} restart auto-tagger`, { stdio: "ignore" });
 const fixed = await until("chunk space reconcile", async () => String(await chunkSpace(d1)) === adminPersonal, 5 * 60_000).catch(() => false);
 check("worker reconcile sets d1's chunk space to admin personal", fixed === true, `space=${await chunkSpace(d1)}`);

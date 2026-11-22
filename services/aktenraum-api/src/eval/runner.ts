@@ -93,7 +93,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   const deps = {
     embedder: new OllamaEmbedder(settings.OLLAMA_BASE_URL, settings.EMBEDDING_MODEL),
     vectorStore,
-    reranker: new LocalReranker(settings.RERANKER_MODEL),
+    reranker: settings.RERANKER_ENABLED ? new LocalReranker(settings.RERANKER_MODEL) : null,
   };
 
   const results = [];

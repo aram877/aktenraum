@@ -113,6 +113,8 @@ export const settingsSchema = z.object({
   QDRANT_API_KEY: str(""),
   EMBEDDING_MODEL: str("qwen3-embedding:4b"),
   RERANKER_MODEL: str("onnx-community/bge-reranker-v2-m3-ONNX"),
+  /** Test / low-memory switch: false = no reranker model, retrieval keeps Qdrant's order. */
+  RERANKER_ENABLED: bool(true),
   RAG_RETRIEVAL_TOP_K: int(50, 1, 200),
   RAG_RERANK_TOP_K: int(5, 1, 50),
 });

@@ -26,7 +26,20 @@ export interface RetrievedChunk {
 export interface RetrievalDeps {
   embedder: Embedder;
   vectorStore: QdrantVectorStore;
-  reranker: Reranker;
+  /** null = `RERANKER_ENABLED=false`: keep Qdrant's dense order. */
+  reranker: Reranker | null;
+}
+
+/** Qdrant's own order and scores, used without a reranker and when reranking fails. */
+function denseOrder(
+  candidates: readonly RerankCandidate[],
+  hits: readonly { score: number }[],
+  topK: number,
+): { id: string; score: number }[] {
+  return candidates.slice(0, topK).map((candidate, index) => ({
+    id: candidate.id,
+    score: hits[index]?.score ?? 0,
+  }));
 }
 
 function chunkKey(payload: ChunkPayload): string {
@@ -107,16 +120,19 @@ export async function retrieveChunksForQuestion(
   }));
 
   let ranked: { id: string; score: number }[];
-  try {
-    ranked = await options.deps.reranker.rerank(question, candidates, { topK: rerankTopK });
-  } catch (error: unknown) {
-    logger.warn("rag_retrieve_rerank_failed", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    ranked = candidates.slice(0, rerankTopK).map((candidate, index) => ({
-      id: candidate.id,
-      score: hits[index]?.score ?? 0,
-    }));
+  let rerankerUsed = false;
+  if (options.deps.reranker === null) {
+    ranked = denseOrder(candidates, hits, rerankTopK);
+  } else {
+    try {
+      ranked = await options.deps.reranker.rerank(question, candidates, { topK: rerankTopK });
+      rerankerUsed = true;
+    } catch (error: unknown) {
+      logger.warn("rag_retrieve_rerank_failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      ranked = denseOrder(candidates, hits, rerankTopK);
+    }
   }
 
   const payloadByKey = new Map(hits.map((hit) => [chunkKey(hit.payload), hit.payload]));
@@ -130,6 +146,7 @@ export async function retrieveChunksForQuestion(
   logger.info("rag_retrieve_complete", {
     candidates: hits.length,
     reranked: ranked.length,
+    reranker_used: rerankerUsed,
     returned: out.length,
     top_doc_ids: out.map((chunk) => chunk.docId),
   });

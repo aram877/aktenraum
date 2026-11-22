@@ -18,6 +18,12 @@ export const RETRIEVAL_DEPS = Symbol("AKTENRAUM_RETRIEVAL_DEPS");
         vectorStore: QdrantVectorStore | null,
       ): RetrievalDeps | null => {
         if (vectorStore === null) return null;
+        const embedder = new OllamaEmbedder(settings.OLLAMA_BASE_URL, settings.EMBEDDING_MODEL);
+        if (!settings.RERANKER_ENABLED) {
+          // Test / low-memory switch: no model download, no prewarm, dense order.
+          logger.info("reranker_disabled");
+          return { embedder, vectorStore, reranker: null };
+        }
         const reranker = new LocalReranker(settings.RERANKER_MODEL);
         void (async () => {
           try {
@@ -29,11 +35,7 @@ export const RETRIEVAL_DEPS = Symbol("AKTENRAUM_RETRIEVAL_DEPS");
             });
           }
         })();
-        return {
-          embedder: new OllamaEmbedder(settings.OLLAMA_BASE_URL, settings.EMBEDDING_MODEL),
-          vectorStore,
-          reranker,
-        };
+        return { embedder, vectorStore, reranker };
       },
     },
   ],

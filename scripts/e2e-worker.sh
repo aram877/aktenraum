@@ -368,6 +368,34 @@ case " ${DUP_TAGS} " in
   *) check "second filing flagged as a duplicate" 0 "got: ${DUP_TAGS}" ;;
 esac
 
+step "Checking the api's trash flag in Qdrant (e2e-api-qdrant)"
+# The e2e api now has QDRANT_URL (RERANKER_ENABLED=false), so aktenraum's own
+# delete / restore must flip `trashed` on every chunk of the document.
+chunk_trashed() {
+  curl -sf -X POST "${QDRANT}/collections/aktenraum_chunks/points/scroll"     -H "Content-Type: application/json" -H "api-key: e2e-qdrant-key"     -d "{\"filter\":{\"must\":[{\"key\":\"doc_id\",\"match\":{\"value\":${DOC_ID}}}]},\"limit\":500,\"with_payload\":[\"trashed\"]}"     | "${PY}" -c "
+import sys, json
+pts = json.load(sys.stdin)['result']['points']
+vals = {bool(p['payload'].get('trashed', False)) for p in pts}
+print('none' if not pts else ('true' if vals == {True} else ('false' if vals == {False} else 'mixed')))" 2>/dev/null || echo "error"
+}
+wait_trashed() {
+  local want="$1" got=""
+  for _ in $(seq 1 10); do
+    got="$(chunk_trashed)"
+    [ "${got}" = "${want}" ] && break
+    sleep 1
+  done
+  echo "${got}"
+}
+DEL_STATUS="$(curl -s -o /dev/null -w '%{http_code}' -b "${COOKIE_JAR}" -X DELETE "${API}/api/documents/${DOC_ID}")"
+check "api moves the document to the trash"   "$(case "${DEL_STATUS}" in 200|204) echo 1 ;; *) echo 0 ;; esac)" "got=${DEL_STATUS}"
+GOT="$(wait_trashed true)"
+check "every chunk carries trashed=true" "$([ "${GOT}" = "true" ] && echo 1 || echo 0)" "got=${GOT}"
+RESTORE_STATUS="$(curl -s -o /dev/null -w '%{http_code}' -b "${COOKIE_JAR}" -X POST "${API}/api/trash/${DOC_ID}/restore")"
+check "api restores the document"   "$(case "${RESTORE_STATUS}" in 200|204) echo 1 ;; *) echo 0 ;; esac)" "got=${RESTORE_STATUS}"
+GOT="$(wait_trashed false)"
+check "every chunk carries trashed=false after the restore" "$([ "${GOT}" = "false" ] && echo 1 || echo 0)" "got=${GOT}"
+
 step "Result"
 printf '  %d passed, %d failed\n' "${pass}" "${fail}"
 if [ "${fail}" -gt 0 ]; then

@@ -3,8 +3,19 @@ definePageMeta({ middleware: "auth" });
 
 const route = useRoute();
 const question = ref("");
-const { answer, meta, citations, errorText, streaming, ask, stop } = useAnswerStream();
+const { answer, meta, sources, citations, phase, errorText, streaming, ask, stop } = useAnswerStream();
 const canSubmit = computed(() => question.value.trim().length > 0 && !streaming.value);
+
+const PHASE_TEXT = { searching: "Suche…", answering: "Antwort wird geschrieben…" } as const;
+const phaseText = computed(() => (streaming.value && phase.value !== "done" ? PHASE_TEXT[phase.value] : null));
+
+// Before `final` every retrieved document is a candidate; afterwards the cited ones are "Quellen"
+// and the rest "Weitere Treffer".
+const finished = computed(() => !streaming.value && phase.value === "done" && (answer.value !== "" || sources.value.length > 0));
+const otherHits = computed(() => {
+  const cited = new Set(citations.value.map((doc) => doc.id));
+  return sources.value.filter((doc) => !cited.has(doc.id));
+});
 
 const SUGGESTIONS = [
   "Was hat die Stromrechnung im März gekostet?",
@@ -83,13 +94,31 @@ onMounted(() => {
       {{ errorText }}
     </p>
 
-    <p v-if="meta" class="mt-8 text-xs text-ink-subtle" data-testid="ask-meta">
-      {{ meta.explanation }} · {{ meta.total }} Treffer
+    <p
+      v-if="phaseText"
+      class="mt-8 flex items-center gap-2 text-sm text-ink-muted"
+      data-testid="ask-phase"
+      role="status"
+    >
+      <span class="inline-block h-2 w-2 animate-pulse rounded-full bg-ink-faint" aria-hidden="true" />
+      {{ phaseText }}
     </p>
+
+    <p v-if="meta" class="text-xs text-ink-subtle" :class="phaseText ? 'mt-2' : 'mt-8'" data-testid="ask-meta">
+      {{ meta.explanation }}<template v-if="meta.total !== null"> · {{ meta.total }} Treffer</template>
+    </p>
+
+    <section v-if="streaming && sources.length > 0" class="mt-6" aria-labelledby="ask-found">
+      <div class="flex items-baseline gap-3 border-b border-hairline px-1 pb-2.5">
+        <h2 id="ask-found" class="font-serif text-xl font-medium text-ink">Gefundene Dokumente</h2>
+        <span class="text-xs text-ink-subtle">{{ sources.length }}</span>
+      </div>
+      <AskSourceList :docs="sources" item-test-id="ask-source" />
+    </section>
 
     <article
       v-if="answer"
-      class="card mt-3 p-6 sm:p-8"
+      class="card mt-6 p-6 sm:p-8"
       data-testid="ask-answer"
     >
       <p class="label-caps mb-3">Antwort</p>
@@ -101,24 +130,15 @@ onMounted(() => {
         <h2 id="ask-sources" class="font-serif text-xl font-medium text-ink">Quellen</h2>
         <span class="text-xs text-ink-subtle">{{ citations.length }}</span>
       </div>
-      <ul class="divide-y divide-hairline-soft">
-        <li v-for="doc in citations" :key="doc.id" data-testid="ask-citation">
-          <NuxtLink
-            :to="`/library/${doc.id}`"
-            class="flex items-center gap-4 rounded-[10px] px-2 py-2.5 transition-colors hover:bg-surface/70"
-          >
-            <DocTypeTile :type="doc.document_type" />
-            <span class="min-w-0 flex-1">
-              <span class="block truncate font-medium text-ink">{{ doc.title }}</span>
-              <span class="mt-0.5 block truncate text-xs text-ink-subtle">
-                <span class="font-medium" :style="{ color: docTypeStyle(doc.document_type).family.ink }">{{ docTypeStyle(doc.document_type).name }}</span>
-                <template v-if="doc.correspondent"> · {{ doc.correspondent }}</template>
-              </span>
-            </span>
-            <span class="tabular text-xs text-ink-subtle">{{ formatDocDate(doc.created) }}</span>
-          </NuxtLink>
-        </li>
-      </ul>
+      <AskSourceList :docs="citations" item-test-id="ask-citation" />
+    </section>
+
+    <section v-if="finished && otherHits.length > 0" class="mt-8" aria-labelledby="ask-other">
+      <div class="flex items-baseline gap-3 border-b border-hairline px-1 pb-2.5">
+        <h2 id="ask-other" class="font-serif text-xl font-medium text-ink">Weitere Treffer</h2>
+        <span class="text-xs text-ink-subtle">{{ otherHits.length }}</span>
+      </div>
+      <AskSourceList :docs="otherHits" item-test-id="ask-other-source" />
     </section>
   </div>
 </template>

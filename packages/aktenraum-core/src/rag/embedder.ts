@@ -31,13 +31,28 @@ export interface Embedder {
  * don't add a client-side mini-batching loop — feeding the whole batch
  * through is faster than splitting it.
  */
+/**
+ * Context window requested for every embedding call, by the worker (chunks, ~550 tokens) and the api
+ * (questions) alike. Ollama loads the embedding model with its full 32k window otherwise (~8 GB for
+ * qwen3-embedding:4b instead of ~3 GB), which pushes the answer model out of VRAM. Worker and api
+ * must agree on the value: a differing `num_ctx` makes Ollama reload the model.
+ */
+export const EMBED_NUM_CTX = 4096;
+
 export class OllamaEmbedder implements Embedder {
   private readonly client: Ollama;
   private readonly modelName: string;
+  private readonly keepAlive: string | number | undefined;
 
-  constructor(baseUrl: string, model = "qwen3-embedding:4b", client?: Ollama) {
+  constructor(
+    baseUrl: string,
+    model = "qwen3-embedding:4b",
+    client?: Ollama,
+    keepAlive?: string | number,
+  ) {
     this.client = client ?? new Ollama({ host: baseUrl });
     this.modelName = model;
+    this.keepAlive = keepAlive;
   }
 
   get model(): string {
@@ -60,7 +75,12 @@ export class OllamaEmbedder implements Embedder {
    */
   async embedDense(texts: string[]): Promise<number[][]> {
     if (texts.length === 0) return [];
-    const response = await this.client.embed({ model: this.modelName, input: texts });
+    const response = await this.client.embed({
+      model: this.modelName,
+      input: texts,
+      options: { num_ctx: EMBED_NUM_CTX },
+      ...(this.keepAlive !== undefined ? { keep_alive: this.keepAlive } : {}),
+    });
     return response.embeddings.map((vec) => [...vec]);
   }
 }

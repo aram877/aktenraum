@@ -78,6 +78,67 @@ describe("ask page", () => {
     expect(wrapper.find('[data-testid="ask-submit"]').exists()).toBe(true);
   });
 
+  const doc = (id: number, title: string) => ({
+    id,
+    title,
+    original_file_name: null,
+    correspondent: "Stadtwerke",
+    document_type: "Rechnung",
+    created: "2026-03-01",
+    lifecycle_tags: [],
+    tags: [],
+    ai_error_message: null,
+  });
+
+  it("shows the sources and a phase text before the first answer token", async () => {
+    const stream = controlledStream();
+    fetchMock.mockResolvedValue(new Response(stream.body, { status: 200 }));
+    const wrapper = await submit("Was kostete Strom?");
+
+    expect(wrapper.find('[data-testid="ask-phase"]').text()).toBe("Suche…");
+    expect(wrapper.find('[data-testid="ask-source"]').exists()).toBe(false);
+
+    stream.push('event: meta\ndata: {"explanation":"Erkannt: 2026","total":null,"filter":{}}\n\n');
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="ask-meta"]').text()).toBe("Erkannt: 2026"));
+
+    const sources = [doc(7, "Stromrechnung"), doc(8, "Gasrechnung")];
+    stream.push(`event: sources\ndata: ${JSON.stringify({ sources, total: 2 })}\n\n`);
+    await vi.waitFor(() => expect(wrapper.findAll('[data-testid="ask-source"]')).toHaveLength(2));
+    // Sources are on screen while no answer text exists yet.
+    expect(wrapper.find('[data-testid="ask-answer"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="ask-phase"]').text()).toBe("Antwort wird geschrieben…");
+    expect(wrapper.find('[data-testid="ask-meta"]').text()).toBe("Erkannt: 2026 · 2 Treffer");
+
+    stream.push('event: chunk\ndata: {"text":"42 EUR."}\n\n');
+    stream.push(
+      `event: final\ndata: ${JSON.stringify({ answer_de: "42 EUR.", citations: [sources[0]], total: 2 })}\n\n`,
+    );
+    stream.close();
+    // Cited document under "Quellen", the other under "Weitere Treffer"; candidates list is gone.
+    await vi.waitFor(() => expect(wrapper.findAll('[data-testid="ask-other-source"]')).toHaveLength(1));
+    expect(wrapper.findAll('[data-testid="ask-citation"]')).toHaveLength(1);
+    expect(wrapper.find('[data-testid="ask-other-source"]').text()).toContain("Gasrechnung");
+    expect(wrapper.find('[data-testid="ask-source"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="ask-phase"]').exists()).toBe(false);
+  });
+
+  it("shows the no-match answer without any source cards when nothing was found", async () => {
+    const stream = controlledStream();
+    fetchMock.mockResolvedValue(new Response(stream.body, { status: 200 }));
+    const wrapper = await submit("Frage");
+    stream.push('event: meta\ndata: {"explanation":"Suche in Inhalt und Volltext.","total":null,"filter":{}}\n\n');
+    stream.push('event: sources\ndata: {"sources":[],"total":0}\n\n');
+    stream.push('event: chunk\ndata: {"text":"Ich habe keine passenden Dokumente gefunden."}\n\n');
+    stream.push(
+      'event: final\ndata: {"answer_de":"Ich habe keine passenden Dokumente gefunden.","citations":[],"total":0}\n\n',
+    );
+    stream.close();
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="ask-answer"]').text()).toContain("keine passenden"));
+    expect(wrapper.find('[data-testid="ask-source"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="ask-citation"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="ask-other-source"]').exists()).toBe(false);
+  });
+
   it("shows the error event as an error state", async () => {
     const stream = controlledStream();
     fetchMock.mockResolvedValue(new Response(stream.body, { status: 200 }));

@@ -9,6 +9,7 @@ export interface CreateBackendOptions {
   ollamaModel?: string;
   ollamaCompleteTimeoutMs?: number;
   ollamaNumCtx?: number;
+  ollamaKeepAlive?: string | number;
 }
 
 export function createBackend(name: string, options: CreateBackendOptions = {}): LLMBackend {
@@ -19,6 +20,7 @@ export function createBackend(name: string, options: CreateBackendOptions = {}):
     ollamaModel = "llama3.1:8b",
     ollamaCompleteTimeoutMs,
     ollamaNumCtx,
+    ollamaKeepAlive,
   } = options;
 
   if (name === "anthropic") {
@@ -31,6 +33,7 @@ export function createBackend(name: string, options: CreateBackendOptions = {}):
     return new OllamaBackend(ollamaBaseUrl, ollamaModel, {
       completeTimeoutMs: ollamaCompleteTimeoutMs,
       numCtx: ollamaNumCtx,
+      keepAlive: ollamaKeepAlive,
     });
   }
   throw new Error(`Unknown LLM backend: ${JSON.stringify(name)}`);

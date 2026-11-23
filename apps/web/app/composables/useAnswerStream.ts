@@ -1,10 +1,14 @@
 const STREAM_CUT_DE =
   "Die Verbindung wurde unterbrochen, bevor die Antwort vollständig war. Bitte erneut fragen.";
 
+export type AskPhase = "searching" | "answering" | "done";
+
 export function useAnswerStream() {
   const answer = ref("");
   const meta = ref<StreamMeta | null>(null);
+  const sources = ref<readonly DocumentSummary[]>([]);
   const citations = ref<readonly DocumentSummary[]>([]);
+  const phase = ref<AskPhase>("done");
   const errorText = ref<string | null>(null);
   const streaming = ref(false);
   let controller: AbortController | null = null;
@@ -15,6 +19,11 @@ export function useAnswerStream() {
     onMeta: (next) => {
       meta.value = next;
     },
+    onSources: (next) => {
+      sources.value = next.sources;
+      if (meta.value) meta.value = { ...meta.value, total: next.total };
+      phase.value = "answering";
+    },
     onChunk: (delta) => {
       answer.value += delta;
     },
@@ -22,10 +31,12 @@ export function useAnswerStream() {
       answer.value = final.answer_de;
       citations.value = final.citations;
       streaming.value = false;
+      phase.value = "done";
     },
     onError: (detail) => {
       errorText.value = detail;
       streaming.value = false;
+      phase.value = "done";
     },
   };
 
@@ -57,9 +68,11 @@ export function useAnswerStream() {
     controller?.abort();
     answer.value = "";
     meta.value = null;
+    sources.value = [];
     citations.value = [];
     errorText.value = null;
     streaming.value = true;
+    phase.value = "searching";
     controller = new AbortController();
     void run(q, controller.signal);
   }
@@ -67,7 +80,8 @@ export function useAnswerStream() {
   function stop(): void {
     controller?.abort();
     streaming.value = false;
+    phase.value = "done";
   }
 
-  return { answer, meta, citations, errorText, streaming, ask, stop };
+  return { answer, meta, sources, citations, phase, errorText, streaming, ask, stop };
 }

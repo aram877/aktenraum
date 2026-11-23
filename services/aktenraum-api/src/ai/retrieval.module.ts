@@ -1,6 +1,7 @@
 import { LocalReranker, OllamaEmbedder, logger, type QdrantVectorStore } from "@aktenraum/core";
 import { Global, Module } from "@nestjs/common";
 
+import { parseKeepAlive } from "./llm-backend.provider.js";
 import { SETTINGS, type Settings } from "../config/settings.js";
 import { VECTOR_STORE } from "../rag/rag.module.js";
 import type { RetrievalDeps } from "./retrieval.js";
@@ -18,7 +19,12 @@ export const RETRIEVAL_DEPS = Symbol("AKTENRAUM_RETRIEVAL_DEPS");
         vectorStore: QdrantVectorStore | null,
       ): RetrievalDeps | null => {
         if (vectorStore === null) return null;
-        const embedder = new OllamaEmbedder(settings.OLLAMA_BASE_URL, settings.EMBEDDING_MODEL);
+        const embedder = new OllamaEmbedder(
+          settings.OLLAMA_BASE_URL,
+          settings.EMBEDDING_MODEL,
+          undefined,
+          parseKeepAlive(settings.OLLAMA_KEEP_ALIVE),
+        );
         if (!settings.RERANKER_ENABLED) {
           // Test / low-memory switch: no model download, no prewarm, dense order.
           logger.info("reranker_disabled");

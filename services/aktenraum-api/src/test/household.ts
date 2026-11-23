@@ -10,6 +10,8 @@ import { FakeGateway, TAGS, makeDoc } from "./fake-gateway.js";
 import { createHarness, type Harness } from "./harness.js";
 import { loginEnrolled, passwordLogin } from "./passkey-helpers.js";
 
+type HarnessOptions = NonNullable<Parameters<typeof createHarness>[0]>;
+
 const PROPAGATED = TAGS["ai-propagated"] as number;
 
 /**
@@ -19,7 +21,11 @@ const PROPAGATED = TAGS["ai-propagated"] as number;
 export async function household(
   docs: PaperlessDocument[] = [1, 2, 3, 5].map((id) => makeDoc({ id, tags: [PROPAGATED] })),
   env?: Record<string, string>,
-  options: { enrol?: boolean } = {},
+  options: {
+    enrol?: boolean;
+    llm?: HarnessOptions["llm"];
+    retrieval?: HarnessOptions["retrieval"];
+  } = {},
 ) {
   const paperless = new FakeGateway({ docs });
   const vectorStore = {
@@ -28,7 +34,11 @@ export async function household(
     setTrashedByDocId: vi.fn(async (_docId: number, _trashed: boolean) => undefined),
     reconcileTrashed: vi.fn(async (_ids: readonly number[]) => undefined),
   };
-  const h: Harness = await createHarness({ gateway: paperless as unknown as Partial<PaperlessGateway>, vectorStore, env });
+  const h: Harness = await createHarness({ gateway: paperless as unknown as Partial<PaperlessGateway>, vectorStore,
+    env,
+    llm: options.llm,
+    retrieval: options.retrieval,
+  });
   const password = await hashPassword("password-123");
   await h.db.insert(users).values([
     { username: "alice", passwordHash: password },

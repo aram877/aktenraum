@@ -91,6 +91,10 @@ async function onPickAnswer(model: string): Promise<void> {
               :pending="pendingAnswer"
               @pick="onPickAnswer"
             />
+            <SettingsModelMismatchHint
+              :tagger-model="tagger.data.value?.model ?? null"
+              :answer-model="answer.data.value?.model ?? null"
+            />
           </section>
 
           <section id="auto-genehmigung" class="card scroll-mt-6 p-6 sm:p-8">

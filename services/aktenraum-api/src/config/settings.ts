@@ -108,6 +108,12 @@ export const settingsSchema = z.object({
   OLLAMA_BASE_URL: str("http://host.docker.internal:11434"),
   OLLAMA_MODEL: str("llama3.1:8b"),
   OLLAMA_ANSWER_MODEL: str(""),
+  /** Context window of the extraction model; the answer call reuses it unless overridden (same value = no Ollama reload). */
+  OLLAMA_NUM_CTX: int(24576, 0),
+  /** 0 = same as OLLAMA_NUM_CTX. */
+  OLLAMA_ANSWER_NUM_CTX: int(0, 0),
+  /** Ollama keep_alive for the answer model and the embedder. Empty = Ollama's own default (5 min idle, then unloaded). */
+  OLLAMA_KEEP_ALIVE: str(""),
 
   QDRANT_URL: str(""),
   QDRANT_API_KEY: str(""),
@@ -116,6 +122,8 @@ export const settingsSchema = z.object({
   /** Test / low-memory switch: false = no reranker model, retrieval keeps Qdrant's order. */
   RERANKER_ENABLED: bool(true),
   RAG_RETRIEVAL_TOP_K: int(50, 1, 200),
+  /** Chunks fetched from Qdrant and sent to the reranker per Ask question. */
+  RERANK_CANDIDATES: int(20, 1, 200),
   RAG_RERANK_TOP_K: int(5, 1, 50),
 });
 

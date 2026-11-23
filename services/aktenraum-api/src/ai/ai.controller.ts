@@ -20,21 +20,16 @@ import {
 } from "../auth/principal.js";
 import { ZodValidationPipe } from "../common/zod-validation.pipe.js";
 import {
-  answerOutputSchema,
   answerRequestSchema,
   askRequestSchema,
   searchFilterSchema,
   type AnswerRequest,
-  type AnswerResponse,
   type AskRequest,
   type AskResponse,
-  type SearchFilter,
 } from "./ai.schemas.js";
 import {
   AiService,
-  ANSWER_CONTEXT_SIZE,
   ANSWER_LLM_FAILED_DE,
-  broadenForAnswer,
   extractInlineCitations,
   groupChunksByDoc,
   isDegenerateAnswer,
@@ -42,10 +37,31 @@ import {
   NO_MATCH_DE,
   resolveCitations,
 } from "./ai.service.js";
-import { buildAnswerMessages, buildStreamingAnswerMessages } from "./answer-prompt.js";
+import { buildStreamingAnswerMessages } from "./answer-prompt.js";
 import { explainFilter } from "./explain.js";
+import { explainParsed } from "./question-parser.js";
 import { LlmBackendProvider } from "./llm-backend.provider.js";
 import { buildMessages } from "./prompt.js";
+
+/** Per-stage milliseconds of one Ask request (D7). Never holds the question text. */
+class AskTiming {
+  candidates = 0;
+  private readonly start = performance.now();
+  private readonly marks: Record<string, number> = {};
+
+  mark(stage: string): void {
+    this.marks[stage] = Math.round(performance.now() - this.start);
+  }
+
+  log(rerankerUsed: boolean): void {
+    logger.info("ask_timing", {
+      ...this.marks,
+      total_ms: Math.round(performance.now() - this.start),
+      candidates: this.candidates,
+      reranker_used: rerankerUsed,
+    });
+  }
+}
 
 function sse(response: Response, event: string, payload: unknown): void {
   response.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
@@ -107,164 +123,99 @@ export class AiController {
     }
   }
 
+  /**
+   * Retrieval first, one LLM call (fast-ask): parse (no LLM) → `meta` → semantic / full-text / structured in
+   * parallel → batched candidate load → `sources` → streamed answer → `final`.
+   */
   private async streamAnswerEvents(
     body: AnswerRequest,
     principal: MemberPrincipal,
     response: Response,
   ): Promise<void> {
-    const llm = await this.llmBackends.build("filter");
-    const answerLlm = await this.llmBackends.build("answer");
-
-    let searchFilter: SearchFilter;
+    const timing = new AskTiming();
     try {
-      const context = await this.aiService.promptContext(principal);
-      const messages = buildMessages(body.question, context);
-      searchFilter = (await llm.complete(messages, searchFilterSchema)) as SearchFilter;
-    } catch (error: unknown) {
-      logger.warn("ai_filter_validation_failed", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      sse(response, "error", { detail: "Filter konnte nicht extrahiert werden." });
-      return;
+      await this.streamAnswerTimed(body, principal, response, timing);
+    } finally {
+      timing.log(this.aiService.rerankerEnabled());
     }
+  }
 
+  private async streamAnswerTimed(
+    body: AnswerRequest,
+    principal: MemberPrincipal,
+    response: Response,
+    timing: AskTiming,
+  ): Promise<void> {
+    const answerLlm = await this.llmBackends.build("answer");
     await this.aiService.expireSharesFor(principal);
-    const retrievalFilter = broadenForAnswer(searchFilter);
-    const [results, total] = await this.aiService.executeFilter(principal, retrievalFilter);
 
+    const parsed = await this.aiService.parseQuestionFor(principal, body.question);
+    timing.mark("parse_ms");
     sse(response, "meta", {
-      filter: searchFilter,
-      explanation: explainFilter(searchFilter),
-      total,
+      filter: this.aiService.parsedToFilter(parsed),
+      explanation: explainParsed(parsed),
+      total: null,
     });
 
-    const ragChunks = await this.aiService.retrieveChunks(body.question, searchFilter, principal);
-    if (results.length === 0 && ragChunks.length === 0) {
+    const [chunks, structured, fullText] = await Promise.all([
+      this.aiService.retrieveChunks(body.question, principal),
+      this.aiService.structuredSearch(principal, parsed),
+      this.aiService.fullTextSearch(principal, parsed),
+    ]);
+    timing.mark("retrieve_ms");
+
+    const loaded = await this.aiService.loadCandidates(principal, {
+      chunks,
+      structured: structured?.docs ?? [],
+      fullText,
+    });
+    timing.mark("enrich_ms");
+    timing.candidates = loaded.summaries.length;
+
+    const total = structured?.total ?? loaded.summaries.length;
+    sse(response, "sources", { sources: loaded.summaries, total });
+    if (loaded.summaries.length === 0) {
       sse(response, "chunk", { text: NO_MATCH_DE });
       sse(response, "final", { answer_de: NO_MATCH_DE, citations: [], total: 0 });
       return;
     }
 
-    const promptResults = await this.aiService.promotePromptResults(principal, results, ragChunks);
-    const candidates = await this.aiService.enrichWithAiFields(principal, promptResults);
-    const chunksByDoc = groupChunksByDoc(ragChunks);
     const answerMessages = buildStreamingAnswerMessages(body.question, {
-      candidates,
-      chunksByDoc,
+      candidates: loaded.candidates,
+      chunksByDoc: groupChunksByDoc(chunks),
       totalMatches: total,
     });
 
-    let fullText = "";
+    let streamed = "";
     try {
       for await (const delta of answerLlm.streamText(answerMessages)) {
-        fullText += delta;
+        if (streamed === "") timing.mark("first_token_ms");
+        streamed += delta;
         sse(response, "chunk", { text: delta });
       }
     } catch (error: unknown) {
       logger.warn("ai_answer_stream_failed", {
         error: error instanceof Error ? error.message : String(error),
       });
-      if (fullText === "") {
-        fullText = ANSWER_LLM_FAILED_DE;
-        sse(response, "chunk", { text: fullText });
+      if (streamed === "") {
+        streamed = ANSWER_LLM_FAILED_DE;
+        sse(response, "chunk", { text: streamed });
       }
     }
 
-    let answerText = fullText.trim();
+    let answerText = streamed.trim();
     if (isDegenerateAnswer(answerText)) {
       logger.warn("ai_answer_stream_degenerate", { text: answerText });
-      fullText = ANSWER_LLM_FAILED_DE;
-      answerText = fullText;
+      streamed = ANSWER_LLM_FAILED_DE;
+      answerText = streamed;
     }
 
-    const citedIds = extractInlineCitations(fullText);
-    let citations = resolveCitations(citedIds, promptResults);
+    let citations = resolveCitations(extractInlineCitations(streamed), loaded.summaries);
     if (citations.length === 0 && !isDenialAnswer(answerText)) {
-      citations = promptResults;
+      citations = loaded.summaries;
     }
 
     await this.aiService.auditSharedCitations(principal, citations);
     sse(response, "final", { answer_de: answerText, citations, total });
-  }
-
-  @Post("answer")
-  @RequireScope("ai:ask")
-  @HttpCode(HttpStatus.OK)
-  async answer(
-    @CurrentPrincipal() principal: Principal,
-    @Body(new ZodValidationPipe(answerRequestSchema)) body: AnswerRequest,
-  ): Promise<AnswerResponse> {
-    const llm = await this.llmBackends.build("filter");
-    const context = await this.aiService.promptContext(principal);
-    const searchFilter = (await llm.complete(
-      buildMessages(body.question, context),
-      searchFilterSchema,
-    )) as SearchFilter;
-
-    await this.aiService.expireSharesFor(principal);
-    const retrievalFilter = broadenForAnswer(searchFilter);
-    const [results, total] = await this.aiService.executeFilter(principal, retrievalFilter);
-    if (results.length === 0) {
-      return {
-        question: body.question,
-        answer_de: NO_MATCH_DE,
-        citations: [],
-        filter: searchFilter,
-        total: 0,
-      };
-    }
-
-    const candidates = await this.aiService.enrichWithAiFields(principal, 
-      results.slice(0, ANSWER_CONTEXT_SIZE),
-    );
-    const answerLlm = await this.llmBackends.build("answer");
-
-    let answerDe: string;
-    let citedIds: number[];
-    try {
-      const output = await answerLlm.complete(
-        buildAnswerMessages(body.question, { candidates }),
-        answerOutputSchema,
-      );
-      answerDe = output.answer_de;
-      citedIds = output.cited_ids ?? [];
-    } catch (error: unknown) {
-      logger.warn("ai_answer_validation_failed", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return {
-        question: body.question,
-        answer_de: ANSWER_LLM_FAILED_DE,
-        citations: results.slice(0, ANSWER_CONTEXT_SIZE),
-        filter: searchFilter,
-        total,
-      };
-    }
-
-    const answerText = answerDe.trim();
-    if (isDegenerateAnswer(answerText)) {
-      logger.warn("ai_answer_degenerate", { answer_de: answerText, cited_ids: citedIds });
-      return {
-        question: body.question,
-        answer_de: ANSWER_LLM_FAILED_DE,
-        citations: results.slice(0, ANSWER_CONTEXT_SIZE),
-        filter: searchFilter,
-        total,
-      };
-    }
-
-    let citations = resolveCitations(citedIds, results);
-    if (citations.length === 0 && !isDenialAnswer(answerText)) {
-      citations = results.slice(0, ANSWER_CONTEXT_SIZE);
-    }
-
-    await this.aiService.auditSharedCitations(principal, citations);
-    return {
-      question: body.question,
-      answer_de: answerText || NO_MATCH_DE,
-      citations,
-      filter: searchFilter,
-      total,
-    };
   }
 }

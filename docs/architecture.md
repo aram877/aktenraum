@@ -283,40 +283,25 @@ retrieval, so extraction + propagation still work in a RAG-less deployment.
 
 ### 6. Query (Ask AI)
 
-`/api/ai/answer/stream` is a two-LLM-call SSE pipeline
+`/api/ai/answer/stream` is a retrieval-first SSE pipeline with **one** LLM call
 ([`services/aktenraum-api/src/ai/ai.controller.ts`](../services/aktenraum-api/src/ai/ai.controller.ts)):
 
 ```
    user question (German)
        │
        ▼
-   LLM call #1: extract SearchFilter (doc_type, correspondent, dates, text)
+   deterministic parser (no LLM): years, doc types, known correspondents     → SSE: meta
+       │
+       ▼  in parallel
+   ┌─ semantic:   embed → Qdrant (tenancy filter) → rerank   (RERANK_CANDIDATES, top 5)
+   ├─ full-text:  Paperless query over the question's content words (10)
+   └─ structured: Paperless filter from the parsed hints, newest first (only with hints)
        │
        ▼
-   Paperless query (document_type__id + correspondent__id, NOT bare names)
-       │                                   → SSE: meta
-       ▼
-   RAG retrieval (when QDRANT_URL set):
-     embed(question) → Qdrant dense top-50 (payload filter from SearchFilter;
-                       retried unfiltered if a type/correspondent filter
-                       returns nothing)
-                     → bge-reranker-v2-m3 (batches of 8) → top-5 chunks
+   one id__in call + one type-fields query load the candidates               → SSE: sources
        │
        ▼
-   no Paperless matches AND no RAG chunks? → "nicht gefunden" + final
-       │
-       ▼
-   prompt slots (max 15): docs owning RAG chunks first (rank order),
-     then the remaining structural matches
-       │
-       ▼
-   LLM call #2 (streaming): the answer model reads the candidate docs'
-     AI metadata + type-specific fields + the top-5 RAG chunks, writes
-     German prose with [Quelle: <id>] markers. Citation ids are
-     intersected with the prompt set so hallucinated ones are dropped.
-       │
-       ▼
-   SSE: chunk* → final
+   answer LLM (streamed, [Quelle: id] markers)                               → SSE: chunk…, final
 ```
 
 Retrieval is dense-only (no sparse/hybrid vectors yet) followed by the

@@ -211,52 +211,33 @@ Returns `AskResponse`:
 Each `DocumentSummary` carries `lifecycle_tags` so the SPA can render
 a status pill on every card.
 
-### POST `/api/ai/answer` 🔒
-
-Two-step pipeline (filter extraction → retrieval → second LLM call).
-Non-streaming variant. Body: `{question: string}`. Returns
-`AnswerResponse`:
-
-```ts
-{
-  question: string
-  answer_de: string                    // German prose, up to 3 sentences
-  citations: DocumentSummary[]         // hallucinated ids are filtered out
-  filter: SearchFilter
-  total: number
-}
-```
-
-Use case: programmatic / non-UI consumers.
-
 ### POST `/api/ai/answer/stream` 🔒
 
-The user-facing `/ask` endpoint. Same pipeline as `/answer` but
-streamed as Server-Sent Events:
+The `/ask` endpoint (the non-streaming `POST /api/ai/answer` was removed in `fast-ask`).
+Body: `{question: string}`. **No LLM runs before retrieval**: a deterministic parser reads
+years, document types and known correspondents from the question, then semantic search
+(Qdrant, reranked), Paperless full-text search and, when hints exist, a structured Paperless
+search run in parallel. One LLM call writes the answer. Server-Sent Events:
 
 ```
 event: meta
-data: {"filter": {...}, "explanation": "...", "total": 5}
+data: {"filter": {...}, "explanation": "Erkannt: 2025 · Rechnung", "total": null}
+
+event: sources
+data: {"sources": [DocumentSummary, ...], "total": 5}
 
 event: chunk
 data: {"text": "Die letzte "}
-
-event: chunk
-data: {"text": "Rechnung..."}
 
 event: final
 data: {"answer_de": "...", "citations": [...], "total": 5}
 ```
 
-On failure the stream ends with `event: error` / `data: {"detail": "..."}`.
-
-When `QDRANT_URL` is set, the prompt to the answer model includes the
-top-5 reranked chunks from Qdrant per candidate doc; the answer is
-expected to include `[Quelle: <id>]` markers inline, which are
-extracted post-hoc and intersected with the retrieved set.
-
-When `QDRANT_URL` is unset (or any RAG stage errors), the pipeline
-degrades gracefully to the AI-metadata-only path.
+`sources` lists the documents that are in the prompt (prompt order) and arrives before the
+first `chunk`. `citations` only reference documents from `sources`. On failure the stream
+ends with `event: error` / `data: {"detail": "..."}`. Each path degrades on its own: without
+Qdrant or the embedder the answer is built from full-text and structured candidates.
+Inline `[Quelle: <id>]` markers are extracted after the stream.
 
 `bge-reranker-v2-m3` (ONNX, via transformers.js) is **pre-warmed at
 startup** by `RetrievalModule` as a background task and cached in the
@@ -371,7 +352,7 @@ a session cookie.
 |---|---|---|---|
 | GET  | `/api/settings/llm` | 🔒 | Active extraction model. `{model}` — a literal Ollama tag stored in `app_settings.llm_model`. |
 | PATCH | `/api/settings/llm` | 🔒 | Body `{model}` (non-empty, max 128 chars). Sets the extraction model. |
-| GET  | `/api/settings/answer-llm` | 🔒 | Active answer model for `/api/ai/answer*`. `{model}` (`app_settings.answer_llm_model`). |
+| GET  | `/api/settings/answer-llm` | 🔒 | Active answer model for `/api/ai/answer/stream`. `{model}` (`app_settings.answer_llm_model`). |
 | PATCH | `/api/settings/answer-llm` | 🔒 | Body `{model}`. Sets the answer model. |
 | GET  | `/api/settings/available-models` | 🔒 | `{models: string[]}` — the tags currently pulled in Ollama (`GET /api/tags` on `OLLAMA_BASE_URL`). Empty list when `LLM_BACKEND` is not `ollama` or Ollama is unreachable; the SPA then shows a free-text input. |
 | GET  | `/api/settings/active-llm-model` | worker | Internal: auto-tagger reads the active extraction model. Returns `{ollama_model}`. Worker credential only (in-network). |

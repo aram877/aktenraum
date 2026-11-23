@@ -115,12 +115,6 @@ export const answerRequestSchema = z.object({
 });
 export type AnswerRequest = z.infer<typeof answerRequestSchema>;
 
-export const answerOutputSchema = z.object({
-  answer_de: z.string(),
-  cited_ids: z.array(z.number()).default([]),
-});
-export type AnswerOutput = z.infer<typeof answerOutputSchema>;
-
 export interface TypeSpecificField {
   name: string;
   label: string;
@@ -137,12 +131,4 @@ export interface AnswerCandidate {
   ai_issue_date: string | null;
   ai_reference_numbers: string | null;
   type_specific_fields: TypeSpecificField[];
-}
-
-export interface AnswerResponse {
-  question: string;
-  answer_de: string;
-  citations: DocumentSummary[];
-  filter: SearchFilter;
-  total: number;
 }

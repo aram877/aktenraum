@@ -13,6 +13,13 @@ export interface DocumentSummary {
 export interface StreamMeta {
   filter: Record<string, unknown>;
   explanation: string;
+  /** null until `sources` arrives (the parse runs before any search). */
+  total: number | null;
+}
+
+export interface StreamSources {
+  /** The documents that are in the prompt, in prompt order. */
+  sources: DocumentSummary[];
   total: number;
 }
 
@@ -24,6 +31,7 @@ export interface StreamFinal {
 
 export interface StreamHandlers {
   onMeta?: (meta: StreamMeta) => void;
+  onSources?: (sources: StreamSources) => void;
   onChunk?: (delta: string) => void;
   onFinal?: (final: StreamFinal) => void;
   onError?: (detail: string) => void;
@@ -49,6 +57,9 @@ export function dispatchSseRecord(record: string, handlers: StreamHandlers): voi
   switch (event) {
     case "meta":
       handlers.onMeta?.(payload as StreamMeta);
+      break;
+    case "sources":
+      handlers.onSources?.(payload as StreamSources);
       break;
     case "chunk":
       handlers.onChunk?.((payload as { text: string }).text);

@@ -77,16 +77,16 @@ The document is now fully filed, with native Paperless metadata, and its content
 
 ## Journey 4 — you ask "Wann ist meine Stromrechnung fällig?"
 
-This is the "Ask AI" page. It's a two-step pipeline.
+This is the "Ask AI" page. Since `fast-ask` it makes one LLM call, not two.
 
 13. **Browser**: SPA sends `POST /api/ai/answer/stream` to aktenraum-api with the question.
-14. **aktenraum-api** — step A, *finding the right documents*:
-    - Sends the question to a small LLM with a prompt: *"Extract a structured filter from this question."* The LLM returns `{document_type: "Rechnung", text: "Strom"}`.
-    - Asks Paperless: *"Give me bills matching this filter."* Gets back, say, 8 documents.
-    - Also asks Qdrant: *"Find paragraphs whose meaning is close to 'Wann ist meine Stromrechnung fällig?'"* Gets back the top 50, then a second model (`bge-reranker-v2-m3`) re-scores them and keeps the 5 most relevant.
+14. **aktenraum-api** — step A, *finding the right documents* (no LLM involved):
+    - Reads the question with plain rules: years ("2025", "letztes Jahr"), document types ("Rechnung", "Strom" → bills) and known senders. It tells the browser what it understood.
+    - Runs three searches at the same time: Qdrant (*paragraphs whose meaning is close to the question*, re-scored by `bge-reranker-v2-m3`), Paperless full-text search, and — when it recognised a year, type or sender — a filtered Paperless search, newest first.
+    - Sends the found documents to the browser right away, so you see them before the answer starts.
 15. **aktenraum-api** — step B, *answering*:
-    - Builds a new prompt: *"Here are 8 candidate documents and 5 relevant paragraphs. Answer the user's question in German and cite the doc ids you used."*
-    - Sends it to a bigger LLM (the "answer model" you picked in Settings).
+    - Builds a prompt: *"Here are up to 15 candidate documents and 5 relevant paragraphs. Answer the user's question in German and cite the doc ids you used."*
+    - Sends it to the answer model you picked in Settings (kept loaded in memory so it answers quickly).
     - The LLM streams its answer back word by word.
 16. **aktenraum-api** forwards every word to the browser as a stream of events (this is what *Server-Sent Events / SSE* is).
 17. **Browser**: shows the answer appearing live, character by character, with citation cards at the bottom for each doc the AI used; each links to that document's page in the Library (`/library/<id>`).

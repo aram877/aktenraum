@@ -71,6 +71,8 @@ function idList(raw: unknown): number[] {
 
 export class FakeGateway {
   readonly docs = new Map<number, PaperlessDocument>();
+  /** Every `searchDocuments` parameter set, in call order (Ask round-trip assertions). */
+  readonly searchCalls: Record<string, unknown>[] = [];
   readonly trashed = new Map<number, PaperlessDocument>();
   readonly uploads: { filename: string; contentType?: string; owner?: number }[] = [];
   emptyTrashCalls: number[][] = [];
@@ -122,6 +124,7 @@ export class FakeGateway {
     params: Record<string, unknown>,
     options: { pageSize?: number } = {},
   ): Promise<Record<string, unknown>> => {
+    this.searchCalls.push(params);
     let results = [...this.docs.values()];
     const ids = idList(params.id__in);
     if (ids.length > 0) results = results.filter((d) => ids.includes(d.id));
@@ -152,8 +155,33 @@ export class FakeGateway {
         wanted.every((t) => ((d.tags as number[]) ?? []).includes(t)),
       );
     }
+    const correspondents = idList(params.correspondent__id__in);
+    if (correspondents.length > 0) {
+      results = results.filter((d) => correspondents.includes(Number(d.correspondent)));
+    }
+    const day = (d: PaperlessDocument): string => String(d.created_date ?? "").slice(0, 10);
+    if (typeof params.created__date__gte === "string") {
+      results = results.filter((d) => day(d) >= (params.created__date__gte as string));
+    }
+    if (typeof params.created__date__lte === "string") {
+      results = results.filter((d) => day(d) <= (params.created__date__lte as string));
+    }
+    if (typeof params.query === "string" && params.query !== "") {
+      const words = params.query
+        .split(/\s+OR\s+/)
+        .map((w) => w.toLowerCase())
+        .filter((w) => w !== "");
+      results = results.filter((d) => {
+        const haystack = `${d.title ?? ""} ${d.content ?? ""}`.toLowerCase();
+        return words.some((w) => haystack.includes(w));
+      });
+    }
+    if (params.ordering === "-created") {
+      results = [...results].sort((a, b) => day(b).localeCompare(day(a)));
+    }
     const count = results.length;
-    if (options.pageSize !== undefined) results = results.slice(0, options.pageSize);
+    const pageSize = options.pageSize ?? (params.page_size === undefined ? undefined : Number(params.page_size));
+    if (pageSize !== undefined) results = results.slice(0, pageSize);
     return { count, results };
   };
 

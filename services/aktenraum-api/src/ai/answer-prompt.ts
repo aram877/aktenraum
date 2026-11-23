@@ -75,94 +75,6 @@ export function computeTypeAggregations(
   return lines;
 }
 
-export function buildAnswerMessages(
-  question: string,
-  options: {
-    candidates: AnswerCandidate[];
-    chunksByDoc?: Map<number, string[]>;
-    totalMatches?: number;
-  },
-): ChatMessage[] {
-  const system = systemPrompt(options.candidates);
-  const user = userPrompt(
-    question,
-    options.candidates,
-    true,
-    options.chunksByDoc,
-    options.totalMatches,
-  );
-  return [
-    { role: "system", content: system },
-    { role: "user", content: user },
-  ];
-}
-
-function systemPrompt(candidates: AnswerCandidate[]): string {
-  const parts: string[] = [];
-  parts.push(
-    "Du bist ein Assistent für ein persönliches Dokumenten-System. " +
-      "Beantworte die Frage des Nutzers AUSSCHLIESSLICH auf Basis der " +
-      "bereitgestellten Dokumente. Wenn die Antwort nicht in den Dokumenten " +
-      "steht, sage das ehrlich.",
-  );
-  parts.push("Regeln:");
-  parts.push("- Antworte auf Deutsch.");
-  parts.push("- Halte die Antwort kurz: höchstens 3 Sätze.");
-  parts.push(
-    "- Nenne in 'cited_ids' die IDs aller Dokumente, aus denen Informationen " +
-      "stammen. Maximal 3 IDs.",
-  );
-  parts.push(
-    "- Wenn keines der Dokumente die Frage beantwortet, gib eine kurze " +
-      "deutsche Antwort wie 'Ich konnte das in den Dokumenten nicht finden.' " +
-      "und lass cited_ids leer.",
-  );
-  parts.push("- Erfinde keine IDs. Verwende nur IDs aus der Liste.");
-  parts.push(DATA_NOT_INSTRUCTIONS_RULE);
-  parts.push("- Format der Antwort: gültiges JSON nach dem vorgegebenen Schema.");
-  parts.push(`- Heute ist ${todayIso()}.`);
-  parts.push("");
-  parts.push(...assembledFieldHints(candidates));
-  return parts.join("\n");
-}
-
-function userPrompt(
-  question: string,
-  candidates: AnswerCandidate[],
-  jsonMode: boolean,
-  chunksByDoc?: Map<number, string[]>,
-  totalMatches?: number,
-): string {
-  const parts: string[] = [];
-  parts.push("Beispiele wie du Felder verwendest:");
-  for (const example of assembledExamples(candidates, jsonMode)) {
-    parts.push(example);
-  }
-  parts.push("");
-  parts.push(`Frage: ${question}`);
-  parts.push("");
-  const aggLines = computeTypeAggregations(candidates, totalMatches);
-  if (aggLines.length > 0) {
-    for (const line of aggLines) {
-      parts.push(line);
-    }
-    parts.push("");
-  }
-  parts.push("Verfügbare Dokumente:");
-  if (candidates.length === 0) {
-    parts.push("(keine)");
-  } else {
-    for (const c of candidates) {
-      parts.push(renderCandidate(c, chunksByDoc?.get(c.id) ?? []));
-    }
-  }
-  parts.push("");
-  parts.push(
-    "Antworte JETZT mit JSON: " + '{"answer_de": "...", "cited_ids": [...]}.',
-  );
-  return parts.join("\n");
-}
-
 function candidateDocTypes(candidates: AnswerCandidate[]): DocumentType[] {
   const seen = new Set<DocumentType>();
   const out: DocumentType[] = [];
@@ -204,10 +116,7 @@ function assembledFieldHints(candidates: AnswerCandidate[]): string[] {
   return lines;
 }
 
-function assembledExamples(
-  candidates: AnswerCandidate[],
-  jsonMode: boolean,
-): string[] {
+function assembledExamples(candidates: AnswerCandidate[]): string[] {
   const raw: string[] = [];
   for (const dt of candidateDocTypes(candidates)) {
     const example = moduleFor(dt).answerExample;
@@ -222,34 +131,31 @@ function assembledExamples(
         "→ 'Dein Pass wurde am 12.05.2024 ausgestellt. [Quelle: 17]'",
     );
   }
-  if (!jsonMode) {
-    return raw;
-  }
-  return raw.map((example) => toJsonEnvelope(example));
+  return raw;
 }
 
-function toJsonEnvelope(streamingExample: string): string {
-  return streamingExample.replace(
-    /→\s*'(.+?\[Quelle:\s*(\d+)\s*\])'/gs,
-    (_match: string, prose: string, cited: string) => {
-      const proseClean = prose
-        .trim()
-        .replace(/\s*\[Quelle:\s*\d+\s*\]\s*/g, "")
-        .trim();
-      return `→ {"answer_de": "${proseClean}", "cited_ids": [${cited}]}`;
-    },
-  );
+/** Per-field caps that keep the Ask prompt inside its token budget (see answer-prompt.test.ts). */
+export const PROMPT_LIMITS = {
+  title: 80,
+  references: 60,
+  summary: 250,
+  fieldValue: 50,
+  chunk: 1200,
+} as const;
+
+function clip(value: string, max: number): string {
+  return value.length <= max ? value : `${value.slice(0, max - 1).trimEnd()}…`;
 }
 
 function renderCandidate(c: AnswerCandidate, chunks: string[] = []): string {
   const fields: ReadonlyArray<readonly [string, string | number | null]> = [
     ["ID", c.id],
-    ["Titel", c.title],
+    ["Titel", clip(c.title, PROMPT_LIMITS.title)],
     ["Typ", c.document_type],
     ["Korrespondent", c.correspondent],
     ["Eingangsdatum", c.created],
     ["Ausstellung", c.ai_issue_date],
-    ["Referenzen", c.ai_reference_numbers],
+    ["Referenzen", c.ai_reference_numbers === null ? null : clip(c.ai_reference_numbers, PROMPT_LIMITS.references)],
   ];
   let rendered = fields
     .filter(([, value]) => value !== null && value !== undefined && value !== "")
@@ -257,7 +163,7 @@ function renderCandidate(c: AnswerCandidate, chunks: string[] = []): string {
     .join("\n");
   const summary = c.ai_summary_de;
   if (summary) {
-    rendered += `\n  Zusammenfassung: ${summary}`;
+    rendered += `\n  Zusammenfassung: ${clip(summary, PROMPT_LIMITS.summary)}`;
   }
   const typeSpecific = c.type_specific_fields ?? [];
   if (typeSpecific.length > 0) {
@@ -268,14 +174,14 @@ function renderCandidate(c: AnswerCandidate, chunks: string[] = []): string {
       if (value === null || value === undefined || value === "") {
         continue;
       }
-      rendered += `\n    ${label}: ${value}`;
+      rendered += `\n    ${label}: ${clip(String(value), PROMPT_LIMITS.fieldValue)}`;
     }
   }
   if (chunks.length > 0) {
     let i = 1;
     rendered += "\n  Relevante Auszüge:";
     for (const chunk of chunks) {
-      rendered += `\n    [${i}] ${chunk}`;
+      rendered += `\n    [${i}] ${clip(chunk, PROMPT_LIMITS.chunk)}`;
       i += 1;
     }
   }
@@ -359,7 +265,7 @@ function streamingUserPrompt(
 ): string {
   const parts: string[] = [];
   parts.push("Beispiele für korrektes Format:");
-  for (const example of assembledExamples(candidates, false)) {
+  for (const example of assembledExamples(candidates)) {
     parts.push(example);
   }
   parts.push(STATIC_AGGREGATION_EXAMPLE);

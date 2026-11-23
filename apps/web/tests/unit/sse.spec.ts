@@ -5,6 +5,7 @@ import { dispatchSseRecord, extractErrorDetail, type StreamHandlers } from "~/ut
 function handlers() {
   return {
     onMeta: vi.fn(),
+    onSources: vi.fn(),
     onChunk: vi.fn(),
     onFinal: vi.fn(),
     onError: vi.fn(),
@@ -16,6 +17,18 @@ describe("dispatchSseRecord", () => {
     const h = handlers();
     dispatchSseRecord('event: meta\ndata: {"total":3,"explanation":"x","filter":{}}', h);
     expect(h.onMeta).toHaveBeenCalledWith({ total: 3, explanation: "x", filter: {} });
+  });
+
+  it("routes a sources record", () => {
+    const h = handlers();
+    dispatchSseRecord('event: sources\ndata: {"sources":[{"id":7}],"total":4}', h);
+    expect(h.onSources).toHaveBeenCalledWith({ sources: [{ id: 7 }], total: 4 });
+  });
+
+  it("accepts a meta record whose total is still null", () => {
+    const h = handlers();
+    dispatchSseRecord('event: meta\ndata: {"total":null,"explanation":"x","filter":{}}', h);
+    expect(h.onMeta).toHaveBeenCalledWith({ total: null, explanation: "x", filter: {} });
   });
 
   it("routes a chunk record to the text delta", () => {

@@ -1,21 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { EMPTY_FILTER, type DocumentSummary, type SearchFilter } from "./ai.schemas.js";
+import type { DocumentSummary } from "./ai.schemas.js";
 import {
-  broadenForAnswer,
+  ANSWER_CONTEXT_SIZE,
   extractInlineCitations,
   groupChunksByDoc,
   isDegenerateAnswer,
   isDenialAnswer,
+  mergeCandidateIds,
   rankedUniqueDocIds,
   resolveCitations,
   userTagVocabulary,
 } from "./ai.service.js";
 import type { RetrievedChunk } from "./retrieval.js";
-
-function filter(overrides: Partial<SearchFilter> = {}): SearchFilter {
-  return { ...EMPTY_FILTER, tags: [], ...overrides };
-}
 
 function chunk(docId: number, chunkIndex: number, text: string): RetrievedChunk {
   return {
@@ -117,33 +114,32 @@ describe("isDegenerateAnswer", () => {
   });
 });
 
-describe("broadenForAnswer", () => {
-  it("strips tags, which would otherwise AND-narrow to nothing", () => {
-    const result = broadenForAnswer(filter({ tags: ["Gehalt", "Verdienstabrechnung"] }));
-    expect(result.tags).toEqual([]);
+describe("mergeCandidateIds", () => {
+  it("fills semantic slots first (at most 5), then structured, then full-text", () => {
+    const ids = mergeCandidateIds({
+      semantic: [1, 2, 3, 4, 5, 6, 7],
+      structured: [20, 21],
+      fullText: [30],
+    });
+    expect(ids).toEqual([1, 2, 3, 4, 5, 20, 21, 30]);
   });
 
-  it("drops free text once a structural field constrains the search", () => {
-    const result = broadenForAnswer(
-      filter({ document_type: "Gehaltsabrechnung", text: "verdient" }),
-    );
-    expect(result.text).toBeNull();
-    expect(result.document_type).toBe("Gehaltsabrechnung");
+  it("de-duplicates across paths, keeping the earliest slot", () => {
+    expect(
+      mergeCandidateIds({ semantic: [1, 2], structured: [2, 3], fullText: [3, 1, 4] }),
+    ).toEqual([1, 2, 3, 4]);
   });
 
-  it("keeps free text when nothing structural is set", () => {
-    const result = broadenForAnswer(filter({ text: "Stromrechnung" }));
-    expect(result.text).toBe("Stromrechnung");
+  it("caps the result at the answer context size", () => {
+    const structured = Array.from({ length: 30 }, (_, i) => 100 + i);
+    const ids = mergeCandidateIds({ semantic: [1, 2, 3], structured, fullText: [900] });
+    expect(ids).toHaveLength(ANSWER_CONTEXT_SIZE);
+    expect(ids.slice(0, 3)).toEqual([1, 2, 3]);
+    expect(ids).not.toContain(900);
   });
 
-  it("treats a date bound alone as structural", () => {
-    const result = broadenForAnswer(filter({ date_from: "2026-01-01", text: "kostete" }));
-    expect(result.text).toBeNull();
-  });
-
-  it("returns an equivalent filter when there is nothing to broaden", () => {
-    const input = filter({ document_type: "Rechnung" });
-    expect(broadenForAnswer(input)).toEqual(input);
+  it("returns nothing when every path is empty", () => {
+    expect(mergeCandidateIds({ semantic: [], structured: [], fullText: [] })).toEqual([]);
   });
 });
 

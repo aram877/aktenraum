@@ -98,3 +98,21 @@ describe("RERANKER_ENABLED", () => {
     expect(loadSettings({ ...TEST_ENV, RERANKER_ENABLED: "false" }).RERANKER_ENABLED).toBe(false);
   });
 });
+
+describe("fetchTopK", () => {
+  it("is passed to Qdrant as the search size", async () => {
+    const seen: (number | undefined)[] = [];
+    const recording: RetrievalDeps = {
+      ...deps(null),
+      vectorStore: {
+        search: async (_vec: unknown, options: { topK?: number }) => {
+          seen.push(options.topK);
+          return HITS;
+        },
+      } as unknown as QdrantVectorStore,
+    };
+    await retrieveChunksForQuestion("Frage", { deps: recording, fetchTopK: 20 });
+    await retrieveChunksForQuestion("Frage", { deps: recording });
+    expect(seen).toEqual([20, 50]);
+  });
+});

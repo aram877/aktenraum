@@ -84,6 +84,7 @@ export async function retrieveChunksForQuestion(
   const fetchTopK = options.fetchTopK ?? 50;
   const rerankTopK = options.rerankTopK ?? 5;
 
+  const started = performance.now();
   let embeddings: number[][];
   try {
     embeddings = await options.deps.embedder.embedDense([question]);
@@ -95,6 +96,7 @@ export async function retrieveChunksForQuestion(
   }
   const queryVec = embeddings[0];
   if (queryVec === undefined) return [];
+  const embedded = performance.now();
 
   const structural =
     options.structuralFilter !== null && options.structuralFilter !== undefined
@@ -113,6 +115,7 @@ export async function retrieveChunksForQuestion(
     return [];
   }
   if (hits.length === 0) return [];
+  const searched = performance.now();
 
   const candidates: RerankCandidate[] = hits.map((hit) => ({
     id: chunkKey(hit.payload),
@@ -143,7 +146,11 @@ export async function retrieveChunksForQuestion(
     out.push(payloadToRetrieved(payload, result.score));
   }
 
+  const reranked = performance.now();
   logger.info("rag_retrieve_complete", {
+    embed_ms: Math.round(embedded - started),
+    search_ms: Math.round(searched - embedded),
+    rerank_ms: Math.round(reranked - searched),
     candidates: hits.length,
     reranked: ranked.length,
     reranker_used: rerankerUsed,

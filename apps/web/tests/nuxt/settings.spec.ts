@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import AutoApprove from "~/components/settings/AutoApprove.vue";
 import Backup from "~/components/settings/Backup.vue";
 import Konto from "~/components/settings/Konto.vue";
+import ModelMismatchHint from "~/components/settings/ModelMismatchHint.vue";
 import ModelPicker from "~/components/settings/ModelPicker.vue";
 import { fetchError } from "../fetch-error";
 
@@ -144,5 +145,28 @@ describe("Backup section", () => {
       () => expect(wrapper.find('[data-testid="backup-error"]').text()).toBe("kaputt"),
       { timeout: 3000 },
     );
+  });
+});
+
+describe("ModelMismatchHint", () => {
+  const hint = '[data-testid="model-mismatch-hint"]';
+
+  it("warns when the classification and answer models differ", async () => {
+    const wrapper = await mountSuspended(ModelMismatchHint, {
+      props: { taggerModel: "gemma4:26b", answerModel: "qwen2.5:14b" },
+    });
+    expect(wrapper.find(hint).exists()).toBe(true);
+    expect(wrapper.text()).toContain("langsamer");
+  });
+
+  it("stays quiet for the same model or while a model is still loading", async () => {
+    const same = await mountSuspended(ModelMismatchHint, {
+      props: { taggerModel: "qwen2.5:14b", answerModel: "qwen2.5:14b" },
+    });
+    expect(same.find(hint).exists()).toBe(false);
+    const loading = await mountSuspended(ModelMismatchHint, {
+      props: { taggerModel: null, answerModel: "qwen2.5:14b" },
+    });
+    expect(loading.find(hint).exists()).toBe(false);
   });
 });

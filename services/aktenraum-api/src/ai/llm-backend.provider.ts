@@ -4,6 +4,13 @@ import { Inject, Injectable, ServiceUnavailableException } from "@nestjs/common"
 import { SETTINGS, type Settings } from "../config/settings.js";
 import { SettingsService } from "../settings/settings.service.js";
 
+/** `-1` / `0` style numbers go to Ollama as numbers, durations (`30m`) as strings. */
+export function parseKeepAlive(raw: string): string | number | undefined {
+  const value = raw.trim();
+  if (value === "") return undefined;
+  return /^-?\d+$/.test(value) ? Number(value) : value;
+}
+
 export type BackendRole = "filter" | "answer";
 
 @Injectable()
@@ -41,9 +48,16 @@ export class LlmBackendProvider {
       } else {
         model = await this.settingsService.getActiveModel();
       }
+      const answer = role === "answer";
       return createBackend("ollama", {
         ollamaBaseUrl: this.settings.OLLAMA_BASE_URL,
         ollamaModel: model,
+        ...(answer
+          ? {
+              ollamaNumCtx: this.settings.OLLAMA_ANSWER_NUM_CTX || this.settings.OLLAMA_NUM_CTX,
+              ollamaKeepAlive: parseKeepAlive(this.settings.OLLAMA_KEEP_ALIVE),
+            }
+          : {}),
       });
     }
 

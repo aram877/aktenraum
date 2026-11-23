@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { recoverKeysForSchema, repairTruncatedJson } from "./ollamaBackend.js";
+import { OllamaBackend, recoverKeysForSchema, repairTruncatedJson } from "./ollamaBackend.js";
 
 // Mirrors services/auto-tagger/tests/test_ollama_recovery.py.
 
@@ -94,5 +94,39 @@ describe("repairTruncatedJson", () => {
     // caller surfaces the original error.
     const bad = '{"a": 1}}';
     expect(repairTruncatedJson(bad)).toBe(bad);
+  });
+});
+
+describe("keep_alive and num_ctx on the request body", () => {
+  function captureBodies(): { bodies: Record<string, unknown>[]; fetchFn: typeof fetch } {
+    const bodies: Record<string, unknown>[] = [];
+    const fetchFn = (async (_url: unknown, init?: { body?: string }) => {
+      bodies.push(JSON.parse(init?.body ?? "{}") as Record<string, unknown>);
+      const line = JSON.stringify({ message: { role: "assistant", content: '{"a":"x"}' }, done: true });
+      return new Response(line + "\n", { status: 200 });
+    }) as unknown as typeof fetch;
+    return { bodies, fetchFn };
+  }
+
+  async function run(options: ConstructorParameters<typeof OllamaBackend>[2]) {
+    const { bodies, fetchFn } = captureBodies();
+    const backend = new OllamaBackend("http://x", "m", { ...options, fetchFn });
+    await backend.complete([{ role: "user", content: "hi" }], z.object({ a: z.string() }));
+    for await (const _ of backend.streamText([{ role: "user", content: "hi" }])) void _;
+    return bodies;
+  }
+
+  it("sends keep_alive and num_ctx on structured and streamed chats when set", async () => {
+    const bodies = await run({ keepAlive: -1, numCtx: 8192 });
+    expect(bodies).toHaveLength(2);
+    for (const body of bodies) {
+      expect(body.keep_alive).toBe(-1);
+      expect((body.options as Record<string, unknown>).num_ctx).toBe(8192);
+    }
+  });
+
+  it("omits keep_alive when unset", async () => {
+    const bodies = await run({});
+    for (const body of bodies) expect(body).not.toHaveProperty("keep_alive");
   });
 });

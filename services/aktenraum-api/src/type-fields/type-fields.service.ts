@@ -7,7 +7,7 @@ import {
   type FieldType,
 } from "@aktenraum/core";
 import { Inject, Injectable } from "@nestjs/common";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 import { DB, type Database } from "../db/db.module.js";
 import { documentTypeFields } from "../db/schema.js";
@@ -94,6 +94,24 @@ export class TypeFieldsService {
       documentType: row.documentType,
       fields: (row.fields ?? {}) as Record<string, string>,
     };
+  }
+
+  /** One query for several documents (Ask loads up to 15 candidates at once). */
+  async getMany(docIds: readonly number[]): Promise<Map<number, DocumentTypeFieldsRow>> {
+    const out = new Map<number, DocumentTypeFieldsRow>();
+    if (docIds.length === 0) return out;
+    const rows = await this.db
+      .select()
+      .from(documentTypeFields)
+      .where(inArray(documentTypeFields.paperlessDocId, [...docIds]));
+    for (const row of rows) {
+      out.set(row.paperlessDocId, {
+        paperlessDocId: row.paperlessDocId,
+        documentType: row.documentType,
+        fields: (row.fields ?? {}) as Record<string, string>,
+      });
+    }
+    return out;
   }
 
   async inferDocumentType(docId: number): Promise<string | null> {

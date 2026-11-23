@@ -23,6 +23,10 @@ const DEFAULT_COMPLETE_TIMEOUT_MS = 300_000;
 export interface OllamaBackendOptions {
   completeTimeoutMs?: number;
   numCtx?: number;
+  /** Ollama `keep_alive`: how long the model stays loaded after a request (`-1` = forever, `"30m"`). */
+  keepAlive?: string | number;
+  /** Test seam: replaces the global `fetch` for both clients. */
+  fetchFn?: typeof fetch;
 }
 
 export function fetchWithTimeout(timeoutMs: number, fetchFn: typeof fetch = fetch): typeof fetch {
@@ -38,15 +42,23 @@ export class OllamaBackend implements LLMBackend {
   private readonly completeClient: Ollama;
   private readonly modelName: string;
   private readonly numCtx: number | undefined;
+  private readonly keepAlive: string | number | undefined;
 
   constructor(baseUrl: string, model = "llama3.1:8b", options: OllamaBackendOptions = {}) {
-    this.client = new Ollama({ host: baseUrl });
+    this.client = new Ollama({
+      host: baseUrl,
+      ...(options.fetchFn !== undefined ? { fetch: options.fetchFn } : {}),
+    });
     this.completeClient = new Ollama({
       host: baseUrl,
-      fetch: fetchWithTimeout(options.completeTimeoutMs ?? DEFAULT_COMPLETE_TIMEOUT_MS),
+      fetch: fetchWithTimeout(
+        options.completeTimeoutMs ?? DEFAULT_COMPLETE_TIMEOUT_MS,
+        options.fetchFn,
+      ),
     });
     this.modelName = model;
     this.numCtx = options.numCtx;
+    this.keepAlive = options.keepAlive;
   }
 
   get name(): string {
@@ -82,6 +94,7 @@ export class OllamaBackend implements LLMBackend {
           ...(this.numCtx !== undefined ? { num_ctx: this.numCtx } : {}),
         },
         stream: false,
+        ...(this.keepAlive !== undefined ? { keep_alive: this.keepAlive } : {}),
       });
 
       const raw = cleanJson(response.message.content);
@@ -143,6 +156,8 @@ export class OllamaBackend implements LLMBackend {
       model: this.modelName,
       messages,
       stream: true,
+      ...(this.numCtx !== undefined ? { options: { num_ctx: this.numCtx } } : {}),
+      ...(this.keepAlive !== undefined ? { keep_alive: this.keepAlive } : {}),
     });
     for await (const chunk of stream) {
       const content = chunk.message?.content ?? "";

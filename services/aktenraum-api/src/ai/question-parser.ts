@@ -15,6 +15,8 @@ export interface ParsedQuestion {
   correspondents: string[];
   /** The question without German stop words, for Paperless full-text search. */
   text: string;
+  /** "letzte" / "neueste" / "aktuelle": the newest matching document is what is asked for. */
+  newest: boolean;
 }
 
 export const MAX_CORRESPONDENTS = 3;
@@ -161,6 +163,19 @@ function parseDates(question: string, now: Date): { from: string | null; to: str
   return { from, to };
 }
 
+/** Inflections the plain type-name substring misses (umlaut plurals, verb forms). */
+const TYPE_ALIASES: ReadonlyArray<readonly [DocumentType, readonly string[]]> = [
+  ["Vertrag", ["verträge", "vertraege"]],
+  ["Kündigung", ["kündig", "kuendig"]],
+];
+
+/** "letzte Gehaltsabrechnung", "neuester Arztbrief" — but not "letztes Jahr", which is a date. */
+function asksForNewest(question: string): boolean {
+  return /\b(?:letzte[nrsm]?|neueste[nrsm]?|aktuelle[nrsm]?|jüngste[nrsm]?)\b(?!\s+jahr)/u.test(
+    question.toLowerCase(),
+  );
+}
+
 function parseTypes(question: string): DocumentType[] {
   const lowered = question.toLowerCase();
   const out: DocumentType[] = [];
@@ -175,6 +190,20 @@ function parseTypes(question: string): DocumentType[] {
     if (type === "Sonstiges") continue;
     // Substring: "Rechnungen" contains "rechnung".
     if (lowered.includes(type.toLowerCase())) add(type);
+  }
+  for (const [type, aliases] of TYPE_ALIASES) {
+    if (aliases.some((alias) => lowered.includes(alias))) add(type);
+  }
+  // A Steuerbescheid is a Bescheid (Finanzamt-issued), not a Steuer filing (CLAUDE.md taxonomy).
+  const withoutBescheid = lowered.replace(/steuerbescheid\p{L}*/gu, " ");
+  if (lowered !== withoutBescheid) {
+    return out.filter(
+      (type) =>
+        !(
+          (type === "Steuer" && !withoutBescheid.includes("steuer")) ||
+          (type === "Lohnsteuerbescheinigung" && !withoutBescheid.includes("lohnsteuer"))
+        ),
+    );
   }
   return out;
 }
@@ -233,6 +262,7 @@ export function parseQuestion(
     docTypes: parseTypes(question),
     correspondents: parseCorrespondents(question, options.correspondents),
     text: stripStopWords(question),
+    newest: asksForNewest(question),
   };
 }
 

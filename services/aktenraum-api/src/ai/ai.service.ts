@@ -133,6 +133,8 @@ export function userTagVocabulary(nameToId: Record<string, number>): string[] {
 
 /** Number of reranked chunks whose documents take the first prompt slots. */
 const SEMANTIC_SLOTS = 5;
+/** Newest structured hits placed first when the question asks for "the latest …". */
+const NEWEST_SLOTS = 3;
 /** Paperless full-text hits added after the semantic and structured candidates. */
 const FULL_TEXT_PAGE_SIZE = 10;
 /** Words of the stop-word-stripped question sent to Paperless full-text search. */
@@ -143,6 +145,8 @@ export function mergeCandidateIds(input: {
   semantic: readonly number[];
   structured: readonly number[];
   fullText: readonly number[];
+  /** "letzte …" questions: the newest structured hits come before the semantic ones. */
+  newestFirst?: boolean;
   limit?: number;
 }): number[] {
   const limit = input.limit ?? ANSWER_CONTEXT_SIZE;
@@ -158,6 +162,7 @@ export function mergeCandidateIds(input: {
       added++;
     }
   };
+  if (input.newestFirst === true) add(input.structured, NEWEST_SLOTS);
   add(input.semantic, SEMANTIC_SLOTS);
   add(input.structured, limit);
   add(input.fullText, limit);
@@ -440,6 +445,7 @@ export class AiService {
       chunks: readonly RetrievedChunk[];
       structured: readonly PaperlessDocument[];
       fullText: readonly PaperlessDocument[];
+      newestFirst?: boolean;
     },
   ): Promise<LoadedCandidates> {
     const gateway = await this.gateway(principal);
@@ -450,6 +456,7 @@ export class AiService {
       semantic: rankedUniqueDocIds([...input.chunks]),
       structured: input.structured.map((doc) => doc.id),
       fullText: input.fullText.map((doc) => doc.id),
+      newestFirst: input.newestFirst,
     });
     const missing = ids.filter((id) => !rows.has(id));
     if (missing.length > 0) {

@@ -168,6 +168,7 @@ export class AiController {
       chunks,
       structured: structured?.docs ?? [],
       fullText,
+      newestFirst: parsed.newest,
     });
     timing.mark("enrich_ms");
     timing.candidates = loaded.summaries.length;

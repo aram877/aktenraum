@@ -131,3 +131,30 @@ describe("explainParsed", () => {
     expect(explainParsed(parse("Wie lange war ich bei der Firma?"))).toBe("Suche in Inhalt und Volltext.");
   });
 });
+
+describe("parseQuestion regressions (fast-ask live comparison)", () => {
+  it("reads umlaut plurals and verb forms of Vertrag / Kündigung", () => {
+    expect(parse("Welche Verträge habe ich gekündigt?").docTypes).toEqual(
+      expect.arrayContaining(["Vertrag", "Kündigung"]),
+    );
+  });
+
+  it("treats a Steuerbescheid as a Bescheid, not a Steuer filing", () => {
+    const types = parse("Welche Steuerbescheide habe ich bekommen?").docTypes;
+    expect(types).toContain("Bescheid");
+    expect(types).not.toContain("Steuer");
+    expect(types).not.toContain("Lohnsteuerbescheinigung");
+  });
+
+  it("keeps Steuer when the question also names it on its own", () => {
+    expect(parse("Steuerbescheid und Steuererklärung").docTypes).toContain("Steuer");
+  });
+
+  it("flags questions about the newest document, but not 'letztes Jahr'", () => {
+    expect(parse("Wann war mein letzter Arztbrief?").newest).toBe(true);
+    expect(parse("Was war meine letzte Gehaltsabrechnung?").newest).toBe(true);
+    expect(parse("Meine aktuelle Miete").newest).toBe(true);
+    expect(parse("Rechnungen letztes Jahr").newest).toBe(false);
+    expect(parse("Wie viel Strom 2025?").newest).toBe(false);
+  });
+});

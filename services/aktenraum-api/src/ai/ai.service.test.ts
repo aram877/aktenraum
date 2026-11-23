@@ -124,6 +124,22 @@ describe("mergeCandidateIds", () => {
     expect(ids).toEqual([1, 2, 3, 4, 5, 20, 21, 30]);
   });
 
+  it("puts the newest structured hits first for 'letzte …' questions", () => {
+    const ids = mergeCandidateIds({
+      semantic: [1, 2, 3, 4, 5, 6],
+      structured: [20, 21, 22, 23],
+      fullText: [30],
+      newestFirst: true,
+    });
+    expect(ids).toEqual([20, 21, 22, 1, 2, 3, 4, 5, 23, 30]);
+  });
+
+  it("is unchanged by newestFirst when the structured path found nothing", () => {
+    expect(mergeCandidateIds({ semantic: [1, 2], structured: [], fullText: [3], newestFirst: true })).toEqual([
+      1, 2, 3,
+    ]);
+  });
+
   it("de-duplicates across paths, keeping the earliest slot", () => {
     expect(
       mergeCandidateIds({ semantic: [1, 2], structured: [2, 3], fullText: [3, 1, 4] }),

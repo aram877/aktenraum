@@ -38,7 +38,7 @@
 
 - [x] 7.1 `pnpm -r lint`, `pnpm -r build`, `pnpm -r test`, api + web typecheck all green. Update the test counts in CLAUDE.md.
 - [ ] 7.2 `task build`, then repeat the baseline questions from 1.1 against the live stack. Record the after-numbers next to the baseline in `baseline.md` and compare answer quality question by question. Verify: sources arrive in < 1 s warm, first token clearly faster than baseline, no quality regression the maintainer objects to.
-- [ ] 7.3 Run the share and removal rehearsals on the e2e stack (`share-rehearsal.mjs`, `removal-rehearsal.mjs`) since they read the stream. Verify: both pass.
+- [x] 7.3 Run the share and removal rehearsals on the e2e stack (`share-rehearsal.mjs`, `removal-rehearsal.mjs`) since they read the stream. Verify: both pass.
 - [x] 7.4 Update CLAUDE.md (Ask / streaming-answer section, retrieval order, removed `/answer`, new env vars, Known-gotcha row on `num_ctx` mismatch reloads), `docs/architecture.md` RAG section and `docs/workflow.md` if it describes Ask. Write the session note `docs/sessions/2026-11-23.md`. Verify: docs mention no filter LLM in the Ask path.
 
 ## Workflow follow-up
